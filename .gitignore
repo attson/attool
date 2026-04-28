@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+src-tauri/target/
+
+# Tauri generated files
+src-tauri/gen/
+
+# env / editor
+.DS_Store
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/

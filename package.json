@@ -1,0 +1,27 @@
+{
+  "name": "attool",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "./node_modules/.bin/vite --host 127.0.0.1",
+    "build": "./node_modules/.bin/tsc && ./node_modules/.bin/vite build",
+    "preview": "./node_modules/.bin/vite preview",
+    "tauri": "./node_modules/.bin/tauri",
+    "tauri:dev": "./node_modules/.bin/tauri dev",
+    "tauri:build": "./node_modules/.bin/tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "naive-ui": "^2.44.1",
+    "vue": "^3.5.33"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.1",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "esbuild": "^0.28.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.10"
+  }
+}

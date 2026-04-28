@@ -1,0 +1,190 @@
+:root {
+  font-family: "Avenir Next", "Gill Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  color: #17211b;
+  background: #f3ead8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #17211b;
+  --muted: #667064;
+  --paper: rgba(255, 250, 238, 0.82);
+  --line: rgba(23, 33, 27, 0.12);
+  --moss: #56715d;
+  --moss-dark: #263c2d;
+  --ember: #d86d3d;
+  --gold: #d6a84f;
+  --shadow: 0 24px 70px rgba(44, 50, 34, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(216, 109, 61, 0.22), transparent 28rem),
+    radial-gradient(circle at 92% 18%, rgba(86, 113, 93, 0.2), transparent 34rem),
+    linear-gradient(135deg, #f3ead8 0%, #e6dcc6 52%, #d7c9ad 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 22px;
+}
+
+.surface-card {
+  min-height: calc(100vh - 44px);
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(255, 250, 238, 0.9), rgba(238, 228, 207, 0.76)),
+    radial-gradient(circle at 76% 8%, rgba(214, 168, 79, 0.2), transparent 22rem);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px);
+}
+
+.home-surface .n-card__content,
+.tool-surface .n-card__content {
+  padding: 22px;
+}
+
+.home-brand {
+  margin-bottom: 18px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--ink);
+  color: #f8ebd4;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.brand-name {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.tool-grid {
+  max-width: 1180px;
+}
+
+.tool-card {
+  min-height: 142px;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  background: rgba(255, 250, 238, 0.78);
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.tool-card:hover:not(.disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(86, 113, 93, 0.34);
+  box-shadow: 0 16px 34px rgba(44, 50, 34, 0.12);
+}
+
+.tool-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.tool-card .n-card-header {
+  padding-bottom: 4px;
+}
+
+.tool-card .n-card__content {
+  min-height: 38px;
+}
+
+.tool-card .n-card__footer {
+  padding-top: 6px;
+}
+
+.tool-surface {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.panel-card,
+.task-card {
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  background: var(--paper);
+}
+
+.queue-card .n-card__content {
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 14px;
+}
+
+.notice-alert {
+  margin-bottom: 14px;
+}
+
+.empty-state {
+  min-height: 300px;
+  justify-content: center;
+  border: 1px dashed rgba(23, 33, 27, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 250, 238, 0.46);
+}
+
+.task-card {
+  box-shadow: 0 10px 28px rgba(44, 50, 34, 0.08);
+}
+
+.task-title {
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.task-url {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.task-meta {
+  font-size: 0.82rem;
+}
+
+.task-message {
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .surface-card {
+    min-height: calc(100vh - 24px);
+  }
+
+  .home-surface .n-card__content,
+  .tool-surface .n-card__content {
+    padding: 14px;
+  }
+
+  .tool-card {
+    min-height: 132px;
+  }
+}
