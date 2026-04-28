@@ -11,6 +11,7 @@ export type DownloadEventPayload = {
 
 export type DownloadTask = DownloadEventPayload & {
   url: string;
+  downloadDir: string;
   fileName?: string;
   createdAt: string;
 };

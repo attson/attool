@@ -129,6 +129,14 @@ onMounted(() => {
       downloadDir.value = '';
     });
 
+  invoke<DownloadTask[]>('list_download_tasks')
+    .then((records) => {
+      tasks.value = records;
+    })
+    .catch((error) => {
+      notice.value = String(error);
+    });
+
   unlistenProgress = listen<DownloadEventPayload>('download-progress', (event) => {
     const payload = event.payload;
     tasks.value = tasks.value.map((task) =>
@@ -226,6 +234,7 @@ async function startDownload() {
       createdTasks.push({
         id: response.id,
         url: request.url,
+        downloadDir: request.downloadDir,
         fileName: request.fileName,
         status: 'queued',
         progress: 0,
@@ -250,6 +259,15 @@ async function cancelTask(id: string) {
   notice.value = '';
   try {
     await invoke('cancel_download', { id });
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+
+async function openTaskFolder(id: string) {
+  notice.value = '';
+  try {
+    await invoke('open_download_folder', { id });
   } catch (error) {
     notice.value = String(error);
   }
@@ -390,8 +408,14 @@ async function cancelTask(id: string) {
                   </template>
 
                   <n-empty v-if="tasks.length === 0" class="empty-state" description="还没有下载任务" />
-                  <n-space v-else vertical :size="12">
-                    <TaskCard v-for="task in tasks" :key="task.id" :task="task" @cancel="cancelTask" />
+                  <n-space v-else vertical :size="6">
+                    <TaskCard
+                      v-for="task in tasks"
+                      :key="task.id"
+                      :task="task"
+                      @cancel="cancelTask"
+                      @open-folder="openTaskFolder"
+                    />
                   </n-space>
                 </n-card>
               </n-grid-item>

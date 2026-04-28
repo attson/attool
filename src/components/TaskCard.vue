@@ -34,15 +34,17 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: [id: string];
+  openFolder: [id: string];
 }>();
 
 const cancellable = computed(() => props.task.status === 'queued' || props.task.status === 'running');
+const openable = computed(() => props.task.status === 'completed');
 const progressValue = computed(() => Math.round(Math.min(Math.max(props.task.progress, 0), 100)));
 </script>
 
 <template>
   <n-card class="task-card" size="small" :bordered="false">
-    <n-space vertical :size="10">
+    <n-space vertical :size="6">
       <n-flex justify="space-between" align="center" :wrap="false">
         <n-text depth="3">{{ task.createdAt }}</n-text>
         <n-tag round size="small" :type="statusType[task.status]">
@@ -78,9 +80,14 @@ const progressValue = computed(() => Math.round(Math.min(Math.max(props.task.pro
         {{ task.message }}
       </n-text>
 
-      <n-button v-if="cancellable" size="small" tertiary type="warning" @click="emit('cancel', task.id)">
-        取消任务
-      </n-button>
+      <n-flex v-if="cancellable || openable" :size="8">
+        <n-button v-if="cancellable" size="small" tertiary type="warning" @click="emit('cancel', task.id)">
+          取消任务
+        </n-button>
+        <n-button v-if="openable" size="small" secondary type="primary" @click="emit('openFolder', task.id)">
+          打开文件夹
+        </n-button>
+      </n-flex>
     </n-space>
   </n-card>
 </template>
