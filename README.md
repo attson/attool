@@ -39,3 +39,33 @@ npm run dev
 ```bash
 npm run tauri:build
 ```
+
+### 电商 PSD 模板导入
+
+PSD 导入首版通过本机 Python 解析 PSD 图层结构，需要安装 psd-tools：
+
+```bash
+python3 -m pip install --user psd-tools
+```
+
+PSD 图层名可用 `{{field_name}}` 标记批量替换字段，例如 `{{product_image}} 商品图`、`{{title}} 大标题`、`{{bottom_title}} 底部文案`。
+
+## 电商主图模板工具
+
+首版支持从分层 PSD 导入主图模板草稿，编辑图层字段，并用表格或图片文件夹批量导出 PNG。
+
+推荐 PSD 图层命名：
+
+- `{{product_image}} 商品图`
+- `{{logo}} LOGO`
+- `{{title}} 大标题`
+- `{{subtitle}} 副标题`
+- `{{selling_point_1}} 卖点 1`
+- `{{bottom_title}} 底部文案`
+
+批量表格要求：
+
+- 第一行是字段名。
+- 图片字段填写本地图片路径。
+- 每一行导出一张 PNG。
+- 缺失字段使用模板默认值。

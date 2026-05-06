@@ -27,6 +27,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import TaskCard from './components/TaskCard.vue';
+import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
 
 type ToolEntry = {
@@ -69,6 +70,13 @@ const tools: ToolEntry[] = [
     description: '剪贴板历史、清洗与批量转换',
     badge: 'Soon',
     active: false
+  },
+  {
+    id: 'template',
+    name: '主图模板',
+    description: 'PSD 导入、字段替换、批量生成主图',
+    badge: 'New',
+    active: true
   },
   {
     id: 'image',
@@ -709,6 +717,10 @@ async function addLogoBatch() {
                   </n-card>
                 </n-grid-item>
               </n-grid>
+            </template>
+
+            <template v-else-if="selectedTool.id === 'template'">
+              <TemplateTool />
             </template>
 
             <template v-else-if="selectedTool.id === 'image'">

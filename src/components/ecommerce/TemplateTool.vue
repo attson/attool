@@ -4,10 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NGrid, NGridItem, NPageHeader, NSpace, NTag } from 'naive-ui';
 import type { TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
-import { flattenLayers } from '../../utils/ecommerceTemplate';
+import { collectBindingKeys, flattenLayers } from '../../utils/ecommerceTemplate';
 import LayerProperties from './LayerProperties.vue';
 import LayerTree from './LayerTree.vue';
 import TemplateCanvas from './TemplateCanvas.vue';
+import BatchPanel from './BatchPanel.vue';
 import { createEmptyTemplateProject } from './templateDefaults';
 
 const templates = ref<TemplateSummary[]>([]);
@@ -18,6 +19,7 @@ const importing = ref(false);
 const saving = ref(false);
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
+const requiredFields = computed(() => collectBindingKeys(project.value.layers));
 
 onMounted(loadTemplateList);
 
@@ -88,12 +90,12 @@ function updateLayer(updated: TemplateLayer) {
     <n-grid responsive="screen" cols="1 l:5" :x-gap="12" :y-gap="12">
       <n-grid-item span="1">
         <n-card title="图层" size="small" :bordered="false" class="panel-card template-editor-panel">
-          <LayerTree :layers="project.layers" :selected-layer-id="selectedLayerId" @select="selectLayer" />
+          <LayerTree :layers="project.layers" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
         </n-card>
       </n-grid-item>
       <n-grid-item span="1 l:3">
         <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
-          <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" />
+          <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
         </n-card>
       </n-grid-item>
       <n-grid-item span="1">
@@ -102,5 +104,9 @@ function updateLayer(updated: TemplateLayer) {
         </n-card>
       </n-grid-item>
     </n-grid>
+
+    <n-card title="批量生成" size="small" :bordered="false" class="panel-card">
+      <BatchPanel :template-id="project.id" :required-fields="requiredFields" />
+    </n-card>
   </n-space>
 </template>

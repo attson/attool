@@ -13,12 +13,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+imageproc = "0.26"
+fontdb = "0.23"
+ab_glyph = "0.2"
+calamine = "0.34"
+chrono = { version = "0.4", features = ["serde"] }
+csv = "1"
 dirs = "6"
 image = "0.25"
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tokio = { version = "1", features = ["io-util", "macros", "process", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }

@@ -1,3 +1,6 @@
+pub mod ecommerce;
+
+use ecommerce::EcommerceStore;
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -1073,6 +1076,14 @@ pub fn run() {
             let state = create_download_state(app.handle())
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(state);
+            let ecommerce_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("ecommerce");
+            let ecommerce_store = EcommerceStore::new(ecommerce_dir)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(ecommerce_store);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1083,7 +1094,14 @@ pub fn run() {
             open_download_folder,
             batch_add_logo,
             list_logo_presets,
-            save_logo_preset
+            save_logo_preset,
+            ecommerce::commands::import_psd_template,
+            ecommerce::commands::list_ecommerce_templates,
+            ecommerce::commands::load_ecommerce_template,
+            ecommerce::commands::save_ecommerce_template,
+            ecommerce::commands::import_batch_table,
+            ecommerce::commands::create_batch_from_folder,
+            ecommerce::commands::export_ecommerce_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");

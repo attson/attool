@@ -9,7 +9,8 @@
     "preview": "./node_modules/.bin/vite preview",
     "tauri": "./node_modules/.bin/tauri",
     "tauri:dev": "./node_modules/.bin/tauri dev",
-    "tauri:build": "./node_modules/.bin/tauri build"
+    "tauri:build": "./node_modules/.bin/tauri build",
+    "test": "./node_modules/.bin/vitest run"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",
@@ -22,6 +23,7 @@
     "@vitejs/plugin-vue": "^6.0.6",
     "esbuild": "^0.28.0",
     "typescript": "6.0.3",
-    "vite": "8.0.10"
+    "vite": "8.0.10",
+    "vitest": "^4.1.5"
   }
 }
