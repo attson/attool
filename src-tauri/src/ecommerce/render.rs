@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use ab_glyph::{FontArc, PxScale};
 use image::{imageops, DynamicImage, Rgba, RgbaImage};
+use imageproc::drawing::draw_text_mut;
 
 use super::{models::*, storage::EcommerceStore};
 
@@ -33,7 +35,7 @@ fn render_row(template: &TemplateProject, row: &BatchRow, output_dir: &Path) -> 
         match &layer.r#type {
             TemplateLayerType::Image => draw_image_layer(&mut canvas, template, layer, row)?,
             TemplateLayerType::Shape => draw_shape_layer(&mut canvas, layer),
-            TemplateLayerType::Text => draw_text_layer_noop(&mut canvas, layer),
+            TemplateLayerType::Text => draw_text_layer(&mut canvas, layer, row),
             TemplateLayerType::Group => {}
         }
     }
@@ -71,8 +73,56 @@ fn draw_shape_layer(canvas: &mut RgbaImage, layer: &TemplateLayer) {
     }
 }
 
-fn draw_text_layer_noop(_canvas: &mut RgbaImage, _layer: &TemplateLayer) {
-    // The next task replaces this no-op with system font rendering.
+fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow) {
+    let Some(text_data) = &layer.text else {
+        return;
+    };
+    let Some(font) = load_font(&text_data.font_family).or_else(|| load_font("PingFang SC")).or_else(default_font) else {
+        return;
+    };
+    let text = layer
+        .binding_key
+        .as_ref()
+        .and_then(|key| row.values.get(key))
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| text_data.text.clone());
+    let color = parse_hex(&text_data.color);
+    draw_text_mut(
+        canvas,
+        color,
+        layer.x.round() as i32,
+        layer.y.round() as i32,
+        PxScale::from(text_data.font_size.max(1.0)),
+        &font,
+        &text,
+    );
+}
+
+fn load_font(preferred_family: &str) -> Option<FontArc> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    let query = fontdb::Query {
+        families: &[fontdb::Family::Name(preferred_family)],
+        ..fontdb::Query::default()
+    };
+    let id = db.query(&query)?;
+    let face = db.face(id)?;
+    let bytes = match &face.source {
+        fontdb::Source::File(path) => std::fs::read(path).ok()?,
+        fontdb::Source::Binary(data) => data.as_ref().as_ref().to_vec(),
+        fontdb::Source::SharedFile(path, _) => std::fs::read(path).ok()?,
+    };
+    FontArc::try_from_vec(bytes).ok()
+}
+
+fn default_font() -> Option<FontArc> {
+    for family in ["PingFang SC", "Heiti SC", "Arial Unicode MS", "Noto Sans CJK SC", "Microsoft YaHei"] {
+        if let Some(font) = load_font(family) {
+            return Some(font);
+        }
+    }
+    None
 }
 
 fn flatten_layers(layers: &[TemplateLayer]) -> Vec<&TemplateLayer> {
