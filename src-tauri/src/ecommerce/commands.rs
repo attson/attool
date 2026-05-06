@@ -4,7 +4,8 @@ use tauri::{AppHandle, Manager, State};
 
 use super::{
     batch::{batch_from_folder, read_batch_table},
-    models::{BatchDataPreview, TemplateProject, TemplateSummary},
+    render::export_images,
+    models::{BatchDataPreview, ExportRequest, ExportResult, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
@@ -64,4 +65,13 @@ pub async fn create_batch_from_folder(
     image_binding_key: String,
 ) -> Result<BatchDataPreview, String> {
     batch_from_folder(PathBuf::from(folder_path).as_path(), &image_binding_key)
+}
+
+
+#[tauri::command]
+pub async fn export_ecommerce_images(
+    request: ExportRequest,
+    store: State<'_, EcommerceStore>,
+) -> Result<ExportResult, String> {
+    export_images(&store, request)
 }

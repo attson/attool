@@ -1100,7 +1100,8 @@ pub fn run() {
             ecommerce::commands::load_ecommerce_template,
             ecommerce::commands::save_ecommerce_template,
             ecommerce::commands::import_batch_table,
-            ecommerce::commands::create_batch_from_folder
+            ecommerce::commands::create_batch_from_folder,
+            ecommerce::commands::export_ecommerce_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
