@@ -1,3 +1,4 @@
+pub mod ecommerce;
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
