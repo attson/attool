@@ -4,10 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NGrid, NGridItem, NPageHeader, NSpace, NTag } from 'naive-ui';
 import type { TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
-import { flattenLayers } from '../../utils/ecommerceTemplate';
+import { collectBindingKeys, flattenLayers } from '../../utils/ecommerceTemplate';
 import LayerProperties from './LayerProperties.vue';
 import LayerTree from './LayerTree.vue';
 import TemplateCanvas from './TemplateCanvas.vue';
+import BatchPanel from './BatchPanel.vue';
 import { createEmptyTemplateProject } from './templateDefaults';
 
 const templates = ref<TemplateSummary[]>([]);
@@ -18,6 +19,7 @@ const importing = ref(false);
 const saving = ref(false);
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
+const requiredFields = computed(() => collectBindingKeys(project.value.layers));
 
 onMounted(loadTemplateList);
 
@@ -102,5 +104,9 @@ function updateLayer(updated: TemplateLayer) {
         </n-card>
       </n-grid-item>
     </n-grid>
+
+    <n-card title="批量生成" size="small" :bordered="false" class="panel-card">
+      <BatchPanel :template-id="project.id" :required-fields="requiredFields" />
+    </n-card>
   </n-space>
 </template>

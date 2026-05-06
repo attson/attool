@@ -439,3 +439,8 @@ textarea {
   box-shadow: 0 2px 8px rgba(23, 33, 27, 0.28);
   cursor: nwse-resize;
 }
+
+.template-output-dir {
+  color: var(--muted);
+  word-break: break-all;
+}
