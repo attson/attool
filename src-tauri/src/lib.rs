@@ -49,6 +49,69 @@ struct StartDownloadRequest {
     min_split_size: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchLogoRequest {
+    image_paths: Vec<String>,
+    logo_path: String,
+    output_dir: String,
+    position: LogoPosition,
+    margin: Option<u32>,
+    logo_width_percent: Option<f32>,
+    logo_x_percent: Option<f32>,
+    logo_y_percent: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveLogoPresetRequest {
+    name: String,
+    logo_path: String,
+    output_dir: String,
+    logo_x_percent: f32,
+    logo_y_percent: f32,
+    logo_width_percent: f32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogoPresetRecord {
+    id: i64,
+    name: String,
+    logo_path: String,
+    output_dir: String,
+    logo_x_percent: f32,
+    logo_y_percent: f32,
+    logo_width_percent: f32,
+    updated_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum LogoPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Center,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchLogoResult {
+    total: usize,
+    succeeded: usize,
+    outputs: Vec<String>,
+    failed: Vec<ImageProcessFailure>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageProcessFailure {
+    path: String,
+    message: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DownloadStarted {
@@ -321,6 +384,34 @@ async fn open_download_folder(id: String, state: State<'_, DownloadTasks>) -> Re
     open_folder(&folder)
 }
 
+#[tauri::command]
+async fn batch_add_logo(request: BatchLogoRequest) -> Result<BatchLogoResult, String> {
+    tauri::async_runtime::spawn_blocking(move || process_batch_add_logo(request))
+        .await
+        .map_err(|error| format!("处理图片失败：{error}"))?
+}
+
+#[tauri::command]
+async fn list_logo_presets(
+    state: State<'_, DownloadTasks>,
+) -> Result<Vec<LogoPresetRecord>, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || load_logo_presets(&db_path))
+        .await
+        .map_err(|error| format!("读取方案失败：{error}"))?
+}
+
+#[tauri::command]
+async fn save_logo_preset(
+    request: SaveLogoPresetRequest,
+    state: State<'_, DownloadTasks>,
+) -> Result<LogoPresetRecord, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || save_logo_preset_record(&db_path, request))
+        .await
+        .map_err(|error| format!("保存方案失败：{error}"))?
+}
+
 async fn read_aria2_stdout<R>(stream: R, app: AppHandle, id: String)
 where
     R: AsyncRead + Unpin,
@@ -468,6 +559,18 @@ fn init_database(db_path: &Path) -> Result<(), String> {
 
             CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at
                 ON download_tasks(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS logo_presets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                logo_path TEXT NOT NULL,
+                output_dir TEXT NOT NULL,
+                logo_x_percent REAL NOT NULL,
+                logo_y_percent REAL NOT NULL,
+                logo_width_percent REAL NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
             "#,
         )
         .map_err(|error| format!("初始化任务数据库失败：{error}"))?;
@@ -623,6 +726,303 @@ fn open_folder(folder: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn load_logo_presets(db_path: &Path) -> Result<Vec<LogoPresetRecord>, String> {
+    let connection =
+        Connection::open(db_path).map_err(|error| format!("打开任务数据库失败：{error}"))?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id, name, logo_path, output_dir, logo_x_percent, logo_y_percent, logo_width_percent, updated_at
+            FROM logo_presets
+            ORDER BY datetime(updated_at) DESC, id DESC
+            "#,
+        )
+        .map_err(|error| format!("读取方案失败：{error}"))?;
+
+    let rows = statement
+        .query_map([], |row| {
+            let width: f32 = row.get(6)?;
+            Ok(LogoPresetRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                logo_path: row.get(2)?,
+                output_dir: row.get(3)?,
+                logo_x_percent: row.get(4)?,
+                logo_y_percent: row.get(5)?,
+                logo_width_percent: width.clamp(1.0, 100.0),
+                updated_at: row.get(7)?,
+            })
+        })
+        .map_err(|error| format!("读取方案失败：{error}"))?;
+
+    let mut presets = Vec::new();
+    for row in rows {
+        presets.push(row.map_err(|error| format!("读取方案失败：{error}"))?);
+    }
+    Ok(presets)
+}
+
+fn save_logo_preset_record(
+    db_path: &Path,
+    request: SaveLogoPresetRequest,
+) -> Result<LogoPresetRecord, String> {
+    let name = request.name.trim();
+    if name.is_empty() {
+        return Err("请输入方案名称".to_string());
+    }
+    if request.logo_path.trim().is_empty() || request.output_dir.trim().is_empty() {
+        return Err("请选择 Logo 和输出目录".to_string());
+    }
+
+    let connection =
+        Connection::open(db_path).map_err(|error| format!("打开任务数据库失败：{error}"))?;
+    connection
+        .execute(
+            r#"
+            INSERT INTO logo_presets (
+                name, logo_path, output_dir, logo_x_percent, logo_y_percent, logo_width_percent
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(name) DO UPDATE SET
+                logo_path = excluded.logo_path,
+                output_dir = excluded.output_dir,
+                logo_x_percent = excluded.logo_x_percent,
+                logo_y_percent = excluded.logo_y_percent,
+                logo_width_percent = excluded.logo_width_percent,
+                updated_at = datetime('now', 'localtime')
+            "#,
+            params![
+                name,
+                request.logo_path.trim(),
+                request.output_dir.trim(),
+                request.logo_x_percent.clamp(0.0, 100.0),
+                request.logo_y_percent.clamp(0.0, 100.0),
+                request.logo_width_percent.clamp(1.0, 100.0)
+            ],
+        )
+        .map_err(|error| format!("保存方案失败：{error}"))?;
+
+    connection
+        .query_row(
+            r#"
+            SELECT id, name, logo_path, output_dir, logo_x_percent, logo_y_percent, logo_width_percent, updated_at
+            FROM logo_presets
+            WHERE name = ?1
+            "#,
+            params![name],
+            |row| {
+                let width: f32 = row.get(6)?;
+                Ok(LogoPresetRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    logo_path: row.get(2)?,
+                    output_dir: row.get(3)?,
+                    logo_x_percent: row.get(4)?,
+                    logo_y_percent: row.get(5)?,
+                    logo_width_percent: width.clamp(1.0, 100.0),
+                    updated_at: row.get(7)?,
+                })
+            },
+        )
+        .map_err(|error| format!("读取方案失败：{error}"))
+}
+
+fn process_batch_add_logo(request: BatchLogoRequest) -> Result<BatchLogoResult, String> {
+    if request.image_paths.is_empty() {
+        return Err("请选择要处理的图片".to_string());
+    }
+
+    let logo_path = PathBuf::from(request.logo_path.trim());
+    if !logo_path.is_file() {
+        return Err("请选择有效的 Logo 图片".to_string());
+    }
+
+    let output_dir = PathBuf::from(request.output_dir.trim());
+    if output_dir.as_os_str().is_empty() {
+        return Err("请选择输出目录".to_string());
+    }
+    fs::create_dir_all(&output_dir).map_err(|error| format!("创建输出目录失败：{error}"))?;
+
+    let logo = image::open(&logo_path).map_err(|error| format!("读取 Logo 失败：{error}"))?;
+    let margin = request.margin.unwrap_or(24);
+    let logo_width_percent = request.logo_width_percent.unwrap_or(18.0).clamp(1.0, 100.0);
+    let custom_position = match (request.logo_x_percent, request.logo_y_percent) {
+        (Some(x), Some(y)) => Some((x.clamp(0.0, 100.0), y.clamp(0.0, 100.0))),
+        _ => None,
+    };
+
+    let mut outputs = Vec::new();
+    let mut failed = Vec::new();
+
+    for image_path in &request.image_paths {
+        match add_logo_to_image(
+            Path::new(image_path),
+            &logo,
+            &output_dir,
+            request.position,
+            margin,
+            logo_width_percent,
+            custom_position,
+        ) {
+            Ok(output) => outputs.push(path_to_string(output)),
+            Err(error) => failed.push(ImageProcessFailure {
+                path: image_path.clone(),
+                message: error,
+            }),
+        }
+    }
+
+    Ok(BatchLogoResult {
+        total: request.image_paths.len(),
+        succeeded: outputs.len(),
+        outputs,
+        failed,
+    })
+}
+
+fn add_logo_to_image(
+    image_path: &Path,
+    logo: &image::DynamicImage,
+    output_dir: &Path,
+    position: LogoPosition,
+    margin: u32,
+    logo_width_percent: f32,
+    custom_position: Option<(f32, f32)>,
+) -> Result<PathBuf, String> {
+    if !image_path.is_file() {
+        return Err("图片文件不存在".to_string());
+    }
+
+    let base_image = image::open(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
+    let mut base = base_image.to_rgba8();
+    let base_width = base.width();
+    let base_height = base.height();
+    if base_width == 0 || base_height == 0 {
+        return Err("图片尺寸无效".to_string());
+    }
+
+    let target_logo_width =
+        ((base_width as f32 * logo_width_percent / 100.0).round() as u32).max(1);
+    let logo_ratio = logo.height() as f32 / logo.width().max(1) as f32;
+    let target_logo_height = ((target_logo_width as f32 * logo_ratio).round() as u32).max(1);
+    let logo = logo.resize(
+        target_logo_width,
+        target_logo_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let logo = logo.to_rgba8();
+
+    let (x, y) = if let Some((x_percent, y_percent)) = custom_position {
+        custom_logo_coordinates(
+            base_width,
+            base_height,
+            logo.width(),
+            logo.height(),
+            x_percent,
+            y_percent,
+        )
+    } else {
+        logo_coordinates(
+            position,
+            base_width,
+            base_height,
+            logo.width(),
+            logo.height(),
+            margin,
+        )
+    };
+    image::imageops::overlay(&mut base, &logo, x.into(), y.into());
+
+    let output_path = unique_logo_output_path(output_dir, image_path)?;
+    save_processed_image(base, &output_path)?;
+    Ok(output_path)
+}
+
+fn save_processed_image(image: image::RgbaImage, output_path: &Path) -> Result<(), String> {
+    let dynamic = image::DynamicImage::ImageRgba8(image);
+    let extension = output_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+
+    if matches!(extension.as_str(), "jpg" | "jpeg") {
+        dynamic
+            .to_rgb8()
+            .save(output_path)
+            .map_err(|error| format!("保存图片失败：{error}"))
+    } else {
+        dynamic
+            .save(output_path)
+            .map_err(|error| format!("保存图片失败：{error}"))
+    }
+}
+
+fn logo_coordinates(
+    position: LogoPosition,
+    base_width: u32,
+    base_height: u32,
+    logo_width: u32,
+    logo_height: u32,
+    margin: u32,
+) -> (u32, u32) {
+    let max_x = base_width.saturating_sub(logo_width);
+    let max_y = base_height.saturating_sub(logo_height);
+    let margin_x = margin.min(max_x);
+    let margin_y = margin.min(max_y);
+
+    match position {
+        LogoPosition::TopLeft => (margin_x, margin_y),
+        LogoPosition::TopRight => (max_x.saturating_sub(margin_x), margin_y),
+        LogoPosition::BottomLeft => (margin_x, max_y.saturating_sub(margin_y)),
+        LogoPosition::BottomRight => (
+            max_x.saturating_sub(margin_x),
+            max_y.saturating_sub(margin_y),
+        ),
+        LogoPosition::Center => (max_x / 2, max_y / 2),
+    }
+}
+
+fn custom_logo_coordinates(
+    base_width: u32,
+    base_height: u32,
+    logo_width: u32,
+    logo_height: u32,
+    x_percent: f32,
+    y_percent: f32,
+) -> (u32, u32) {
+    let max_x = base_width.saturating_sub(logo_width);
+    let max_y = base_height.saturating_sub(logo_height);
+    let x = ((base_width as f32 * x_percent / 100.0).round() as u32).min(max_x);
+    let y = ((base_height as f32 * y_percent / 100.0).round() as u32).min(max_y);
+    (x, y)
+}
+
+fn unique_logo_output_path(output_dir: &Path, image_path: &Path) -> Result<PathBuf, String> {
+    let stem = image_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "无法读取图片文件名".to_string())?;
+    let extension = image_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("png");
+
+    let mut index = 0;
+    loop {
+        let filename = if index == 0 {
+            format!("{stem}_logo.{extension}")
+        } else {
+            format!("{stem}_logo_{index}.{extension}")
+        };
+        let candidate = output_dir.join(filename);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+        index += 1;
+    }
+}
+
 fn persist_download_event(db_path: &Path, payload: &DownloadEventPayload) {
     let Ok(connection) = Connection::open(db_path) else {
         return;
@@ -680,7 +1080,10 @@ pub fn run() {
             list_download_tasks,
             start_download,
             cancel_download,
-            open_download_folder
+            open_download_folder,
+            batch_add_logo,
+            list_logo_presets,
+            save_logo_preset
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");

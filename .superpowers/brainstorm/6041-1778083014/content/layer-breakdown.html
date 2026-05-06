@@ -1,0 +1,26 @@
+<h2>这张主图的图层拆解</h2>
+<p class="subtitle">按首版工具需要支持的可替换元素来拆：底图、图片素材、文字、图标、形状、边框、组合模板。</p>
+
+<div class="mockup">
+  <div class="mockup-header">800x800 电商主图结构示意</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:20px;align-items:start">
+      <div style="position:relative;aspect-ratio:1/1;background:linear-gradient(135deg,#eef2f4,#fff);border:8px solid #111b36;box-shadow:0 16px 36px rgba(0,0,0,.12);overflow:hidden">
+        <div style="position:absolute;inset:44px 22px 70px 210px;background:#eadfb8;border-radius:42% 42% 16% 16%;box-shadow:0 8px 0 #222"></div>
+        <div style="position:absolute;left:12px;top:10px;right:0;height:40px;color:#fff;background:#111b36;font-weight:800;font-size:21px;padding:5px 12px">Logo + 店铺名</div>
+        <div style="position:absolute;left:24px;top:92px;width:128px;height:116px;background:#fff6dd;border:3px solid #111;color:#e00000;font-weight:900;text-align:center;font-size:46px;line-height:1.05;padding-top:10px">2025<br><span style="font-size:27px">全新升级</span></div>
+        <div style="position:absolute;left:260px;top:45px;color:#e00000;font-weight:900;font-size:25px;line-height:1.65">☑ 小红书达人推荐<br>☑ 小户型折叠小沙发<br>☑ 搬家轻松带走</div>
+        <div style="position:absolute;left:22px;bottom:62px;width:240px;height:180px;background:rgba(20,26,45,.55);border-radius:120px 120px 0 0;color:#fff;font-weight:900;padding:112px 8px 0;font-size:19px">提带设计 单手提拿<br><span style="font-size:27px">户外/家用/店铺/办公</span></div>
+        <div style="position:absolute;right:34px;bottom:88px;width:126px;height:126px;border:7px double #a40000;border-radius:50%;color:#a40000;display:grid;place-items:center;text-align:center;font-weight:900;font-size:21px;transform:rotate(-4deg)">商用级<br><span style="font-size:14px">COMMERCIAL</span><br>★★★</div>
+        <div style="position:absolute;right:0;bottom:54px;background:#030714;color:#fff;border-radius:28px 0 0 28px;font-weight:900;font-size:21px;padding:8px 12px">轻 整装发货 无需安装</div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:#111b36;color:#ffe0c4;font-weight:900;font-size:28px;padding:8px 18px;border-top:4px solid #e4b762">双层600D 抗撕 + 加粗碳钢支架 | 承重 560 斤</div>
+      </div>
+      <div class="options" data-multiselect>
+        <div class="option" data-choice="base-photo" onclick="toggleSelect(this)"><div class="letter">1</div><div class="content"><h3>底图/商品场景图</h3><p>作为背景或商品主图层，可替换为另一张商品照片。</p></div></div>
+        <div class="option" data-choice="text-layers" onclick="toggleSelect(this)"><div class="letter">2</div><div class="content"><h3>多组文字图层</h3><p>标题、卖点、年份升级、底部长标题、白字说明、无需安装等都应可编辑。</p></div></div>
+        <div class="option" data-choice="badges-icons" onclick="toggleSelect(this)"><div class="letter">3</div><div class="content"><h3>图标/角标/印章素材</h3><p>Logo、绿色勾选、商用级印章、放大镜/检测仪等属于可替换图片或内置素材。</p></div></div>
+        <div class="option" data-choice="shapes" onclick="toggleSelect(this)"><div class="letter">4</div><div class="content"><h3>形状与容器</h3><p>底部深色条、白底描边框、圆角胶囊、边框线都需要形状图层支持。</p></div></div>
+      </div>
+    </div>
+  </div>
+</div>
