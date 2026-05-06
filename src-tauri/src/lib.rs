@@ -1098,7 +1098,9 @@ pub fn run() {
             ecommerce::commands::import_psd_template,
             ecommerce::commands::list_ecommerce_templates,
             ecommerce::commands::load_ecommerce_template,
-            ecommerce::commands::save_ecommerce_template
+            ecommerce::commands::save_ecommerce_template,
+            ecommerce::commands::import_batch_table,
+            ecommerce::commands::create_batch_from_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
