@@ -88,12 +88,12 @@ function updateLayer(updated: TemplateLayer) {
     <n-grid responsive="screen" cols="1 l:5" :x-gap="12" :y-gap="12">
       <n-grid-item span="1">
         <n-card title="图层" size="small" :bordered="false" class="panel-card template-editor-panel">
-          <LayerTree :layers="project.layers" :selected-layer-id="selectedLayerId" @select="selectLayer" />
+          <LayerTree :layers="project.layers" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
         </n-card>
       </n-grid-item>
       <n-grid-item span="1 l:3">
         <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
-          <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" />
+          <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
         </n-card>
       </n-grid-item>
       <n-grid-item span="1">
