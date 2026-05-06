@@ -39,3 +39,13 @@ npm run dev
 ```bash
 npm run tauri:build
 ```
+
+### 电商 PSD 模板导入
+
+PSD 导入首版通过本机 Python 解析 PSD 图层结构，需要安装 psd-tools：
+
+```bash
+python3 -m pip install --user psd-tools
+```
+
+PSD 图层名可用 `{{field_name}}` 标记批量替换字段，例如 `{{product_image}} 商品图`、`{{title}} 大标题`、`{{bottom_title}} 底部文案`。
