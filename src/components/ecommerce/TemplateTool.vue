@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { basename } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
-import { NAlert, NButton, NCard, NGrid, NGridItem, NPageHeader, NSpace, NTag } from 'naive-ui';
-import type { TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
-import { collectBindingKeys, flattenLayers } from '../../utils/ecommerceTemplate';
+import { NAlert, NButton, NCard, NPageHeader, NSpace, NTag } from 'naive-ui';
+import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
+import {
+  collectBindingKeys,
+  createImageLayer,
+  createShapeLayer,
+  createTemplateAsset,
+  createTextLayer,
+  flattenLayers,
+  insertLayer,
+  updateLayerById
+} from '../../utils/ecommerceTemplate';
 import LayerProperties from './LayerProperties.vue';
-import LayerTree from './LayerTree.vue';
+import TemplateResourcePanel, { type ResourceTab } from './TemplateResourcePanel.vue';
 import TemplateCanvas from './TemplateCanvas.vue';
 import BatchPanel from './BatchPanel.vue';
 import { createEmptyTemplateProject } from './templateDefaults';
@@ -17,6 +27,7 @@ const selectedLayerId = ref<string | null>(null);
 const notice = ref('');
 const importing = ref(false);
 const saving = ref(false);
+const activeResourceTab = ref<ResourceTab>('text');
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
 const requiredFields = computed(() => collectBindingKeys(project.value.layers));
@@ -61,14 +72,39 @@ function selectLayer(layerId: string) {
   selectedLayerId.value = layerId;
 }
 
+function touch(next: TemplateProject): TemplateProject {
+  return { ...next, updatedAt: new Date().toLocaleString() };
+}
+
 function updateLayer(updated: TemplateLayer) {
-  const replace = (layers: TemplateLayer[]): TemplateLayer[] =>
-    layers.map((layer) => {
-      if (layer.id === updated.id) return updated;
-      if (layer.children) return { ...layer, children: replace(layer.children) };
-      return layer;
-    });
-  project.value = { ...project.value, layers: replace(project.value.layers), updatedAt: new Date().toLocaleString() };
+  project.value = touch({ ...project.value, layers: updateLayerById(project.value.layers, updated.id, () => updated) });
+}
+
+function addTextLayer(preset: 'title' | 'subtitle' | 'body' | 'price') {
+  const layer = createTextLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, preset });
+  project.value = insertLayer(project.value, layer);
+  selectedLayerId.value = layer.id;
+}
+
+function addShapeLayer(shape: ShapeKind) {
+  const layer = createShapeLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, shape });
+  project.value = insertLayer(project.value, layer);
+  selectedLayerId.value = layer.id;
+}
+
+async function addImageLayer() {
+  notice.value = '';
+  try {
+    const selected = await open({ multiple: false, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (typeof selected !== 'string') return;
+    const name = await basename(selected);
+    const asset: TemplateAsset = createTemplateAsset({ path: selected, name, width: 1, height: 1 });
+    const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
+    project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
+    selectedLayerId.value = layer.id;
+  } catch (error) {
+    notice.value = String(error);
+  }
 }
 </script>
 
@@ -87,23 +123,26 @@ function updateLayer(updated: TemplateLayer) {
 
     <n-alert v-if="notice" type="error" :bordered="false">{{ notice }}</n-alert>
 
-    <n-grid responsive="screen" cols="1 l:5" :x-gap="12" :y-gap="12">
-      <n-grid-item span="1">
-        <n-card title="图层" size="small" :bordered="false" class="panel-card template-editor-panel">
-          <LayerTree :layers="project.layers" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
-        </n-card>
-      </n-grid-item>
-      <n-grid-item span="1 l:3">
-        <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
-          <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
-        </n-card>
-      </n-grid-item>
-      <n-grid-item span="1">
-        <n-card title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">
-          <LayerProperties :layer="selectedLayer" @update="updateLayer" />
-        </n-card>
-      </n-grid-item>
-    </n-grid>
+    <div class="template-workbench">
+      <TemplateResourcePanel
+        v-model:active-tab="activeResourceTab"
+        :layers="project.layers"
+        :selected-layer-id="selectedLayerId"
+        @add-text="addTextLayer"
+        @add-shape="addShapeLayer"
+        @add-image="addImageLayer"
+        @select="selectLayer"
+        @update="updateLayer"
+      />
+
+      <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
+        <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
+      </n-card>
+
+      <n-card title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">
+        <LayerProperties :layer="selectedLayer" @update="updateLayer" />
+      </n-card>
+    </div>
 
     <n-card title="批量生成" size="small" :bordered="false" class="panel-card">
       <BatchPanel :template-id="project.id" :required-fields="requiredFields" />
