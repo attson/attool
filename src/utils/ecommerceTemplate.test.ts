@@ -6,11 +6,15 @@ import {
   createShapeLayer,
   createTemplateAsset,
   createTextLayer,
+  deleteLayerById,
+  duplicateLayer,
   extractBindingKey,
   flattenLayers,
   insertLayer,
+  moveLayer,
   makeExportFileName,
   textLayerPreviewStyle,
+  updateLayerById,
   validateBatchFields
 } from './ecommerceTemplate';
 
@@ -196,6 +200,24 @@ describe('ecommerceTemplate helpers', () => {
     expect(next.layers.at(-1)).toEqual(layer);
     expect(project.layers).toHaveLength(2);
     expect(next.layers).toHaveLength(3);
+  });
+
+  it('updates, deletes, duplicates, and reorders layers immutably', () => {
+    const project = makeProject();
+    const updated = updateLayerById(project.layers, 'text-1', (layer) => ({ ...layer, name: '新标题' }));
+    expect(flattenLayers(updated).find((layer) => layer.id === 'text-1')?.name).toBe('新标题');
+    expect(flattenLayers(project.layers).find((layer) => layer.id === 'text-1')?.name).toBe('{{title}} 大标题');
+
+    const duplicated = duplicateLayer(project.layers, 'image-1');
+    expect(duplicated).toHaveLength(3);
+    expect(duplicated[2]).toMatchObject({ name: '{{product_image}} 商品图 副本', type: 'image' });
+    expect(duplicated[2].id).not.toBe('image-1');
+
+    const moved = moveLayer(duplicated, duplicated[2].id, 'backward');
+    expect(moved.map((layer) => layer.id)).toEqual(['group-1', duplicated[2].id, 'image-1']);
+
+    const deleted = deleteLayerById(moved, duplicated[2].id);
+    expect(deleted.map((layer) => layer.id)).toEqual(['group-1', 'image-1']);
   });
 
   it('generates safe PNG filenames', () => {

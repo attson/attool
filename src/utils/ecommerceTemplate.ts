@@ -195,6 +195,63 @@ export function insertLayer(project: TemplateProject, layer: TemplateLayer): Tem
   return { ...project, layers: [...project.layers, layer], updatedAt: new Date().toLocaleString() };
 }
 
+export function updateLayerById(layers: TemplateLayer[], layerId: string, updater: (layer: TemplateLayer) => TemplateLayer): TemplateLayer[] {
+  return layers.map((layer) => {
+    if (layer.id === layerId) return updater(layer);
+    if (layer.children) return { ...layer, children: updateLayerById(layer.children, layerId, updater) };
+    return layer;
+  });
+}
+
+export function deleteLayerById(layers: TemplateLayer[], layerId: string): TemplateLayer[] {
+  return layers
+    .filter((layer) => layer.id !== layerId)
+    .map((layer) => (layer.children ? { ...layer, children: deleteLayerById(layer.children, layerId) } : layer));
+}
+
+function cloneLayer(layer: TemplateLayer): TemplateLayer {
+  return {
+    ...layer,
+    id: `layer-${crypto.randomUUID()}`,
+    name: `${layer.name} 副本`,
+    x: layer.x + 24,
+    y: layer.y + 24,
+    children: layer.children?.map(cloneLayer),
+    text: layer.text ? { ...layer.text } : undefined,
+    image: layer.image ? { ...layer.image } : undefined,
+    shape: layer.shape ? { ...layer.shape } : undefined
+  };
+}
+
+export function duplicateLayer(layers: TemplateLayer[], layerId: string): TemplateLayer[] {
+  const result: TemplateLayer[] = [];
+  for (const layer of layers) {
+    result.push(layer);
+    if (layer.id === layerId) {
+      result.push(cloneLayer(layer));
+      continue;
+    }
+    if (layer.children) {
+      result[result.length - 1] = { ...layer, children: duplicateLayer(layer.children, layerId) };
+    }
+  }
+  return result;
+}
+
+export type LayerMoveDirection = 'forward' | 'backward' | 'front' | 'back';
+
+export function moveLayer(layers: TemplateLayer[], layerId: string, direction: LayerMoveDirection): TemplateLayer[] {
+  const index = layers.findIndex((layer) => layer.id === layerId);
+  if (index >= 0) {
+    const next = [...layers];
+    const [layer] = next.splice(index, 1);
+    const target = direction === 'front' ? next.length : direction === 'back' ? 0 : direction === 'forward' ? Math.min(next.length, index + 1) : Math.max(0, index - 1);
+    next.splice(target, 0, layer);
+    return next;
+  }
+  return layers.map((layer) => (layer.children ? { ...layer, children: moveLayer(layer.children, layerId, direction) } : layer));
+}
+
 export function validateBatchFields(requiredFields: string[], incomingFields: string[]) {
   return {
     missingFields: requiredFields.filter((field) => !incomingFields.includes(field)),
