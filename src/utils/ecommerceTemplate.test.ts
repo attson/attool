@@ -220,6 +220,31 @@ describe('ecommerceTemplate helpers', () => {
     expect(deleted.map((layer) => layer.id)).toEqual(['group-1', 'image-1']);
   });
 
+  it('maps complete text styles to preview CSS', () => {
+    const textLayer: TemplateLayer = {
+      ...layers[0].children![0],
+      text: {
+        ...layers[0].children![0].text!,
+        fontStyle: 'italic',
+        textDecoration: 'underline',
+        backgroundColor: '#fff1b8',
+        backgroundRadius: 16,
+        shadowColor: '#000000',
+        shadowBlur: 8,
+        shadowOffsetX: 3,
+        shadowOffsetY: 4
+      }
+    };
+
+    expect(textLayerPreviewStyle(textLayer, 0.5)).toMatchObject({
+      fontStyle: 'italic',
+      textDecoration: 'underline',
+      backgroundColor: '#fff1b8',
+      borderRadius: '8px',
+      textShadow: '1.5px 2px 4px #000000'
+    });
+  });
+
   it('generates safe PNG filenames', () => {
     expect(makeExportFileName({ title: '双人黑色/北欧风' }, 0)).toBe('双人黑色_北欧风.png');
     expect(makeExportFileName({ name: 'sku 88' }, 4)).toBe('sku_88.png');

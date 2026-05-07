@@ -298,9 +298,17 @@ export function textLayerPreviewStyle(layer: TemplateLayer, canvasScale: number)
     fontFamily: text?.fontFamily,
     fontSize: scaledPx(text?.fontSize ?? 24, scale),
     fontWeight: text?.fontWeight,
+    fontStyle: text?.fontStyle,
     lineHeight: scaledPx(text?.lineHeight, scale),
     letterSpacing: scaledPx(normalizedLetterSpacingPx(layer), scale),
     textAlign: text?.align,
+    textDecoration: text?.textDecoration && text.textDecoration !== 'none' ? text.textDecoration : undefined,
+    backgroundColor: text?.backgroundColor,
+    borderRadius: scaledPx(text?.backgroundRadius, scale),
+    textShadow:
+      text?.shadowColor && ((text.shadowBlur ?? 0) > 0 || (text.shadowOffsetX ?? 0) !== 0 || (text.shadowOffsetY ?? 0) !== 0)
+        ? `${Number(((text.shadowOffsetX ?? 0) * scale).toFixed(4))}px ${Number(((text.shadowOffsetY ?? 0) * scale).toFixed(4))}px ${Number(((text.shadowBlur ?? 0) * scale).toFixed(4))}px ${text.shadowColor}`
+        : undefined,
     WebkitTextStroke: text?.strokeColor && strokeWidth > 0 ? `${Number(strokeWidth.toFixed(4))}px ${text.strokeColor}` : undefined
   };
 }
