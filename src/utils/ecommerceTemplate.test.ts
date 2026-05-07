@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { TemplateLayer } from '../types/ecommerceTemplate';
+import type { TemplateAsset, TemplateLayer, TemplateProject } from '../types/ecommerceTemplate';
 import {
   collectBindingKeys,
+  createImageLayer,
+  createShapeLayer,
+  createTemplateAsset,
+  createTextLayer,
   extractBindingKey,
   flattenLayers,
+  insertLayer,
   makeExportFileName,
   textLayerPreviewStyle,
   validateBatchFields
@@ -59,6 +64,19 @@ const layers: TemplateLayer[] = [
     image: { assetId: 'asset-1', fit: 'cover', replaceable: true }
   }
 ];
+
+function makeProject(): TemplateProject {
+  return {
+    id: 'tpl-test',
+    name: '测试模板',
+    canvasWidth: 1000,
+    canvasHeight: 1000,
+    layers: [...layers],
+    assets: [],
+    createdAt: '2026-05-08 00:00:00',
+    updatedAt: '2026-05-08 00:00:00'
+  };
+}
 
 describe('ecommerceTemplate helpers', () => {
   it('extracts binding keys from PSD-style layer names', () => {
@@ -118,6 +136,66 @@ describe('ecommerceTemplate helpers', () => {
     expect(textLayerPreviewStyle(textLayer, 0.5)).toMatchObject({
       letterSpacing: '-1px'
     });
+  });
+
+  it('creates default text, shape, image assets, and image layers', () => {
+    const textLayer = createTextLayer({ canvasWidth: 1000, canvasHeight: 1000, preset: 'title' });
+    expect(textLayer).toMatchObject({
+      type: 'text',
+      visible: true,
+      opacity: 1,
+      rotation: 0,
+      width: 420,
+      height: 96,
+      text: {
+        text: '双击编辑标题',
+        fontSize: 64,
+        fontWeight: 800,
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        backgroundRadius: 0,
+        shadowBlur: 0,
+        shadowOffsetX: 0,
+        shadowOffsetY: 0
+      }
+    });
+    expect(textLayer.x).toBe(290);
+    expect(textLayer.y).toBe(452);
+
+    const shapeLayer = createShapeLayer({ canvasWidth: 1000, canvasHeight: 1000, shape: 'roundRect' });
+    expect(shapeLayer).toMatchObject({
+      type: 'shape',
+      x: 350,
+      y: 420,
+      width: 300,
+      height: 160,
+      shape: { shape: 'roundRect', fill: '#f5d36b', stroke: '#17211b', strokeWidth: 0, radius: 24 }
+    });
+
+    const asset: TemplateAsset = createTemplateAsset({ path: '/tmp/chair.png', name: 'chair.png', width: 640, height: 480 });
+    expect(asset).toMatchObject({ name: 'chair.png', path: '/tmp/chair.png', mimeType: 'image/png', width: 640, height: 480 });
+    expect(asset.id).toMatch(/^asset-/);
+
+    const imageLayer = createImageLayer({ canvasWidth: 1000, canvasHeight: 1000, asset });
+    expect(imageLayer).toMatchObject({
+      type: 'image',
+      x: 250,
+      y: 250,
+      width: 500,
+      height: 500,
+      image: { assetId: asset.id, fit: 'contain', replaceable: true }
+    });
+  });
+
+  it('inserts layers immutably at the top of paint order', () => {
+    const project = makeProject();
+    const layer = createTextLayer({ canvasWidth: project.canvasWidth, canvasHeight: project.canvasHeight, preset: 'body' });
+    const next = insertLayer(project, layer);
+
+    expect(next).not.toBe(project);
+    expect(next.layers.at(-1)).toEqual(layer);
+    expect(project.layers).toHaveLength(2);
+    expect(next.layers).toHaveLength(3);
   });
 
   it('generates safe PNG filenames', () => {

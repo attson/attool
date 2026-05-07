@@ -1,4 +1,4 @@
-import type { TemplateLayer } from '../types/ecommerceTemplate';
+import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject } from '../types/ecommerceTemplate';
 
 const BINDING_PATTERN = /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/;
 
@@ -28,6 +28,171 @@ export function collectBindingKeys(layers: TemplateLayer[]): string[] {
     }
   }
   return keys;
+}
+
+type CanvasSize = { canvasWidth: number; canvasHeight: number };
+type TextPreset = 'title' | 'subtitle' | 'body' | 'price';
+
+const textPresets: Record<TextPreset, Pick<TemplateLayer, 'name' | 'width' | 'height'> & { text: TemplateLayer['text'] }> = {
+  title: {
+    name: '标题文字',
+    width: 420,
+    height: 96,
+    text: {
+      text: '双击编辑标题',
+      fontFamily: 'PingFang SC',
+      fontSize: 64,
+      fontWeight: 800,
+      color: '#111111',
+      align: 'left',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      backgroundRadius: 0,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0
+    }
+  },
+  subtitle: {
+    name: '副标题文字',
+    width: 360,
+    height: 64,
+    text: {
+      text: '输入副标题',
+      fontFamily: 'PingFang SC',
+      fontSize: 36,
+      fontWeight: 700,
+      color: '#333333',
+      align: 'left',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      backgroundRadius: 0,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0
+    }
+  },
+  body: {
+    name: '正文文字',
+    width: 320,
+    height: 48,
+    text: {
+      text: '输入正文',
+      fontFamily: 'PingFang SC',
+      fontSize: 24,
+      fontWeight: 500,
+      color: '#333333',
+      align: 'left',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      backgroundRadius: 0,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0
+    }
+  },
+  price: {
+    name: '价格文字',
+    width: 280,
+    height: 72,
+    text: {
+      text: '¥99',
+      fontFamily: 'PingFang SC',
+      fontSize: 52,
+      fontWeight: 900,
+      color: '#d63f2f',
+      align: 'left',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      backgroundRadius: 0,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0
+    }
+  }
+};
+
+function centeredPosition(canvas: CanvasSize, width: number, height: number) {
+  return {
+    x: Math.max(0, Math.round((canvas.canvasWidth - width) / 2)),
+    y: Math.max(0, Math.round((canvas.canvasHeight - height) / 2))
+  };
+}
+
+export function createTextLayer(options: CanvasSize & { preset: TextPreset }): TemplateLayer {
+  const preset = textPresets[options.preset];
+  const position = centeredPosition(options, preset.width, preset.height);
+  return {
+    id: `layer-${crypto.randomUUID()}`,
+    name: preset.name,
+    type: 'text',
+    ...position,
+    width: preset.width,
+    height: preset.height,
+    visible: true,
+    opacity: 1,
+    rotation: 0,
+    locked: false,
+    text: { ...preset.text! }
+  };
+}
+
+export function createShapeLayer(options: CanvasSize & { shape: ShapeKind }): TemplateLayer {
+  const width = options.shape === 'line' ? 360 : 300;
+  const height = options.shape === 'line' ? 8 : 160;
+  const position = centeredPosition(options, width, height);
+  return {
+    id: `layer-${crypto.randomUUID()}`,
+    name: options.shape === 'line' ? '线条' : '形状',
+    type: 'shape',
+    ...position,
+    width,
+    height,
+    visible: true,
+    opacity: 1,
+    rotation: 0,
+    locked: false,
+    shape: {
+      shape: options.shape,
+      fill: options.shape === 'line' ? '#17211b' : '#f5d36b',
+      stroke: '#17211b',
+      strokeWidth: 0,
+      radius: options.shape === 'roundRect' ? 24 : 0
+    }
+  };
+}
+
+export function createTemplateAsset(input: { path: string; name: string; width: number; height: number; mimeType?: string }): TemplateAsset {
+  return {
+    id: `asset-${crypto.randomUUID()}`,
+    name: input.name,
+    path: input.path,
+    mimeType: input.mimeType ?? 'image/png',
+    width: input.width,
+    height: input.height
+  };
+}
+
+export function createImageLayer(options: CanvasSize & { asset: TemplateAsset }): TemplateLayer {
+  const size = Math.round(Math.min(options.canvasWidth, options.canvasHeight) * 0.5);
+  const position = centeredPosition(options, size, size);
+  return {
+    id: `layer-${crypto.randomUUID()}`,
+    name: options.asset.name,
+    type: 'image',
+    ...position,
+    width: size,
+    height: size,
+    visible: true,
+    opacity: 1,
+    rotation: 0,
+    locked: false,
+    image: { assetId: options.asset.id, fit: 'contain', replaceable: true }
+  };
+}
+
+export function insertLayer(project: TemplateProject, layer: TemplateLayer): TemplateProject {
+  return { ...project, layers: [...project.layers, layer], updatedAt: new Date().toLocaleString() };
 }
 
 export function validateBatchFields(requiredFields: string[], incomingFields: string[]) {

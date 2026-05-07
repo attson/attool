@@ -2,6 +2,8 @@ export type TemplateLayerType = 'text' | 'image' | 'shape' | 'group';
 export type ImageFit = 'cover' | 'contain' | 'stretch';
 export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'line';
 export type TextAlign = 'left' | 'center' | 'right';
+export type TextFontStyle = 'normal' | 'italic';
+export type TextDecoration = 'none' | 'underline' | 'line-through';
 
 export type TemplateProject = {
   id: string;
@@ -46,6 +48,14 @@ export type TextLayerData = {
   letterSpacing?: number;
   lineHeight?: number;
   align?: TextAlign;
+  fontStyle?: TextFontStyle;
+  textDecoration?: TextDecoration;
+  backgroundColor?: string;
+  backgroundRadius?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
 };
 
 export type ImageLayerData = {
