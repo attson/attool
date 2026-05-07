@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use ab_glyph::{FontArc, PxScale};
 use image::{imageops, DynamicImage, Rgba, RgbaImage};
-use imageproc::drawing::{draw_filled_rect_mut, draw_line_segment_mut, draw_text_mut};
+use imageproc::drawing::{draw_filled_ellipse_mut, draw_filled_rect_mut, draw_hollow_ellipse_mut, draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut};
 use imageproc::rect::Rect;
 
 use super::{models::*, storage::EcommerceStore};
@@ -56,20 +56,72 @@ fn draw_image_layer(canvas: &mut RgbaImage, template: &TemplateProject, layer: &
         .or_else(|| template.assets.iter().find(|asset| asset.id == image_data.asset_id).map(|asset| asset.path.clone()))
         .ok_or_else(|| format!("图片图层没有可用路径：{}", layer.name))?;
     let image = image::open(&source_path).map_err(|error| format!("读取图片失败 {source_path}：{error}"))?;
-    let resized = image.resize_exact(layer.width.max(1.0) as u32, layer.height.max(1.0) as u32, imageops::FilterType::Lanczos3).to_rgba8();
-    imageops::overlay(canvas, &resized, layer.x.round() as i64, layer.y.round() as i64);
+    let target_w = layer.width.max(1.0) as u32;
+    let target_h = layer.height.max(1.0) as u32;
+    let (mut resized, offset_x, offset_y) = match image_data.fit {
+        ImageFit::Stretch => (image.resize_exact(target_w, target_h, imageops::FilterType::Lanczos3).to_rgba8(), 0_i64, 0_i64),
+        ImageFit::Contain => {
+            let scale = (target_w as f32 / image.width() as f32).min(target_h as f32 / image.height() as f32);
+            let w = (image.width() as f32 * scale).round().max(1.0) as u32;
+            let h = (image.height() as f32 * scale).round().max(1.0) as u32;
+            let offset_x = ((target_w - w) / 2) as i64;
+            let offset_y = ((target_h - h) / 2) as i64;
+            (image.resize_exact(w, h, imageops::FilterType::Lanczos3).to_rgba8(), offset_x, offset_y)
+        }
+        ImageFit::Cover => {
+            let scale = (target_w as f32 / image.width() as f32).max(target_h as f32 / image.height() as f32);
+            let w = (image.width() as f32 * scale).round().max(1.0) as u32;
+            let h = (image.height() as f32 * scale).round().max(1.0) as u32;
+            let resized = image.resize_exact(w, h, imageops::FilterType::Lanczos3).to_rgba8();
+            let crop_x = ((w - target_w) / 2).min(w.saturating_sub(1));
+            let crop_y = ((h - target_h) / 2).min(h.saturating_sub(1));
+            (imageops::crop_imm(&resized, crop_x, crop_y, target_w.min(w), target_h.min(h)).to_image(), 0_i64, 0_i64)
+        }
+    };
+    if layer.opacity < 1.0 {
+        for pixel in resized.pixels_mut() {
+            pixel.0[3] = ((pixel.0[3] as f32) * layer.opacity.clamp(0.0, 1.0)).round() as u8;
+        }
+    }
+    imageops::overlay(canvas, &resized, layer.x.round() as i64 + offset_x, layer.y.round() as i64 + offset_y);
     Ok(())
 }
 
 fn draw_shape_layer(canvas: &mut RgbaImage, layer: &TemplateLayer) {
-    let color = parse_hex(layer.shape.as_ref().and_then(|shape| shape.fill.as_deref()).unwrap_or("#000000"));
-    let min_x = layer.x.max(0.0) as u32;
-    let min_y = layer.y.max(0.0) as u32;
-    let max_x = (layer.x + layer.width).max(0.0) as u32;
-    let max_y = (layer.y + layer.height).max(0.0) as u32;
-    for y in min_y..max_y.min(canvas.height()) {
-        for x in min_x..max_x.min(canvas.width()) {
-            canvas.put_pixel(x, y, color);
+    let Some(shape) = &layer.shape else { return; };
+    let fill = with_layer_alpha(parse_hex(shape.fill.as_deref().unwrap_or("#000000")), layer.opacity);
+    let stroke = shape.stroke.as_deref().map(|value| with_layer_alpha(parse_hex(value), layer.opacity));
+    let stroke_width = shape.stroke_width.unwrap_or(0.0).max(0.0) as u32;
+    let rect = layer_rect(layer);
+
+    match shape.shape {
+        ShapeKind::Rect | ShapeKind::RoundRect => {
+            draw_filled_rect_mut(canvas, rect, fill);
+            if let Some(stroke) = stroke {
+                for inset in 0..stroke_width {
+                    let x = rect.left() + inset as i32;
+                    let y = rect.top() + inset as i32;
+                    let w = rect.width().saturating_sub(inset * 2);
+                    let h = rect.height().saturating_sub(inset * 2);
+                    if w > 0 && h > 0 {
+                        draw_hollow_rect_mut(canvas, Rect::at(x, y).of_size(w, h), stroke);
+                    }
+                }
+            }
+        }
+        ShapeKind::Line => {
+            draw_line_segment_mut(canvas, (layer.x, layer.y), (layer.x + layer.width, layer.y + layer.height), stroke.unwrap_or(fill));
+        }
+        ShapeKind::Ellipse => {
+            let center = (layer.x + layer.width / 2.0, layer.y + layer.height / 2.0);
+            let radius_x = (layer.width / 2.0).max(1.0) as i32;
+            let radius_y = (layer.height / 2.0).max(1.0) as i32;
+            draw_filled_ellipse_mut(canvas, (center.0.round() as i32, center.1.round() as i32), radius_x, radius_y, fill);
+            if let Some(stroke) = stroke {
+                for inset in 0..stroke_width {
+                    draw_hollow_ellipse_mut(canvas, (center.0.round() as i32, center.1.round() as i32), radius_x - inset as i32, radius_y - inset as i32, stroke);
+                }
+            }
         }
     }
 }

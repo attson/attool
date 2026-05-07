@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use attool_lib::ecommerce::{
-    models::{BatchRow, ExportRequest, ImageFit, ImageLayerData, TemplateAsset, TemplateLayer, TemplateLayerType, TemplateProject, TextAlign, TextDecoration, TextLayerData},
+    models::{BatchRow, ExportRequest, ImageFit, ImageLayerData, ShapeKind, ShapeLayerData, TemplateAsset, TemplateLayer, TemplateLayerType, TemplateProject, TextAlign, TextDecoration, TextLayerData},
     render::export_images,
     storage::EcommerceStore,
 };
@@ -138,6 +138,77 @@ fn exports_text_with_background_shadow_and_decoration() {
     assert_eq!(image.get_pixel(34, 40).0, [255, 221, 102, 255], "background should be rendered");
     assert_ne!(image.get_pixel(70, 80).0, [255, 255, 255, 255], "text or decoration should affect pixels");
     assert_ne!(image.get_pixel(120, 98).0, [255, 255, 255, 255], "underline should affect pixels below text");
+}
+
+#[test]
+fn exports_shape_stroke_and_contained_image() {
+    let output = tempfile::tempdir().unwrap();
+    let image_path = output.path().join("wide.png");
+    image::RgbaImage::from_pixel(80, 20, image::Rgba([255, 0, 0, 255])).save(&image_path).unwrap();
+
+    let store = EcommerceStore::new(output.path().join("store")).unwrap();
+    let template = TemplateProject {
+        id: "shape-image".to_string(),
+        name: "Shape Image".to_string(),
+        canvas_width: 120,
+        canvas_height: 120,
+        layers: vec![
+            TemplateLayer {
+                id: "shape".to_string(),
+                name: "Shape".to_string(),
+                r#type: TemplateLayerType::Shape,
+                x: 10.0,
+                y: 10.0,
+                width: 50.0,
+                height: 40.0,
+                visible: true,
+                opacity: 1.0,
+                rotation: 0.0,
+                binding_key: None,
+                locked: None,
+                children: None,
+                text: None,
+                image: None,
+                shape: Some(ShapeLayerData { shape: ShapeKind::Rect, fill: Some("#00ff00".to_string()), stroke: Some("#0000ff".to_string()), stroke_width: Some(3.0), radius: None }),
+            },
+            TemplateLayer {
+                id: "image".to_string(),
+                name: "Image".to_string(),
+                r#type: TemplateLayerType::Image,
+                x: 10.0,
+                y: 70.0,
+                width: 80.0,
+                height: 40.0,
+                visible: true,
+                opacity: 1.0,
+                rotation: 0.0,
+                binding_key: None,
+                locked: None,
+                children: None,
+                text: None,
+                image: Some(ImageLayerData { asset_id: "asset".to_string(), fit: ImageFit::Contain, replaceable: true }),
+                shape: None,
+            },
+        ],
+        assets: vec![TemplateAsset { id: "asset".to_string(), name: "wide".to_string(), path: image_path.to_string_lossy().into_owned(), source_layer_id: None, mime_type: "image/png".to_string(), width: 80, height: 20 }],
+        source_psd_path: None,
+        preview_path: None,
+        created_at: "now".to_string(),
+        updated_at: "now".to_string(),
+    };
+    store.save_template(template).unwrap();
+
+    let result = export_images(&store, ExportRequest {
+        template_id: "shape-image".to_string(),
+        output_dir: output.path().join("exports").to_string_lossy().into_owned(),
+        rows: vec![BatchRow { id: "row".to_string(), index: 0, values: Default::default() }],
+    }).unwrap();
+
+    let exported = image::open(&result.outputs[0]).unwrap().to_rgba8();
+    assert_eq!(exported.get_pixel(10, 10).0, [0, 0, 255, 255], "shape border should be blue");
+    assert_eq!(exported.get_pixel(30, 30).0, [0, 255, 0, 255], "shape interior should be green");
+    assert_eq!(exported.get_pixel(10, 70).0, [255, 255, 255, 255], "contain fit should letterbox top area");
+    assert_eq!(exported.get_pixel(10, 80).0, [255, 0, 0, 255], "contain fit should center resized image");
 }
 
 #[test]
