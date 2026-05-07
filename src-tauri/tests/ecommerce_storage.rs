@@ -33,6 +33,14 @@ fn sample_project() -> TemplateProject {
                 letter_spacing: None,
                 line_height: None,
                 align: Some(TextAlign::Center),
+                font_style: Some(TextFontStyle::Italic),
+                text_decoration: Some(TextDecoration::Underline),
+                background_color: Some("#fff1b8".to_string()),
+                background_radius: Some(12.0),
+                shadow_color: Some("#000000".to_string()),
+                shadow_blur: Some(4.0),
+                shadow_offset_x: Some(2.0),
+                shadow_offset_y: Some(3.0),
             }),
             image: None,
             shape: None,
@@ -60,6 +68,15 @@ fn saves_lists_and_loads_templates() {
 
     let loaded = store.load_template("tpl-test").unwrap();
     assert_eq!(loaded.layers[0].binding_key.as_deref(), Some("title"));
+    let loaded_text = loaded.layers[0].text.as_ref().unwrap();
+    assert_eq!(loaded_text.font_style, Some(TextFontStyle::Italic));
+    assert_eq!(loaded_text.text_decoration, Some(TextDecoration::Underline));
+    assert_eq!(loaded_text.background_color.as_deref(), Some("#fff1b8"));
+    assert_eq!(loaded_text.background_radius, Some(12.0));
+    assert_eq!(loaded_text.shadow_color.as_deref(), Some("#000000"));
+    assert_eq!(loaded_text.shadow_blur, Some(4.0));
+    assert_eq!(loaded_text.shadow_offset_x, Some(2.0));
+    assert_eq!(loaded_text.shadow_offset_y, Some(3.0));
 
     fs::remove_dir_all(root).unwrap();
 }

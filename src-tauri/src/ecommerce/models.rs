@@ -58,6 +58,14 @@ pub struct TextLayerData {
     pub letter_spacing: Option<f32>,
     pub line_height: Option<f32>,
     pub align: Option<TextAlign>,
+    pub font_style: Option<TextFontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub background_color: Option<String>,
+    pub background_radius: Option<f32>,
+    pub shadow_color: Option<String>,
+    pub shadow_blur: Option<f32>,
+    pub shadow_offset_x: Option<f32>,
+    pub shadow_offset_y: Option<f32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -66,6 +74,21 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextFontStyle {
+    Normal,
+    Italic,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextDecoration {
+    None,
+    Underline,
+    LineThrough,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
