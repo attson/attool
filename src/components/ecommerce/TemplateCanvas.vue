@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { TemplateAsset, TemplateLayer } from '../../types/ecommerceTemplate';
-import { flattenLayers } from '../../utils/ecommerceTemplate';
+import { flattenLayers, textLayerPreviewStyle } from '../../utils/ecommerceTemplate';
 
 const props = defineProps<{
   canvasWidth: number;
@@ -19,6 +19,26 @@ const emit = defineEmits<{
 
 const flatLayers = computed(() => flattenLayers(props.layers).filter((layer) => layer.type !== 'group' && layer.visible));
 const canvasStyle = computed(() => ({ aspectRatio: `${props.canvasWidth} / ${props.canvasHeight}` }));
+const canvasRef = ref<HTMLElement | null>(null);
+const canvasScale = ref(1);
+let resizeObserver: ResizeObserver | undefined;
+
+function updateCanvasScale() {
+  const width = canvasRef.value?.getBoundingClientRect().width ?? props.canvasWidth;
+  canvasScale.value = width / props.canvasWidth;
+}
+
+onMounted(() => {
+  updateCanvasScale();
+  resizeObserver = new ResizeObserver(updateCanvasScale);
+  if (canvasRef.value) {
+    resizeObserver.observe(canvasRef.value);
+  }
+});
+
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+});
 
 const interaction = ref<null | {
   mode: 'move' | 'resize';
@@ -112,7 +132,7 @@ function stopPointer(event: PointerEvent) {
 
 <template>
   <div class="template-canvas-wrap">
-    <div class="template-canvas" :style="canvasStyle">
+    <div ref="canvasRef" class="template-canvas" :style="canvasStyle">
       <button
         v-for="layer in flatLayers"
         :key="layer.id"
@@ -125,7 +145,7 @@ function stopPointer(event: PointerEvent) {
         @pointerup="stopPointer"
         @pointercancel="stopPointer"
       >
-        <span v-if="layer.type === 'text'" class="template-text-layer" :style="{ color: layer.text?.color, fontSize: `${layer.text?.fontSize ?? 24}px`, fontFamily: layer.text?.fontFamily }">
+        <span v-if="layer.type === 'text'" class="template-text-layer" :style="textLayerPreviewStyle(layer, canvasScale)">
           {{ layer.text?.text }}
         </span>
         <img v-else-if="layer.type === 'image' && assetSrc(layer)" :src="assetSrc(layer)" alt="模板图片图层" draggable="false" />

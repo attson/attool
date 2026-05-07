@@ -18,3 +18,6 @@ src-tauri/gen/
 
 # Superpowers worktrees
 .worktrees/
+
+# Superpowers local artifacts
+.superpowers/

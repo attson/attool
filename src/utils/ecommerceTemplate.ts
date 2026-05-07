@@ -48,3 +48,37 @@ export function makeExportFileName(values: Record<string, string>, rowIndex: num
 
   return `${safeName || String(rowIndex + 1).padStart(3, '0')}.png`;
 }
+
+function scaledPx(value: number | undefined, scale: number): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return `${Number((value * scale).toFixed(4))}px`;
+}
+
+function normalizedLetterSpacingPx(layer: TemplateLayer): number | undefined {
+  const spacing = layer.text?.letterSpacing;
+  if (spacing === undefined) {
+    return undefined;
+  }
+  const fontSize = layer.text?.fontSize ?? 24;
+  const looksLikePsdTracking = Math.abs(spacing) > Math.max(10, fontSize * 0.5);
+  return looksLikePsdTracking ? (spacing / 1000) * fontSize : spacing;
+}
+
+export function textLayerPreviewStyle(layer: TemplateLayer, canvasScale: number) {
+  const text = layer.text;
+  const scale = Number.isFinite(canvasScale) && canvasScale > 0 ? canvasScale : 1;
+  const strokeWidth = text?.strokeWidth ? text.strokeWidth * scale : 0;
+
+  return {
+    color: text?.color,
+    fontFamily: text?.fontFamily,
+    fontSize: scaledPx(text?.fontSize ?? 24, scale),
+    fontWeight: text?.fontWeight,
+    lineHeight: scaledPx(text?.lineHeight, scale),
+    letterSpacing: scaledPx(normalizedLetterSpacingPx(layer), scale),
+    textAlign: text?.align,
+    WebkitTextStroke: text?.strokeColor && strokeWidth > 0 ? `${Number(strokeWidth.toFixed(4))}px ${text.strokeColor}` : undefined
+  };
+}

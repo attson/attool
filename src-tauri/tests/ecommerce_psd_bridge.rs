@@ -1,6 +1,17 @@
 use std::path::PathBuf;
 
-use attool_lib::ecommerce::psd_bridge::import_psd_with_bridge;
+use attool_lib::ecommerce::{models::TemplateLayer, psd_bridge::import_psd_with_bridge};
+
+fn flatten_layers(layers: &[TemplateLayer]) -> Vec<&TemplateLayer> {
+    let mut flattened = Vec::new();
+    for layer in layers {
+        flattened.push(layer);
+        if let Some(children) = &layer.children {
+            flattened.extend(flatten_layers(children));
+        }
+    }
+    flattened
+}
 
 #[test]
 fn imports_user_psd_when_available() {
@@ -18,4 +29,13 @@ fn imports_user_psd_when_available() {
     assert_eq!(project.canvas_height, 1000);
     assert!(project.layers.len() >= 10);
     assert!(project.assets.iter().any(|asset| asset.name.contains("LOGO")));
+
+    let flat_layers = flatten_layers(&project.layers);
+    let title = flat_layers.iter().find(|layer| layer.name == "大标题").and_then(|layer| layer.text.as_ref()).unwrap();
+    assert!((title.letter_spacing.unwrap() - -2.428737).abs() < 0.001);
+
+    let style_title = flat_layers.iter().find(|layer| layer.name == "双人黑色 北欧风").and_then(|layer| layer.text.as_ref()).unwrap();
+    assert_eq!(style_title.line_height, Some(114.42438));
+    assert_eq!(style_title.stroke_color.as_deref(), Some("#000000"));
+    assert_eq!(style_title.stroke_width, Some(1.0));
 }

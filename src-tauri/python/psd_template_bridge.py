@@ -46,6 +46,10 @@ def rgba_to_hex(values, fallback="#111111"):
     return "#" + "".join(f"{max(0, min(255, round(channel * 255))):02x}" for channel in rgb)
 
 
+def photoshop_tracking_to_letter_spacing(tracking, font_size):
+    return float(tracking) / 1000.0 * float(font_size)
+
+
 def first_text_style(layer):
     result = {
         "fontFamily": "PingFang SC",
@@ -68,6 +72,15 @@ def first_text_style(layer):
                 result["fontSize"] = float(data["FontSize"])
             if "FillColor" in data:
                 result["color"] = rgba_to_hex(data["FillColor"].get("Values"))
+            if "Tracking" in data:
+                result["letterSpacing"] = photoshop_tracking_to_letter_spacing(data["Tracking"], result["fontSize"])
+            if "Leading" in data and not data.get("AutoLeading", False):
+                leading = float(data["Leading"])
+                if leading > 0:
+                    result["lineHeight"] = leading
+            if "StrokeColor" in data:
+                result["strokeColor"] = rgba_to_hex(data["StrokeColor"].get("Values"))
+                result["strokeWidth"] = 1.0
     except Exception:
         pass
     return result
@@ -122,7 +135,7 @@ def layer_to_template(layer, asset_dir):
     if layer.kind == "type":
         style = first_text_style(layer)
         base["type"] = "text"
-        base["text"] = {
+        text_data = {
             "text": layer.text or "",
             "fontFamily": style["fontFamily"],
             "fontSize": style["fontSize"],
@@ -130,6 +143,10 @@ def layer_to_template(layer, asset_dir):
             "color": style["color"],
             "align": style["align"],
         }
+        for optional_key in ("letterSpacing", "lineHeight", "strokeColor", "strokeWidth"):
+            if optional_key in style:
+                text_data[optional_key] = style[optional_key]
+        base["text"] = text_data
         return base, assets
 
     asset = save_layer_png(layer, asset_dir)

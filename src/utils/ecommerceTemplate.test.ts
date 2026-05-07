@@ -5,6 +5,7 @@ import {
   extractBindingKey,
   flattenLayers,
   makeExportFileName,
+  textLayerPreviewStyle,
   validateBatchFields
 } from './ecommerceTemplate';
 
@@ -78,6 +79,44 @@ describe('ecommerceTemplate helpers', () => {
     expect(validateBatchFields(['title', 'product_image'], ['title', 'price'])).toEqual({
       missingFields: ['product_image'],
       unusedFields: ['price']
+    });
+  });
+
+  it('scales text styles to the rendered canvas size', () => {
+    const textLayer: TemplateLayer = {
+      ...layers[0].children![0],
+      text: {
+        ...layers[0].children![0].text!,
+        fontSize: 80,
+        lineHeight: 96,
+        letterSpacing: -4,
+        strokeColor: '#000000',
+        strokeWidth: 2
+      }
+    };
+
+    expect(textLayerPreviewStyle(textLayer, 0.63)).toMatchObject({
+      color: '#ffffff',
+      fontFamily: 'STHupo',
+      fontSize: '50.4px',
+      lineHeight: '60.48px',
+      letterSpacing: '-2.52px',
+      WebkitTextStroke: '1.26px #000000'
+    });
+  });
+
+  it('normalizes legacy PSD tracking values before scaling text styles', () => {
+    const textLayer: TemplateLayer = {
+      ...layers[0].children![0],
+      text: {
+        ...layers[0].children![0].text!,
+        fontSize: 20,
+        letterSpacing: -100
+      }
+    };
+
+    expect(textLayerPreviewStyle(textLayer, 0.5)).toMatchObject({
+      letterSpacing: '-1px'
     });
   });
 
