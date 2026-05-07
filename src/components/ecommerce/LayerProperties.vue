@@ -102,8 +102,8 @@ function patch(values: Partial<TemplateLayer>) {
       </n-form-item>
     </section>
 
-    <section v-if="selected.type === 'text' && selected.text" class="template-prop-section">
-      <h3>填充 / 描边 / 阴影</h3>
+    <details v-if="selected.type === 'text' && selected.text" class="template-prop-section template-prop-advanced">
+      <summary>填充 / 描边 / 阴影</summary>
       <n-form-item label="背景色 / 圆角">
         <div class="template-prop-grid">
           <n-input :value="selected.text.backgroundColor" placeholder="#fff1b8" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundColor: $event || undefined } })" />
@@ -128,7 +128,7 @@ function patch(values: Partial<TemplateLayer>) {
           <n-input-number :value="selected.text.shadowOffsetY" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowOffsetY: $event ?? 0 } })" />
         </div>
       </n-form-item>
-    </section>
+    </details>
 
     <section v-if="selected.type === 'shape' && selected.shape" class="template-prop-section">
       <h3>形状</h3>
