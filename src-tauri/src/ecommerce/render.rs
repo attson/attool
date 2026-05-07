@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use ab_glyph::{FontArc, PxScale};
 use image::{imageops, DynamicImage, Rgba, RgbaImage};
-use imageproc::drawing::draw_text_mut;
+use imageproc::drawing::{draw_filled_rect_mut, draw_line_segment_mut, draw_text_mut};
+use imageproc::rect::Rect;
 
 use super::{models::*, storage::EcommerceStore};
 
@@ -73,6 +74,32 @@ fn draw_shape_layer(canvas: &mut RgbaImage, layer: &TemplateLayer) {
     }
 }
 
+fn layer_rect(layer: &TemplateLayer) -> Rect {
+    Rect::at(layer.x.round() as i32, layer.y.round() as i32).of_size(layer.width.max(1.0) as u32, layer.height.max(1.0) as u32)
+}
+
+fn with_layer_alpha(mut color: Rgba<u8>, opacity: f32) -> Rgba<u8> {
+    color.0[3] = ((color.0[3] as f32) * opacity.clamp(0.0, 1.0)).round() as u8;
+    color
+}
+
+fn draw_text_background(canvas: &mut RgbaImage, layer: &TemplateLayer, text_data: &TextLayerData) {
+    if let Some(background) = &text_data.background_color {
+        draw_filled_rect_mut(canvas, layer_rect(layer), with_layer_alpha(parse_hex(background), layer.opacity));
+    }
+}
+
+fn draw_text_decoration(canvas: &mut RgbaImage, layer: &TemplateLayer, text_data: &TextLayerData, color: Rgba<u8>) {
+    let Some(decoration) = &text_data.text_decoration else { return; };
+    if matches!(decoration, TextDecoration::None) { return; }
+    let y = match decoration {
+        TextDecoration::Underline => layer.y + text_data.font_size + 6.0,
+        TextDecoration::LineThrough => layer.y + text_data.font_size * 0.55,
+        TextDecoration::None => return,
+    };
+    draw_line_segment_mut(canvas, (layer.x, y), (layer.x + layer.width, y), color);
+}
+
 fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow) {
     let Some(text_data) = &layer.text else {
         return;
@@ -87,16 +114,40 @@ fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow
         .filter(|value| !value.trim().is_empty())
         .cloned()
         .unwrap_or_else(|| text_data.text.clone());
-    let color = parse_hex(&text_data.color);
-    draw_text_mut(
-        canvas,
-        color,
-        layer.x.round() as i32,
-        layer.y.round() as i32,
-        PxScale::from(text_data.font_size.max(1.0)),
-        &font,
-        &text,
-    );
+    draw_text_background(canvas, layer, text_data);
+    let fill = with_layer_alpha(parse_hex(&text_data.color), layer.opacity);
+    let scale = PxScale::from(text_data.font_size.max(1.0));
+
+    if let Some(shadow_color) = &text_data.shadow_color {
+        let shadow = with_layer_alpha(parse_hex(shadow_color), layer.opacity);
+        let mut shadow_layer = RgbaImage::from_pixel(canvas.width(), canvas.height(), Rgba([0, 0, 0, 0]));
+        draw_text_mut(
+            &mut shadow_layer,
+            shadow,
+            (layer.x + text_data.shadow_offset_x.unwrap_or(0.0)).round() as i32,
+            (layer.y + text_data.shadow_offset_y.unwrap_or(0.0)).round() as i32,
+            scale,
+            &font,
+            &text,
+        );
+        let blur = text_data.shadow_blur.unwrap_or(0.0).max(0.0);
+        let shadow_layer = if blur > 0.0 { imageops::blur(&shadow_layer, blur) } else { shadow_layer };
+        imageops::overlay(canvas, &shadow_layer, 0, 0);
+    }
+
+    if let (Some(stroke_color), Some(stroke_width)) = (&text_data.stroke_color, text_data.stroke_width) {
+        let stroke = with_layer_alpha(parse_hex(stroke_color), layer.opacity);
+        let width = stroke_width.max(0.0).round() as i32;
+        for dy in -width..=width {
+            for dx in -width..=width {
+                if dx == 0 && dy == 0 { continue; }
+                draw_text_mut(canvas, stroke, layer.x.round() as i32 + dx, layer.y.round() as i32 + dy, scale, &font, &text);
+            }
+        }
+    }
+
+    draw_text_mut(canvas, fill, layer.x.round() as i32, layer.y.round() as i32, scale, &font, &text);
+    draw_text_decoration(canvas, layer, text_data, fill);
 }
 
 fn load_font(preferred_family: &str) -> Option<FontArc> {

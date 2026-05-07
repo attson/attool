@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use attool_lib::ecommerce::{
-    models::{BatchRow, ExportRequest, ImageFit, ImageLayerData, TemplateAsset, TemplateLayer, TemplateLayerType, TemplateProject, TextAlign, TextLayerData},
+    models::{BatchRow, ExportRequest, ImageFit, ImageLayerData, TemplateAsset, TemplateLayer, TemplateLayerType, TemplateProject, TextAlign, TextDecoration, TextLayerData},
     render::export_images,
     storage::EcommerceStore,
 };
@@ -72,6 +72,72 @@ fn sample_project(asset_path: String) -> TemplateProject {
         created_at: "2026-05-07 00:00:00".to_string(),
         updated_at: "2026-05-07 00:00:00".to_string(),
     }
+}
+
+#[test]
+fn exports_text_with_background_shadow_and_decoration() {
+    let output = tempfile::tempdir().unwrap();
+    let store = EcommerceStore::new(output.path().join("store")).unwrap();
+    let template = TemplateProject {
+        id: "styled-text".to_string(),
+        name: "Styled Text".to_string(),
+        canvas_width: 240,
+        canvas_height: 140,
+        layers: vec![TemplateLayer {
+            id: "text".to_string(),
+            name: "Styled".to_string(),
+            r#type: TemplateLayerType::Text,
+            x: 30.0,
+            y: 36.0,
+            width: 180.0,
+            height: 72.0,
+            visible: true,
+            opacity: 1.0,
+            rotation: 0.0,
+            binding_key: None,
+            locked: None,
+            children: None,
+            text: Some(TextLayerData {
+                text: "SALE".to_string(),
+                font_family: "PingFang SC".to_string(),
+                font_size: 34.0,
+                font_weight: serde_json::json!(900),
+                color: "#111111".to_string(),
+                stroke_color: Some("#ffffff".to_string()),
+                stroke_width: Some(2.0),
+                letter_spacing: None,
+                line_height: None,
+                align: Some(TextAlign::Left),
+                font_style: None,
+                text_decoration: Some(TextDecoration::Underline),
+                background_color: Some("#ffdd66".to_string()),
+                background_radius: Some(10.0),
+                shadow_color: Some("#000000".to_string()),
+                shadow_blur: Some(0.0),
+                shadow_offset_x: Some(5.0),
+                shadow_offset_y: Some(5.0),
+            }),
+            image: None,
+            shape: None,
+        }],
+        assets: vec![],
+        source_psd_path: None,
+        preview_path: None,
+        created_at: "now".to_string(),
+        updated_at: "now".to_string(),
+    };
+    store.save_template(template).unwrap();
+
+    let result = export_images(&store, ExportRequest {
+        template_id: "styled-text".to_string(),
+        output_dir: output.path().join("exports").to_string_lossy().into_owned(),
+        rows: vec![BatchRow { id: "row".to_string(), index: 0, values: Default::default() }],
+    }).unwrap();
+
+    let image = image::open(&result.outputs[0]).unwrap().to_rgba8();
+    assert_eq!(image.get_pixel(34, 40).0, [255, 221, 102, 255], "background should be rendered");
+    assert_ne!(image.get_pixel(70, 80).0, [255, 255, 255, 255], "text or decoration should affect pixels");
+    assert_ne!(image.get_pixel(120, 98).0, [255, 255, 255, 255], "underline should affect pixels below text");
 }
 
 #[test]
