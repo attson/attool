@@ -569,3 +569,33 @@ textarea {
   gap: 12px;
   align-items: center;
 }
+
+.template-layer-toolbar {
+  position: absolute;
+  left: 0;
+  top: -38px;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  width: max-content;
+  max-width: 360px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(23, 33, 27, 0.18);
+  padding: 6px;
+}
+
+.template-layer-toolbar button {
+  border: 0;
+  border-radius: 9px;
+  background: rgba(23, 33, 27, 0.07);
+  color: var(--ink);
+  padding: 4px 7px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.template-canvas-layer img {
+  object-position: center;
+}

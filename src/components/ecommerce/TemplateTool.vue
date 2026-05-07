@@ -11,8 +11,11 @@ import {
   createShapeLayer,
   createTemplateAsset,
   createTextLayer,
+  deleteLayerById,
+  duplicateLayer,
   flattenLayers,
   insertLayer,
+  moveLayer,
   updateLayerById
 } from '../../utils/ecommerceTemplate';
 import LayerProperties from './LayerProperties.vue';
@@ -106,6 +109,29 @@ async function addImageLayer() {
     notice.value = String(error);
   }
 }
+
+function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer) {
+  if (action === 'delete') {
+    project.value = touch({ ...project.value, layers: deleteLayerById(project.value.layers, layer.id) });
+    selectedLayerId.value = null;
+    return;
+  }
+  if (action === 'duplicate') {
+    project.value = touch({ ...project.value, layers: duplicateLayer(project.value.layers, layer.id) });
+    return;
+  }
+  if (action === 'front' || action === 'back') {
+    project.value = touch({ ...project.value, layers: moveLayer(project.value.layers, layer.id, action) });
+    return;
+  }
+  if (action === 'lock') {
+    updateLayer({ ...layer, locked: !layer.locked });
+    return;
+  }
+  if (action === 'toggle-visible') {
+    updateLayer({ ...layer, visible: !layer.visible });
+  }
+}
 </script>
 
 <template>
@@ -136,7 +162,7 @@ async function addImageLayer() {
       />
 
       <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
-        <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" />
+        <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" @action="handleLayerAction" />
       </n-card>
 
       <n-card title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">

@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [layerId: string];
   update: [layer: TemplateLayer];
+  action: [action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer];
 }>();
 
 const flatLayers = computed(() => flattenLayers(props.layers).filter((layer) => layer.type !== 'group' && layer.visible));
@@ -67,8 +68,14 @@ function assetSrc(layer: TemplateLayer) {
   return asset ? convertFileSrc(asset.path) : '';
 }
 
+function imageStyle(layer: TemplateLayer) {
+  const fit = layer.image?.fit ?? 'stretch';
+  return { objectFit: fit === 'stretch' ? 'fill' : fit };
+}
+
 function startMove(event: PointerEvent, layer: TemplateLayer) {
   emit('select', layer.id);
+  if (layer.locked) return;
   interaction.value = {
     mode: 'move',
     layer,
@@ -84,6 +91,7 @@ function startMove(event: PointerEvent, layer: TemplateLayer) {
 
 function startResize(event: PointerEvent, layer: TemplateLayer) {
   event.stopPropagation();
+  if (layer.locked) return;
   interaction.value = {
     mode: 'resize',
     layer,
@@ -148,9 +156,17 @@ function stopPointer(event: PointerEvent) {
         <span v-if="layer.type === 'text'" class="template-text-layer" :style="textLayerPreviewStyle(layer, canvasScale)">
           {{ layer.text?.text }}
         </span>
-        <img v-else-if="layer.type === 'image' && assetSrc(layer)" :src="assetSrc(layer)" alt="模板图片图层" draggable="false" />
+        <img v-else-if="layer.type === 'image' && assetSrc(layer)" :src="assetSrc(layer)" :style="imageStyle(layer)" alt="模板图片图层" draggable="false" />
         <span v-else-if="layer.type === 'shape'" class="template-shape-layer" :style="{ background: layer.shape?.fill, borderColor: layer.shape?.stroke, borderWidth: `${layer.shape?.strokeWidth ?? 0}px`, borderRadius: `${layer.shape?.radius ?? 0}px` }" />
-        <span v-if="layer.id === selectedLayerId" class="template-resize-handle" @pointerdown="startResize($event, layer)" />
+        <span v-if="layer.id === selectedLayerId" class="template-layer-toolbar" @pointerdown.stop>
+          <button type="button" @click.stop="emit('action', 'duplicate', layer)">复制</button>
+          <button type="button" @click.stop="emit('action', 'delete', layer)">删除</button>
+          <button type="button" @click.stop="emit('action', 'front', layer)">置顶</button>
+          <button type="button" @click.stop="emit('action', 'back', layer)">置底</button>
+          <button type="button" @click.stop="emit('action', 'lock', layer)">{{ layer.locked ? '解锁' : '锁定' }}</button>
+          <button type="button" @click.stop="emit('action', 'toggle-visible', layer)">{{ layer.visible ? '隐藏' : '显示' }}</button>
+        </span>
+        <span v-if="layer.id === selectedLayerId && !layer.locked" class="template-resize-handle" @pointerdown="startResize($event, layer)" />
       </button>
     </div>
   </div>
