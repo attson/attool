@@ -12,6 +12,8 @@ import {
   flattenLayers,
   insertLayer,
   moveLayer,
+  reorderLayer,
+  reorderLayerBefore,
   removeSelectedLayer,
   makeExportFileName,
   textLayerPreviewStyle,
@@ -227,6 +229,21 @@ describe('ecommerceTemplate helpers', () => {
 
     const deleted = deleteLayerById(moved, duplicated[2].id);
     expect(deleted.map((layer) => layer.id)).toEqual(['group-1', 'image-1']);
+  });
+
+  it('reorders dragged layers before drop targets', () => {
+    const reordered = reorderLayerBefore(layers, 'image-1', 'group-1');
+    expect(reordered.map((layer) => layer.id)).toEqual(['image-1', 'group-1']);
+    expect(layers.map((layer) => layer.id)).toEqual(['group-1', 'image-1']);
+
+    const liftedChild = reorderLayerBefore(layers, 'text-1', 'image-1');
+    expect(liftedChild.map((layer) => layer.id)).toEqual(['group-1', 'text-1', 'image-1']);
+    expect(liftedChild[0].children).toEqual([]);
+
+    expect(reorderLayerBefore(layers, 'group-1', 'text-1')).toBe(layers);
+
+    const placedAfter = reorderLayer(layers, 'group-1', 'image-1', 'after');
+    expect(placedAfter.map((layer) => layer.id)).toEqual(['image-1', 'group-1']);
   });
 
   it('maps complete text styles to preview CSS', () => {

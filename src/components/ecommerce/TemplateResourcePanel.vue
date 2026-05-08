@@ -17,7 +17,7 @@ const emit = defineEmits<{
   'add-shape': [shape: ShapeKind];
   'add-image': [];
   select: [layerId: string];
-  update: [layer: TemplateLayer];
+  reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
 }>();
 
 const tabs: { key: ResourceTab; label: string; icon: string }[] = [
@@ -90,7 +90,7 @@ const shapePresets: { key: ShapeKind; title: string }[] = [
         <h3>图层</h3>
         <p>选择和管理当前模板图层</p>
       </div>
-      <LayerTree :layers="props.layers" :selected-layer-id="props.selectedLayerId" @select="emit('select', $event)" @update="emit('update', $event)" />
+      <LayerTree :layers="props.layers" :selected-layer-id="props.selectedLayerId" @select="emit('select', $event)" @reorder="(draggedLayerId, targetLayerId, placement) => emit('reorder', draggedLayerId, targetLayerId, placement)" />
       <n-empty v-if="!props.layers.length" description="暂无图层" />
     </template>
   </aside>

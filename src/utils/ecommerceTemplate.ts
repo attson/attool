@@ -263,6 +263,66 @@ export function moveLayer(layers: TemplateLayer[], layerId: string, direction: L
   return layers.map((layer) => (layer.children ? { ...layer, children: moveLayer(layer.children, layerId, direction) } : layer));
 }
 
+function hasDescendant(layer: TemplateLayer, layerId: string): boolean {
+  return Boolean(layer.children?.some((child) => child.id === layerId || hasDescendant(child, layerId)));
+}
+
+function removeLayerFromTree(layers: TemplateLayer[], layerId: string): { layers: TemplateLayer[]; removed: TemplateLayer | null } {
+  const index = layers.findIndex((layer) => layer.id === layerId);
+  if (index >= 0) {
+    const next = [...layers];
+    const [removed] = next.splice(index, 1);
+    return { layers: next, removed };
+  }
+
+  let removed: TemplateLayer | null = null;
+  const next = layers.map((layer) => {
+    if (!layer.children || removed) return layer;
+    const result = removeLayerFromTree(layer.children, layerId);
+    removed = result.removed;
+    return removed ? { ...layer, children: result.layers } : layer;
+  });
+
+  return { layers: next, removed };
+}
+
+export type LayerDropPlacement = 'before' | 'after';
+
+function insertLayerNear(layers: TemplateLayer[], targetLayerId: string, layerToInsert: TemplateLayer, placement: LayerDropPlacement): { layers: TemplateLayer[]; inserted: boolean } {
+  const index = layers.findIndex((layer) => layer.id === targetLayerId);
+  if (index >= 0) {
+    const next = [...layers];
+    next.splice(placement === 'after' ? index + 1 : index, 0, layerToInsert);
+    return { layers: next, inserted: true };
+  }
+
+  let inserted = false;
+  const next = layers.map((layer) => {
+    if (!layer.children || inserted) return layer;
+    const result = insertLayerNear(layer.children, targetLayerId, layerToInsert, placement);
+    inserted = result.inserted;
+    return inserted ? { ...layer, children: result.layers } : layer;
+  });
+
+  return { layers: next, inserted };
+}
+
+export function reorderLayer(layers: TemplateLayer[], draggedLayerId: string, targetLayerId: string, placement: LayerDropPlacement = 'before'): TemplateLayer[] {
+  if (draggedLayerId === targetLayerId) return layers;
+  const dragged = flattenLayers(layers).find((layer) => layer.id === draggedLayerId);
+  if (!dragged || hasDescendant(dragged, targetLayerId)) return layers;
+
+  const removed = removeLayerFromTree(layers, draggedLayerId);
+  if (!removed.removed) return layers;
+
+  const inserted = insertLayerNear(removed.layers, targetLayerId, removed.removed, placement);
+  return inserted.inserted ? inserted.layers : layers;
+}
+
+export function reorderLayerBefore(layers: TemplateLayer[], draggedLayerId: string, targetLayerId: string): TemplateLayer[] {
+  return reorderLayer(layers, draggedLayerId, targetLayerId, 'before');
+}
+
 export function validateBatchFields(requiredFields: string[], incomingFields: string[]) {
   return {
     missingFields: requiredFields.filter((field) => !incomingFields.includes(field)),

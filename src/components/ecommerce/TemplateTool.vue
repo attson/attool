@@ -15,6 +15,7 @@ import {
   flattenLayers,
   insertLayer,
   moveLayer,
+  reorderLayer,
   removeSelectedLayer,
   updateLayerById
 } from '../../utils/ecommerceTemplate';
@@ -81,6 +82,13 @@ function touch(next: TemplateProject): TemplateProject {
 
 function updateLayer(updated: TemplateLayer) {
   project.value = touch({ ...project.value, layers: updateLayerById(project.value.layers, updated.id, () => updated) });
+}
+
+function reorderLayers(draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after') {
+  const layers = reorderLayer(project.value.layers, draggedLayerId, targetLayerId, placement);
+  if (layers === project.value.layers) return;
+  project.value = touch({ ...project.value, layers });
+  selectedLayerId.value = draggedLayerId;
 }
 
 function addTextLayer(preset: 'title' | 'subtitle' | 'body' | 'price') {
@@ -159,7 +167,7 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         @add-shape="addShapeLayer"
         @add-image="addImageLayer"
         @select="selectLayer"
-        @update="updateLayer"
+        @reorder="reorderLayers"
       />
 
       <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
