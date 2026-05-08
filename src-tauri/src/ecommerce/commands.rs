@@ -61,23 +61,57 @@ pub async fn save_pasted_template_asset(
     if bytes.is_empty() {
         return Err("剪贴板图片为空".to_string());
     }
+    persist_template_asset(&store, &project_id, name, mime_type, bytes, "剪贴板图片")
+}
+
+#[tauri::command]
+pub async fn import_template_asset_from_path(
+    project_id: String,
+    source_path: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<TemplateAsset, String> {
+    let source = PathBuf::from(&source_path);
+    let bytes = std::fs::read(&source)
+        .map_err(|error| format!("读取图片失败：{error}"))?;
+    if bytes.is_empty() {
+        return Err("图片为空".to_string());
+    }
+    let name = source
+        .file_name()
+        .map(|os| os.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "image".to_string());
+    persist_template_asset(&store, &project_id, name, String::new(), bytes, "图片")
+}
+
+fn persist_template_asset(
+    store: &EcommerceStore,
+    project_id: &str,
+    name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
+    label: &str,
+) -> Result<TemplateAsset, String> {
     let image = image::load_from_memory(&bytes)
-        .map_err(|error| format!("剪贴板图片格式不支持：{error}"))?;
+        .map_err(|error| format!("{label}格式不支持：{error}"))?;
     let asset_id = format!("asset-{}", uuid::Uuid::new_v4().simple());
     let extension = image_extension(&name, &mime_type);
-    let asset_dir = store.template_dir(&project_id).join("assets");
+    let asset_dir = store.template_dir(project_id).join("assets");
     std::fs::create_dir_all(&asset_dir)
         .map_err(|error| format!("创建素材目录失败：{error}"))?;
     let path = asset_dir.join(format!("{asset_id}.{extension}"));
-    std::fs::write(&path, bytes)
-        .map_err(|error| format!("保存剪贴板图片失败：{error}"))?;
+    std::fs::write(&path, &bytes)
+        .map_err(|error| format!("保存{label}失败：{error}"))?;
 
     Ok(TemplateAsset {
         id: asset_id,
         name,
         path: path.to_string_lossy().into_owned(),
         source_layer_id: None,
-        mime_type: if mime_type.trim().is_empty() { format!("image/{extension}") } else { mime_type },
+        mime_type: if mime_type.trim().is_empty() {
+            format!("image/{extension}")
+        } else {
+            mime_type
+        },
         width: image.width(),
         height: image.height(),
     })

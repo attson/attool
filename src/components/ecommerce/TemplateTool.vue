@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { basename } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NPageHeader, NSpace, NTag } from 'naive-ui';
 import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
@@ -9,7 +8,6 @@ import {
   collectBindingKeys,
   createImageLayer,
   createShapeLayer,
-  createTemplateAsset,
   createTextLayer,
   duplicateLayer,
   flattenLayers,
@@ -110,8 +108,10 @@ async function addImageLayer() {
   try {
     const selected = await open({ multiple: false, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
     if (typeof selected !== 'string') return;
-    const name = await basename(selected);
-    const asset: TemplateAsset = createTemplateAsset({ path: selected, name, width: 1, height: 1 });
+    const asset = await invoke<TemplateAsset>('import_template_asset_from_path', {
+      projectId: project.value.id,
+      sourcePath: selected
+    });
     const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
     project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
     selectedLayerId.value = layer.id;
