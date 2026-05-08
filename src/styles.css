@@ -596,14 +596,32 @@ textarea {
 
 .template-color-field {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 5px;
   align-items: center;
   min-width: 0;
 }
 
 .template-color-field .n-color-picker {
-  width: 34px;
+  --n-height: 20px;
+  width: 30px;
+  min-width: 30px;
+  height: 20px;
+  border-radius: 0;
+}
+
+.template-color-field .n-color-picker .n-color-picker__fill {
+  inset: 0;
+  border-radius: 0;
+}
+
+.template-color-field .n-color-picker .n-color-picker-checkboard,
+.template-color-field .n-color-picker .n-color-picker-checkboard::after {
+  border-radius: 0;
+}
+
+.template-color-field .n-color-picker .n-color-picker__value {
+  display: none;
 }
 
 .template-prop-advanced {
