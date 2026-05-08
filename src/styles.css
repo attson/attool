@@ -529,6 +529,40 @@ textarea {
   line-height: 1.5;
 }
 
+.template-image-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.template-image-asset {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 250, 238, 0.72);
+  color: var(--ink);
+  padding: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.template-image-asset img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(23, 33, 27, 0.06);
+}
+
+.template-image-asset span {
+  overflow: hidden;
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .template-preset-grid {
   display: grid;
   gap: 10px;

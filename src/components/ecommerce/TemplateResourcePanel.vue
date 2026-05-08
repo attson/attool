@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { NButton, NEmpty } from 'naive-ui';
-import type { ShapeKind, TemplateLayer } from '../../types/ecommerceTemplate';
+import type { ShapeKind, TemplateAsset, TemplateLayer } from '../../types/ecommerceTemplate';
 import LayerTree from './LayerTree.vue';
 
 export type ResourceTab = 'text' | 'image' | 'shape' | 'layers';
@@ -8,6 +9,7 @@ export type ResourceTab = 'text' | 'image' | 'shape' | 'layers';
 const props = defineProps<{
   activeTab: ResourceTab;
   layers: TemplateLayer[];
+  assets: TemplateAsset[];
   selectedLayerId: string | null;
 }>();
 
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   'add-text': [preset: 'title' | 'subtitle' | 'body' | 'price'];
   'add-shape': [shape: ShapeKind];
   'add-image': [];
+  'add-asset-image': [asset: TemplateAsset];
   select: [layerId: string];
   reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
 }>();
@@ -40,6 +43,10 @@ const shapePresets: { key: ShapeKind; title: string }[] = [
   { key: 'ellipse', title: '椭圆/圆形' },
   { key: 'line', title: '线条' }
 ];
+
+function assetPreviewSrc(asset: TemplateAsset) {
+  return convertFileSrc(asset.path);
+}
 </script>
 
 <template>
@@ -70,7 +77,13 @@ const shapePresets: { key: ShapeKind; title: string }[] = [
         <p>导入本地图片，或直接 Cmd/Ctrl + V 粘贴图片</p>
       </div>
       <n-button type="primary" block @click="emit('add-image')">选择本地图片</n-button>
-      <p class="template-paste-hint">复制截图或图片后，在此面板按 Cmd/Ctrl + V 即可上传。</p>
+      <p class="template-paste-hint">复制截图或图片后，在此面板按 Cmd/Ctrl + V 上传到下方素材库；点击素材再添加到画布。</p>
+      <div v-if="props.assets.length" class="template-image-asset-grid">
+        <button v-for="asset in props.assets" :key="asset.id" type="button" class="template-image-asset" @click="emit('add-asset-image', asset)">
+          <img :src="assetPreviewSrc(asset)" :alt="asset.name" />
+          <span>{{ asset.name }}</span>
+        </button>
+      </div>
     </template>
 
     <template v-else-if="props.activeTab === 'shape'">

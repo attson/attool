@@ -120,6 +120,13 @@ async function addImageLayer() {
   }
 }
 
+function addAssetImageLayer(asset: TemplateAsset) {
+  const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
+  layer.name = asset.name;
+  project.value = insertLayer(project.value, layer);
+  selectedLayerId.value = layer.id;
+}
+
 async function handlePaste(event: ClipboardEvent) {
   if (activeResourceTab.value !== 'image') return;
   if (isTypingTarget(event.target)) return;
@@ -137,10 +144,7 @@ async function handlePaste(event: ClipboardEvent) {
       mimeType: file.type || 'image/png',
       bytes
     });
-    const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
-    layer.name = asset.name;
-    project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
-    selectedLayerId.value = layer.id;
+    project.value = touch({ ...project.value, assets: [...project.value.assets, asset] });
   } catch (error) {
     notice.value = String(error);
   }
@@ -206,10 +210,12 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
       <TemplateResourcePanel
         v-model:active-tab="activeResourceTab"
         :layers="project.layers"
+        :assets="project.assets"
         :selected-layer-id="selectedLayerId"
         @add-text="addTextLayer"
         @add-shape="addShapeLayer"
         @add-image="addImageLayer"
+        @add-asset-image="addAssetImageLayer"
         @select="selectLayer"
         @reorder="reorderLayers"
       />
