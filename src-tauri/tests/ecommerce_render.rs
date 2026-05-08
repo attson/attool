@@ -189,6 +189,24 @@ fn exports_shape_stroke_and_contained_image() {
                 image: Some(ImageLayerData { asset_id: "asset".to_string(), fit: ImageFit::Contain, replaceable: true }),
                 shape: None,
             },
+            TemplateLayer {
+                id: "outline".to_string(),
+                name: "Outline".to_string(),
+                r#type: TemplateLayerType::Shape,
+                x: 90.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+                visible: true,
+                opacity: 1.0,
+                rotation: 0.0,
+                binding_key: None,
+                locked: None,
+                children: None,
+                text: None,
+                image: None,
+                shape: Some(ShapeLayerData { shape: ShapeKind::Rect, fill: None, stroke: Some("#ff0000".to_string()), stroke_width: Some(2.0), radius: None }),
+            },
         ],
         assets: vec![TemplateAsset { id: "asset".to_string(), name: "wide".to_string(), path: image_path.to_string_lossy().into_owned(), source_layer_id: None, mime_type: "image/png".to_string(), width: 80, height: 20 }],
         source_psd_path: None,
@@ -207,6 +225,8 @@ fn exports_shape_stroke_and_contained_image() {
     let exported = image::open(&result.outputs[0]).unwrap().to_rgba8();
     assert_eq!(exported.get_pixel(10, 10).0, [0, 0, 255, 255], "shape border should be blue");
     assert_eq!(exported.get_pixel(30, 30).0, [0, 255, 0, 255], "shape interior should be green");
+    assert_eq!(exported.get_pixel(90, 10).0, [255, 0, 0, 255], "outline border should be red");
+    assert_eq!(exported.get_pixel(100, 20).0, [255, 255, 255, 255], "missing fill should stay transparent");
     assert_eq!(exported.get_pixel(10, 70).0, [255, 255, 255, 255], "contain fit should letterbox top area");
     assert_eq!(exported.get_pixel(10, 80).0, [255, 0, 0, 255], "contain fit should center resized image");
 }

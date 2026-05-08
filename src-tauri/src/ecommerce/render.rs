@@ -89,14 +89,16 @@ fn draw_image_layer(canvas: &mut RgbaImage, template: &TemplateProject, layer: &
 
 fn draw_shape_layer(canvas: &mut RgbaImage, layer: &TemplateLayer) {
     let Some(shape) = &layer.shape else { return; };
-    let fill = with_layer_alpha(parse_hex(shape.fill.as_deref().unwrap_or("#000000")), layer.opacity);
+    let fill = shape.fill.as_deref().map(|value| with_layer_alpha(parse_hex(value), layer.opacity));
     let stroke = shape.stroke.as_deref().map(|value| with_layer_alpha(parse_hex(value), layer.opacity));
     let stroke_width = shape.stroke_width.unwrap_or(0.0).max(0.0) as u32;
     let rect = layer_rect(layer);
 
     match shape.shape {
         ShapeKind::Rect | ShapeKind::RoundRect => {
-            draw_filled_rect_mut(canvas, rect, fill);
+            if let Some(fill) = fill {
+                draw_filled_rect_mut(canvas, rect, fill);
+            }
             if let Some(stroke) = stroke {
                 for inset in 0..stroke_width {
                     let x = rect.left() + inset as i32;
@@ -110,13 +112,17 @@ fn draw_shape_layer(canvas: &mut RgbaImage, layer: &TemplateLayer) {
             }
         }
         ShapeKind::Line => {
-            draw_line_segment_mut(canvas, (layer.x, layer.y), (layer.x + layer.width, layer.y + layer.height), stroke.unwrap_or(fill));
+            if let Some(color) = stroke.or(fill) {
+                draw_line_segment_mut(canvas, (layer.x, layer.y), (layer.x + layer.width, layer.y + layer.height), color);
+            }
         }
         ShapeKind::Ellipse => {
             let center = (layer.x + layer.width / 2.0, layer.y + layer.height / 2.0);
             let radius_x = (layer.width / 2.0).max(1.0) as i32;
             let radius_y = (layer.height / 2.0).max(1.0) as i32;
-            draw_filled_ellipse_mut(canvas, (center.0.round() as i32, center.1.round() as i32), radius_x, radius_y, fill);
+            if let Some(fill) = fill {
+                draw_filled_ellipse_mut(canvas, (center.0.round() as i32, center.1.round() as i32), radius_x, radius_y, fill);
+            }
             if let Some(stroke) = stroke {
                 for inset in 0..stroke_width {
                     draw_hollow_ellipse_mut(canvas, (center.0.round() as i32, center.1.round() as i32), radius_x - inset as i32, radius_y - inset as i32, stroke);

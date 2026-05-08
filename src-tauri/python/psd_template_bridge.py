@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from psd_tools import PSDImage
+from psd_tools.constants import Tag
 
 BINDING_RE = re.compile(r"\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}")
 SUGGESTED_BINDINGS = {
@@ -44,6 +45,129 @@ def rgba_to_hex(values, fallback="#111111"):
         return fallback
     rgb = values[1:4]
     return "#" + "".join(f"{max(0, min(255, round(channel * 255))):02x}" for channel in rgb)
+
+
+def rgb_dict_to_hex(values, fallback=None):
+    if not values:
+        return fallback
+    channels = []
+    for key in (b"Rd  ", b"Grn ", b"Bl  "):
+        if key not in values:
+            return fallback
+        channels.append(values[key])
+    return "#" + "".join(f"{max(0, min(255, round(float(channel)))):02x}" for channel in channels)
+
+
+def descriptor_get(data, key, default=None):
+    if not data:
+        return default
+    keys = (key, key.encode("utf-8") if isinstance(key, str) else key.decode("utf-8", errors="ignore"))
+    for candidate in keys:
+        try:
+            if candidate in data:
+                return data[candidate]
+        except TypeError:
+            continue
+    return default
+
+
+def tagged_data(layer, tag):
+    try:
+        return layer.tagged_blocks.get_data(tag)
+    except Exception:
+        return None
+
+
+def shape_kind_from_layer(layer):
+    for origin in getattr(layer, "origination", []) or []:
+        name = type(origin).__name__
+        if name == "RoundedRectangle":
+            return "roundRect"
+        if name == "Ellipse":
+            return "ellipse"
+        if name == "Rectangle":
+            return "rect"
+
+    origin_data = tagged_data(layer, Tag.VECTOR_ORIGINATION_DATA)
+    descriptors = descriptor_get(origin_data, "keyDescriptorList", []) or []
+    for descriptor in descriptors:
+        origin_type = descriptor_get(descriptor, "keyOriginType")
+        if origin_type == 2:
+            return "roundRect"
+        if origin_type == 5:
+            return "ellipse"
+        if origin_type == 1:
+            return "rect"
+    return "rect"
+
+
+def rounded_rect_radius(layer):
+    origin_data = tagged_data(layer, Tag.VECTOR_ORIGINATION_DATA)
+    descriptors = descriptor_get(origin_data, "keyDescriptorList", []) or []
+    for descriptor in descriptors:
+        radii = descriptor_get(descriptor, "keyOriginRRectRadii")
+        if not radii:
+            continue
+        values = [float(value) for key, value in radii.items() if key != b"unitValueQuadVersion"]
+        if values:
+            return max(values)
+    return None
+
+
+def solid_shape_fill(layer):
+    solid = tagged_data(layer, Tag.SOLID_COLOR_SHEET_SETTING)
+    color = descriptor_get(solid, b"Clr ")
+    if color:
+        return rgb_dict_to_hex(color)
+
+    content = tagged_data(layer, Tag.VECTOR_STROKE_CONTENT_DATA)
+    color = descriptor_get(content, b"Clr ")
+    if color:
+        return rgb_dict_to_hex(color)
+    return None
+
+
+def vector_stroke(layer):
+    stroke_data = tagged_data(layer, Tag.VECTOR_STROKE_DATA)
+    if not descriptor_get(stroke_data, "strokeEnabled", False):
+        return None, None
+
+    content = descriptor_get(stroke_data, "strokeStyleContent")
+    color = descriptor_get(content, b"Clr ")
+    return rgb_dict_to_hex(color), float(descriptor_get(stroke_data, "strokeStyleLineWidth", 0.0) or 0.0)
+
+
+def effect_stroke(layer):
+    for effect in getattr(layer, "effects", []) or []:
+        if type(effect).__name__ != "Stroke":
+            continue
+        if not (getattr(effect, "enabled", False) and getattr(effect, "present", False) and getattr(effect, "shown", True)):
+            continue
+        return rgb_dict_to_hex(getattr(effect, "color", None)), float(getattr(effect, "size", 0.0) or 0.0)
+    return None, None
+
+
+def shape_layer_data(layer):
+    stroke_data = tagged_data(layer, Tag.VECTOR_STROKE_DATA)
+    fill_enabled = True if stroke_data is None else bool(descriptor_get(stroke_data, "fillEnabled", True))
+    fill = solid_shape_fill(layer) if fill_enabled else None
+    stroke, stroke_width = vector_stroke(layer)
+    if not stroke:
+        stroke, stroke_width = effect_stroke(layer)
+
+    data = {
+        "shape": shape_kind_from_layer(layer),
+        "strokeWidth": stroke_width or 0,
+    }
+    if fill:
+        data["fill"] = fill
+    if stroke and stroke_width:
+        data["stroke"] = stroke
+    if data["shape"] == "roundRect":
+        radius = rounded_rect_radius(layer)
+        if radius is not None:
+            data["radius"] = radius
+    return data
 
 
 def photoshop_tracking_to_letter_spacing(tracking, font_size):
@@ -149,6 +273,11 @@ def layer_to_template(layer, asset_dir):
         base["text"] = text_data
         return base, assets
 
+    if layer.kind == "shape":
+        base["type"] = "shape"
+        base["shape"] = shape_layer_data(layer)
+        return base, assets
+
     asset = save_layer_png(layer, asset_dir)
     if asset:
         asset["sourceLayerId"] = layer_id
@@ -162,7 +291,7 @@ def layer_to_template(layer, asset_dir):
         return base, assets
 
     base["type"] = "shape"
-    base["shape"] = {"shape": "rect", "fill": "rgba(0,0,0,0)", "strokeWidth": 0}
+    base["shape"] = {"shape": "rect", "strokeWidth": 0}
     return base, assets
 
 
