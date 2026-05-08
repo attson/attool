@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { NButton, NEmpty } from 'naive-ui';
 import type { ShapeKind, TemplateAsset, TemplateLayer } from '../../types/ecommerceTemplate';
 import LayerTree from './LayerTree.vue';
@@ -48,7 +47,7 @@ const shapePresets: { key: ShapeKind; title: string }[] = [
 ];
 
 function assetPreviewSrc(asset: TemplateAsset) {
-  return convertFileSrc(asset.path);
+  return asset.dataUrl;
 }
 </script>
 

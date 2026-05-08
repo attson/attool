@@ -162,14 +162,15 @@ export function createShapeLayer(options: CanvasSize & { shape: ShapeKind }): Te
   };
 }
 
-export function createTemplateAsset(input: { path: string; name: string; width: number; height: number; mimeType?: string }): TemplateAsset {
+export function createTemplateAsset(input: { dataUrl: string; name: string; width: number; height: number; mimeType?: string }): TemplateAsset {
   return {
     id: `asset-${crypto.randomUUID()}`,
     name: input.name,
-    path: input.path,
+    dataUrl: input.dataUrl,
     mimeType: input.mimeType ?? 'image/png',
     width: input.width,
-    height: input.height
+    height: input.height,
+    createdAt: new Date().toISOString()
   };
 }
 

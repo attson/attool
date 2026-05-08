@@ -75,11 +75,12 @@ export type ShapeLayerData = {
 export type TemplateAsset = {
   id: string;
   name: string;
-  path: string;
+  dataUrl: string;
   sourceLayerId?: string;
   mimeType: string;
   width: number;
   height: number;
+  createdAt: string;
 };
 
 export type TemplateSummary = {

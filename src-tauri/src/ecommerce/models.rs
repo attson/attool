@@ -131,11 +131,14 @@ pub enum ShapeKind {
 pub struct TemplateAsset {
     pub id: String,
     pub name: String,
-    pub path: String,
+    #[serde(default)]
+    pub data_url: String,
     pub source_layer_id: Option<String>,
     pub mime_type: String,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub created_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -51,82 +51,43 @@ pub async fn save_ecommerce_template(
 }
 
 #[tauri::command]
-pub async fn save_pasted_template_asset(
-    project_id: String,
+pub async fn save_template_asset(
     name: String,
     mime_type: String,
     bytes: Vec<u8>,
     store: State<'_, EcommerceStore>,
 ) -> Result<TemplateAsset, String> {
-    if bytes.is_empty() {
-        return Err("剪贴板图片为空".to_string());
-    }
-    persist_template_asset(&store, &project_id, name, mime_type, bytes, "剪贴板图片")
+    store.save_asset(name, mime_type, bytes)
 }
 
 #[tauri::command]
 pub async fn import_template_asset_from_path(
-    project_id: String,
     source_path: String,
     store: State<'_, EcommerceStore>,
 ) -> Result<TemplateAsset, String> {
     let source = PathBuf::from(&source_path);
     let bytes = std::fs::read(&source)
         .map_err(|error| format!("读取图片失败：{error}"))?;
-    if bytes.is_empty() {
-        return Err("图片为空".to_string());
-    }
     let name = source
         .file_name()
         .map(|os| os.to_string_lossy().into_owned())
         .unwrap_or_else(|| "image".to_string());
-    persist_template_asset(&store, &project_id, name, String::new(), bytes, "图片")
+    store.save_asset(name, String::new(), bytes)
 }
 
-fn persist_template_asset(
-    store: &EcommerceStore,
-    project_id: &str,
-    name: String,
-    mime_type: String,
-    bytes: Vec<u8>,
-    label: &str,
-) -> Result<TemplateAsset, String> {
-    let image = image::load_from_memory(&bytes)
-        .map_err(|error| format!("{label}格式不支持：{error}"))?;
-    let asset_id = format!("asset-{}", uuid::Uuid::new_v4().simple());
-    let extension = image_extension(&name, &mime_type);
-    let asset_dir = store.template_dir(project_id).join("assets");
-    std::fs::create_dir_all(&asset_dir)
-        .map_err(|error| format!("创建素材目录失败：{error}"))?;
-    let path = asset_dir.join(format!("{asset_id}.{extension}"));
-    std::fs::write(&path, &bytes)
-        .map_err(|error| format!("保存{label}失败：{error}"))?;
-
-    Ok(TemplateAsset {
-        id: asset_id,
-        name,
-        path: path.to_string_lossy().into_owned(),
-        source_layer_id: None,
-        mime_type: if mime_type.trim().is_empty() {
-            format!("image/{extension}")
-        } else {
-            mime_type
-        },
-        width: image.width(),
-        height: image.height(),
-    })
+#[tauri::command]
+pub async fn list_template_assets(
+    store: State<'_, EcommerceStore>,
+) -> Result<Vec<TemplateAsset>, String> {
+    store.list_assets()
 }
 
-fn image_extension(name: &str, mime_type: &str) -> &'static str {
-    match mime_type {
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        _ if name.to_ascii_lowercase().ends_with(".jpg") || name.to_ascii_lowercase().ends_with(".jpeg") => "jpg",
-        _ if name.to_ascii_lowercase().ends_with(".webp") => "webp",
-        _ if name.to_ascii_lowercase().ends_with(".gif") => "gif",
-        _ => "png",
-    }
+#[tauri::command]
+pub async fn delete_template_asset(
+    asset_id: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<(), String> {
+    store.delete_asset(&asset_id)
 }
 
 

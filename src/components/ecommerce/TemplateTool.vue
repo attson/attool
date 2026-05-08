@@ -44,17 +44,33 @@ function focusPasteTargetLibrary() {
   if (activeResourceTab.value === 'image') pasteTarget.value = 'library';
 }
 
-function removeAsset(asset: TemplateAsset) {
-  project.value = touch({
-    ...project.value,
-    assets: project.value.assets.filter((item) => item.id !== asset.id)
-  });
+async function removeAsset(asset: TemplateAsset) {
+  notice.value = '';
+  try {
+    await invoke('delete_template_asset', { assetId: asset.id });
+    project.value = touch({
+      ...project.value,
+      assets: project.value.assets.filter((item) => item.id !== asset.id)
+    });
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+
+async function loadAssetLibrary() {
+  try {
+    const assets = await invoke<TemplateAsset[]>('list_template_assets');
+    project.value = { ...project.value, assets };
+  } catch (error) {
+    notice.value = String(error);
+  }
 }
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
 const requiredFields = computed(() => collectBindingKeys(project.value.layers));
 
 onMounted(loadTemplateList);
+onMounted(loadAssetLibrary);
 onMounted(() => window.addEventListener('paste', handlePaste));
 onUnmounted(() => window.removeEventListener('paste', handlePaste));
 
@@ -128,13 +144,14 @@ async function addImageLayer() {
   try {
     const selected = await open({ multiple: false, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
     if (typeof selected !== 'string') return;
-    const asset = await invoke<TemplateAsset>('import_template_asset_from_path', {
-      projectId: project.value.id,
-      sourcePath: selected
-    });
-    const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
-    project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
-    selectedLayerId.value = layer.id;
+    const asset = await invoke<TemplateAsset>('import_template_asset_from_path', { sourcePath: selected });
+    if (pasteTarget.value === 'canvas') {
+      const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
+      project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
+      selectedLayerId.value = layer.id;
+    } else {
+      project.value = touch({ ...project.value, assets: [...project.value.assets, asset] });
+    }
   } catch (error) {
     notice.value = String(error);
   }
@@ -157,8 +174,7 @@ async function handlePaste(event: ClipboardEvent) {
   notice.value = '';
   try {
     const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-    const asset = await invoke<TemplateAsset>('save_pasted_template_asset', {
-      projectId: project.value.id,
+    const asset = await invoke<TemplateAsset>('save_template_asset', {
       name: file.name || `粘贴图片-${new Date().toLocaleTimeString()}.png`,
       mimeType: file.type || 'image/png',
       bytes

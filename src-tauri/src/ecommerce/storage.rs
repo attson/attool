@@ -1,8 +1,9 @@
 use std::{fs, path::PathBuf};
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rusqlite::{params, Connection};
 
-use super::models::{TemplateProject, TemplateSummary};
+use super::models::{TemplateAsset, TemplateProject, TemplateSummary};
 
 #[derive(Clone, Debug)]
 pub struct EcommerceStore {
@@ -47,10 +48,139 @@ impl EcommerceStore {
 
                 CREATE INDEX IF NOT EXISTS idx_ecommerce_templates_updated_at
                     ON ecommerce_templates(updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS ecommerce_assets (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    data_base64 TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ecommerce_assets_created_at
+                    ON ecommerce_assets(created_at DESC);
                 "#,
             )
             .map_err(|error| format!("初始化模板数据库失败：{error}"))?;
         Ok(())
+    }
+
+    pub fn save_asset(
+        &self,
+        name: String,
+        mime_type: String,
+        bytes: Vec<u8>,
+    ) -> Result<TemplateAsset, String> {
+        if bytes.is_empty() {
+            return Err("图片为空".to_string());
+        }
+        let image = image::load_from_memory(&bytes)
+            .map_err(|error| format!("图片格式不支持：{error}"))?;
+        let asset_id = format!("asset-{}", uuid::Uuid::new_v4().simple());
+        let resolved_mime = if mime_type.trim().is_empty() {
+            guess_mime_type(&name)
+        } else {
+            mime_type
+        };
+        let encoded = BASE64_STANDARD.encode(&bytes);
+        let data_url = format!("data:{};base64,{}", resolved_mime, encoded);
+        let created_at = chrono::Local::now().to_rfc3339();
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        connection
+            .execute(
+                r#"
+                INSERT INTO ecommerce_assets (id, name, mime_type, width, height, data_base64, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "#,
+                params![
+                    asset_id,
+                    name,
+                    resolved_mime,
+                    image.width() as i64,
+                    image.height() as i64,
+                    encoded,
+                    created_at
+                ],
+            )
+            .map_err(|error| format!("保存素材失败：{error}"))?;
+        Ok(TemplateAsset {
+            id: asset_id,
+            name,
+            data_url,
+            source_layer_id: None,
+            mime_type: resolved_mime,
+            width: image.width(),
+            height: image.height(),
+            created_at,
+        })
+    }
+
+    pub fn list_assets(&self) -> Result<Vec<TemplateAsset>, String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT id, name, mime_type, width, height, data_base64, created_at
+                FROM ecommerce_assets
+                ORDER BY datetime(created_at) DESC, id DESC
+                "#,
+            )
+            .map_err(|error| format!("读取素材失败：{error}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let mime_type: String = row.get(2)?;
+                let width: i64 = row.get(3)?;
+                let height: i64 = row.get(4)?;
+                let data_base64: String = row.get(5)?;
+                let created_at: String = row.get(6)?;
+                let data_url = format!("data:{};base64,{}", mime_type, data_base64);
+                Ok(TemplateAsset {
+                    id,
+                    name,
+                    data_url,
+                    source_layer_id: None,
+                    mime_type,
+                    width: width as u32,
+                    height: height as u32,
+                    created_at,
+                })
+            })
+            .map_err(|error| format!("读取素材失败：{error}"))?;
+        let mut assets = Vec::new();
+        for row in rows {
+            assets.push(row.map_err(|error| format!("读取素材失败：{error}"))?);
+        }
+        Ok(assets)
+    }
+
+    pub fn delete_asset(&self, id: &str) -> Result<(), String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        connection
+            .execute("DELETE FROM ecommerce_assets WHERE id = ?1", params![id])
+            .map_err(|error| format!("删除素材失败：{error}"))?;
+        Ok(())
+    }
+
+    pub fn load_asset_bytes(&self, id: &str) -> Result<Vec<u8>, String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        let data_base64: String = connection
+            .query_row(
+                "SELECT data_base64 FROM ecommerce_assets WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("未找到素材 {id}：{error}"))?;
+        BASE64_STANDARD
+            .decode(data_base64.as_bytes())
+            .map_err(|error| format!("解码素材失败 {id}：{error}"))
     }
 
     pub fn save_template(&self, project: TemplateProject) -> Result<TemplateProject, String> {
@@ -132,5 +262,18 @@ impl EcommerceStore {
             )
             .map_err(|error| format!("未找到模板：{error}"))?;
         serde_json::from_str(&json).map_err(|error| format!("解析模板失败：{error}"))
+    }
+}
+
+fn guess_mime_type(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else if lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else {
+        "image/png".to_string()
     }
 }

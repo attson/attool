@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import type { TemplateAsset, TemplateLayer } from '../../types/ecommerceTemplate';
 import { flattenLayers, textLayerPreviewStyle } from '../../utils/ecommerceTemplate';
 
@@ -65,7 +64,7 @@ function layerStyle(layer: TemplateLayer) {
 
 function assetSrc(layer: TemplateLayer) {
   const asset = props.assets.find((item) => item.id === layer.image?.assetId);
-  return asset ? convertFileSrc(asset.path) : '';
+  return asset?.dataUrl ?? '';
 }
 
 function imageStyle(layer: TemplateLayer) {

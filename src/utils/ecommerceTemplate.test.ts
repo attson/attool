@@ -179,8 +179,8 @@ describe('ecommerceTemplate helpers', () => {
       shape: { shape: 'roundRect', fill: '#f5d36b', stroke: '#17211b', strokeWidth: 0, radius: 24 }
     });
 
-    const asset: TemplateAsset = createTemplateAsset({ path: '/tmp/chair.png', name: 'chair.png', width: 640, height: 480 });
-    expect(asset).toMatchObject({ name: 'chair.png', path: '/tmp/chair.png', mimeType: 'image/png', width: 640, height: 480 });
+    const asset: TemplateAsset = createTemplateAsset({ dataUrl: 'data:image/png;base64,AAA', name: 'chair.png', width: 640, height: 480 });
+    expect(asset).toMatchObject({ name: 'chair.png', dataUrl: 'data:image/png;base64,AAA', mimeType: 'image/png', width: 640, height: 480 });
     expect(asset.id).toMatch(/^asset-/);
 
     const imageLayer = createImageLayer({ canvasWidth: 1000, canvasHeight: 1000, asset });

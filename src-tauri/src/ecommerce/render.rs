@@ -18,7 +18,7 @@ pub fn export_images(store: &EcommerceStore, request: ExportRequest) -> Result<E
     let mut outputs = Vec::new();
     let mut failed = Vec::new();
     for row in &request.rows {
-        match render_row(&template, row, &output_dir) {
+        match render_row(store, &template, row, &output_dir) {
             Ok(path) => outputs.push(path.to_string_lossy().into_owned()),
             Err(message) => failed.push(ExportFailure { row_index: row.index, field: None, message }),
         }
@@ -27,14 +27,14 @@ pub fn export_images(store: &EcommerceStore, request: ExportRequest) -> Result<E
     Ok(ExportResult { total: request.rows.len(), succeeded: outputs.len(), outputs, failed })
 }
 
-fn render_row(template: &TemplateProject, row: &BatchRow, output_dir: &Path) -> Result<PathBuf, String> {
+fn render_row(store: &EcommerceStore, template: &TemplateProject, row: &BatchRow, output_dir: &Path) -> Result<PathBuf, String> {
     let mut canvas = RgbaImage::from_pixel(template.canvas_width, template.canvas_height, Rgba([255, 255, 255, 255]));
     for layer in flatten_layers(&template.layers) {
         if !layer.visible || matches!(&layer.r#type, TemplateLayerType::Group) {
             continue;
         }
         match &layer.r#type {
-            TemplateLayerType::Image => draw_image_layer(&mut canvas, template, layer, row)?,
+            TemplateLayerType::Image => draw_image_layer(store, &mut canvas, layer, row)?,
             TemplateLayerType::Shape => draw_shape_layer(&mut canvas, layer),
             TemplateLayerType::Text => draw_text_layer(&mut canvas, layer, row),
             TemplateLayerType::Group => {}
@@ -45,17 +45,22 @@ fn render_row(template: &TemplateProject, row: &BatchRow, output_dir: &Path) -> 
     Ok(output_path)
 }
 
-fn draw_image_layer(canvas: &mut RgbaImage, template: &TemplateProject, layer: &TemplateLayer, row: &BatchRow) -> Result<(), String> {
+fn draw_image_layer(store: &EcommerceStore, canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow) -> Result<(), String> {
     let image_data = layer.image.as_ref().ok_or_else(|| format!("图片图层缺少素材：{}", layer.name))?;
-    let source_path = layer
+    let bound_path = layer
         .binding_key
         .as_ref()
         .and_then(|key| row.values.get(key))
         .filter(|path| !path.trim().is_empty())
-        .cloned()
-        .or_else(|| template.assets.iter().find(|asset| asset.id == image_data.asset_id).map(|asset| asset.path.clone()))
-        .ok_or_else(|| format!("图片图层没有可用路径：{}", layer.name))?;
-    let image = image::open(&source_path).map_err(|error| format!("读取图片失败 {source_path}：{error}"))?;
+        .cloned();
+    let image = if let Some(path) = bound_path {
+        image::open(&path).map_err(|error| format!("读取图片失败 {path}：{error}"))?
+    } else {
+        let bytes = store
+            .load_asset_bytes(&image_data.asset_id)
+            .map_err(|error| format!("读取素材失败 {}: {error}", layer.name))?;
+        image::load_from_memory(&bytes).map_err(|error| format!("解码素材失败 {}: {error}", layer.name))?
+    };
     let target_w = layer.width.max(1.0) as u32;
     let target_h = layer.height.max(1.0) as u32;
     let (mut resized, offset_x, offset_y) = match image_data.fit {
