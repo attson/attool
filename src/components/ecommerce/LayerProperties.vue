@@ -117,14 +117,17 @@ function fixed2(value: number) {
           <span class="template-prop-label">装饰</span>
           <n-select :value="selected.text.textDecoration ?? 'none'" :options="decorationOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, textDecoration: $event as TextDecoration } })" />
         </label>
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">颜色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.text.color" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, color: $event } })" />
             <n-input :value="selected.text.color" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, color: $event } })" />
           </span>
         </label>
-        <label class="template-prop-field">
+      </div>
+      <h4 class="template-prop-subtitle">排版</h4>
+      <div class="template-prop-row">
+        <label class="template-prop-field full">
           <span class="template-prop-label">对齐</span>
           <n-select :value="selected.text.align ?? 'left'" :options="alignOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, align: $event as TextAlign } })" />
         </label>
@@ -142,7 +145,7 @@ function fixed2(value: number) {
     <details v-if="selected.type === 'text' && selected.text" class="template-prop-section template-prop-advanced">
       <summary>填充 / 描边 / 阴影</summary>
       <div class="template-prop-row">
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">背景色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.text.backgroundColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundColor: $event || undefined } })" />
@@ -153,7 +156,7 @@ function fixed2(value: number) {
           <span class="template-prop-label">圆角</span>
           <n-input-number :value="selected.text.backgroundRadius" :min="0" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundRadius: $event ?? 0 } })" />
         </label>
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">描边色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.text.strokeColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeColor: $event || undefined } })" />
@@ -164,7 +167,7 @@ function fixed2(value: number) {
           <span class="template-prop-label">描边宽</span>
           <n-input-number :value="selected.text.strokeWidth" :min="0" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeWidth: $event ?? 0 } })" />
         </label>
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">阴影色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.text.shadowColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowColor: $event || undefined } })" />
@@ -189,14 +192,14 @@ function fixed2(value: number) {
     <section v-if="selected.type === 'shape' && selected.shape" class="template-prop-section">
       <h3>形状</h3>
       <div class="template-prop-row">
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">填充色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.shape.fill ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, fill: $event || undefined } })" />
             <n-input :value="selected.shape.fill" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, fill: $event } })" />
           </span>
         </label>
-        <label class="template-prop-field">
+        <label class="template-prop-field full">
           <span class="template-prop-label">描边色</span>
           <span class="template-color-field">
             <n-color-picker :value="selected.shape.stroke ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, stroke: $event || undefined } })" />
