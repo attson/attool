@@ -39,7 +39,7 @@ function fixed2(value: number) {
 
 <template>
   <n-empty v-if="!selected" description="请选择一个图层" />
-  <n-form v-else class="template-prop-form" label-placement="left" :label-width="74" size="small">
+  <n-form v-else class="template-prop-form" label-placement="left" :label-width="50" size="small">
     <section class="template-prop-section">
       <h3>基础</h3>
       <n-form-item label="图层名">
