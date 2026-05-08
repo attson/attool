@@ -225,6 +225,28 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
       </n-card>
 
       <n-card title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">
+        <template #header-extra>
+          <n-button
+            text
+            class="template-header-action"
+            :class="{ 'is-active': selectedLayer?.visible ?? true }"
+            :disabled="!selectedLayer"
+            :title="selectedLayer?.visible === false ? '显示图层' : '隐藏图层'"
+            @click="selectedLayer && updateLayer({ ...selectedLayer, visible: !selectedLayer.visible })"
+          >
+            {{ selectedLayer?.visible === false ? '🚫' : '👁' }}
+          </n-button>
+          <n-button
+            text
+            class="template-header-action"
+            :class="{ 'is-active': Boolean(selectedLayer?.locked) }"
+            :disabled="!selectedLayer"
+            :title="selectedLayer?.locked ? '解锁图层' : '锁定图层'"
+            @click="selectedLayer && updateLayer({ ...selectedLayer, locked: !selectedLayer.locked })"
+          >
+            {{ selectedLayer?.locked ? '🔒' : '🔓' }}
+          </n-button>
+        </template>
         <LayerProperties :layer="selectedLayer" @update="updateLayer" />
       </n-card>
     </div>
