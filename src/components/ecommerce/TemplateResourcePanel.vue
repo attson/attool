@@ -71,16 +71,13 @@ function assetPreviewSrc(asset: TemplateAsset) {
     </template>
 
     <template v-else-if="props.activeTab === 'image'">
-      <div class="template-resource-heading">
-        <h3>添加图片</h3>
-      </div>
-      <n-button type="primary" block @click="emit('add-image')">选择本地图片</n-button>
       <div v-if="props.assets.length" class="template-image-asset-grid">
         <button v-for="asset in props.assets" :key="asset.id" type="button" class="template-image-asset" @click="emit('add-asset-image', asset)">
           <img :src="assetPreviewSrc(asset)" :alt="asset.name" />
           <span>{{ asset.name }}</span>
         </button>
       </div>
+      <n-button type="primary" block class="template-image-add" @click="emit('add-image')">添加图片</n-button>
     </template>
 
     <template v-else-if="props.activeTab === 'shape'">

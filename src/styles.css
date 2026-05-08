@@ -504,10 +504,18 @@ textarea {
 }
 
 .template-resource-panel {
+  display: flex;
+  flex-direction: column;
   min-height: 72vh;
   max-height: 72vh;
   overflow: auto;
   padding: 14px;
+}
+
+.template-resource-panel .template-image-add {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
 }
 
 .template-resource-heading h3 {
