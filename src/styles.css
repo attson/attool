@@ -805,3 +805,56 @@ textarea {
 .template-prop-form .n-form-item-label {
   padding-right: 6px;
 }
+
+.template-prop-pair {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 6px;
+  align-items: center;
+  min-width: 0;
+  min-height: 26px;
+  grid-column: 1 / -1;
+}
+
+.template-prop-pair-cell {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.template-prop-pair-cell > .n-input-number {
+  min-width: 0;
+  width: 100%;
+}
+
+.template-prop-pair-axis {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.template-prop-subtitle {
+  margin: 6px 0 2px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.template-editor-panel .n-card-header__extra {
+  display: flex;
+  gap: 4px;
+}
+
+.template-editor-panel .template-header-action {
+  --n-height: 22px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.template-editor-panel .template-header-action.is-active {
+  color: var(--ink);
+}
