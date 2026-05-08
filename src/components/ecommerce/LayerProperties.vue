@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { NCheckbox, NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
+import { NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
 import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle } from '../../types/ecommerceTemplate';
 
 const props = defineProps<{ layer: TemplateLayer | null }>();
@@ -47,22 +47,28 @@ function fixed2(value: number) {
           <span class="template-prop-label">图层名</span>
           <n-input :value="selected.name" :disabled="selected.locked" @update:value="patch({ name: $event })" />
         </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">X</span>
-          <n-input-number :value="fixed2(selected.x)" :precision="2" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
-        </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">Y</span>
-          <n-input-number :value="fixed2(selected.y)" :precision="2" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
-        </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">宽</span>
-          <n-input-number :value="fixed2(selected.width)" :precision="2" :min="1" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
-        </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">高</span>
-          <n-input-number :value="fixed2(selected.height)" :precision="2" :min="1" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
-        </label>
+        <div class="template-prop-pair">
+          <span class="template-prop-label">位置</span>
+          <span class="template-prop-pair-cell">
+            <span class="template-prop-pair-axis">X</span>
+            <n-input-number :value="fixed2(selected.x)" :precision="2" :show-button="false" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
+          </span>
+          <span class="template-prop-pair-cell">
+            <span class="template-prop-pair-axis">Y</span>
+            <n-input-number :value="fixed2(selected.y)" :precision="2" :show-button="false" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
+          </span>
+        </div>
+        <div class="template-prop-pair">
+          <span class="template-prop-label">尺寸</span>
+          <span class="template-prop-pair-cell">
+            <span class="template-prop-pair-axis">W</span>
+            <n-input-number :value="fixed2(selected.width)" :precision="2" :min="1" :show-button="false" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
+          </span>
+          <span class="template-prop-pair-cell">
+            <span class="template-prop-pair-axis">H</span>
+            <n-input-number :value="fixed2(selected.height)" :precision="2" :min="1" :show-button="false" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
+          </span>
+        </div>
         <label class="template-prop-field full">
           <span class="template-prop-label">透明度</span>
           <n-slider :value="selected.opacity" :min="0" :max="1" :step="0.01" :disabled="selected.locked" @update:value="patch({ opacity: Number($event) })" />
@@ -70,14 +76,6 @@ function fixed2(value: number) {
         <label class="template-prop-field">
           <span class="template-prop-label">旋转</span>
           <n-input-number :value="selected.rotation" :disabled="selected.locked" @update:value="patch({ rotation: $event ?? 0 })" />
-        </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">显示</span>
-          <n-checkbox :checked="selected.visible" @update:checked="patch({ visible: Boolean($event) })" />
-        </label>
-        <label class="template-prop-field">
-          <span class="template-prop-label">锁定</span>
-          <n-checkbox :checked="Boolean(selected.locked)" @update:checked="emit('update', { ...selected, locked: Boolean($event) })" />
         </label>
       </div>
     </section>
