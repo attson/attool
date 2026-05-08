@@ -669,3 +669,11 @@ textarea {
 .template-canvas-layer img {
   object-position: center;
 }
+
+.template-prop-grid.compact {
+  gap: 6px;
+}
+
+.template-prop-grid.compact .n-input-number {
+  width: 100%;
+}

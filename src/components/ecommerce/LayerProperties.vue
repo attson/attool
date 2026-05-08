@@ -31,6 +31,10 @@ function patch(values: Partial<TemplateLayer>) {
   if (!props.layer || props.layer.locked) return;
   emit('update', { ...props.layer, ...values });
 }
+
+function fixed2(value: number) {
+  return Number(value.toFixed(2));
+}
 </script>
 
 <template>
@@ -41,17 +45,17 @@ function patch(values: Partial<TemplateLayer>) {
       <n-form-item label="图层名">
         <n-input :value="selected.name" :disabled="selected.locked" @update:value="patch({ name: $event })" />
       </n-form-item>
-      <n-form-item label="X">
-        <n-input-number :value="selected.x" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
+      <n-form-item label="位置">
+        <div class="template-prop-grid compact">
+          <n-input-number :value="fixed2(selected.x)" :precision="2" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
+          <n-input-number :value="fixed2(selected.y)" :precision="2" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
+        </div>
       </n-form-item>
-      <n-form-item label="Y">
-        <n-input-number :value="selected.y" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
-      </n-form-item>
-      <n-form-item label="宽">
-        <n-input-number :value="selected.width" :min="1" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
-      </n-form-item>
-      <n-form-item label="高">
-        <n-input-number :value="selected.height" :min="1" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
+      <n-form-item label="尺寸">
+        <div class="template-prop-grid compact">
+          <n-input-number :value="fixed2(selected.width)" :precision="2" :min="1" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
+          <n-input-number :value="fixed2(selected.height)" :precision="2" :min="1" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
+        </div>
       </n-form-item>
       <n-form-item label="透明度">
         <n-slider :value="selected.opacity" :min="0" :max="1" :step="0.01" :disabled="selected.locked" @update:value="patch({ opacity: Number($event) })" />
