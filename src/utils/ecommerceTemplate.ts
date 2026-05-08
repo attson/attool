@@ -209,6 +209,17 @@ export function deleteLayerById(layers: TemplateLayer[], layerId: string): Templ
     .map((layer) => (layer.children ? { ...layer, children: deleteLayerById(layer.children, layerId) } : layer));
 }
 
+export function removeSelectedLayer(project: TemplateProject, selectedLayerId: string | null): { project: TemplateProject; selectedLayerId: string | null } {
+  if (!selectedLayerId) {
+    return { project, selectedLayerId: null };
+  }
+  const nextLayers = deleteLayerById(project.layers, selectedLayerId);
+  return {
+    project: { ...project, layers: nextLayers, updatedAt: new Date().toLocaleString() },
+    selectedLayerId: null
+  };
+}
+
 function cloneLayer(layer: TemplateLayer): TemplateLayer {
   return {
     ...layer,

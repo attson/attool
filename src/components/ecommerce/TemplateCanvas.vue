@@ -136,6 +136,13 @@ function stopPointer(event: PointerEvent) {
     // The browser can release capture before pointerup during fast drags.
   }
 }
+
+function handleLayerKeydown(event: KeyboardEvent, layer: TemplateLayer) {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+  event.preventDefault();
+  if (layer.locked) return;
+  emit('action', 'delete', layer);
+}
 </script>
 
 <template>
@@ -152,6 +159,7 @@ function stopPointer(event: PointerEvent) {
         @pointermove="movePointer"
         @pointerup="stopPointer"
         @pointercancel="stopPointer"
+        @keydown="handleLayerKeydown($event, layer)"
       >
         <span v-if="layer.type === 'text'" class="template-text-layer" :style="textLayerPreviewStyle(layer, canvasScale)">
           {{ layer.text?.text }}

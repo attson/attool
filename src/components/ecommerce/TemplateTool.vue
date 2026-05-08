@@ -11,11 +11,11 @@ import {
   createShapeLayer,
   createTemplateAsset,
   createTextLayer,
-  deleteLayerById,
   duplicateLayer,
   flattenLayers,
   insertLayer,
   moveLayer,
+  removeSelectedLayer,
   updateLayerById
 } from '../../utils/ecommerceTemplate';
 import LayerProperties from './LayerProperties.vue';
@@ -112,8 +112,9 @@ async function addImageLayer() {
 
 function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer) {
   if (action === 'delete') {
-    project.value = touch({ ...project.value, layers: deleteLayerById(project.value.layers, layer.id) });
-    selectedLayerId.value = null;
+    const result = removeSelectedLayer(project.value, layer.id);
+    project.value = result.project;
+    selectedLayerId.value = result.selectedLayerId;
     return;
   }
   if (action === 'duplicate') {

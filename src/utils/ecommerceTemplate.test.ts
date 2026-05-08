@@ -12,6 +12,7 @@ import {
   flattenLayers,
   insertLayer,
   moveLayer,
+  removeSelectedLayer,
   makeExportFileName,
   textLayerPreviewStyle,
   updateLayerById,
@@ -200,6 +201,14 @@ describe('ecommerceTemplate helpers', () => {
     expect(next.layers.at(-1)).toEqual(layer);
     expect(project.layers).toHaveLength(2);
     expect(next.layers).toHaveLength(3);
+  });
+
+  it('removes a selected layer and returns the next selection', () => {
+    const project = makeProject();
+    const result = removeSelectedLayer(project, 'image-1');
+
+    expect(result.project.layers.map((layer) => layer.id)).toEqual(['group-1']);
+    expect(result.selectedLayerId).toBeNull();
   });
 
   it('updates, deletes, duplicates, and reorders layers immutably', () => {
