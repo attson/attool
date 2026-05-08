@@ -606,6 +606,46 @@ textarea {
   margin: 0 4px;
 }
 
+.template-prop-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.template-prop-field {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  min-height: 26px;
+}
+
+.template-prop-field.full {
+  grid-column: 1 / -1;
+}
+
+.template-prop-field.top {
+  align-items: start;
+}
+
+.template-prop-label {
+  color: var(--ink);
+  font-size: 0.72rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.template-prop-field > .n-input-number,
+.template-prop-field > .n-input,
+.template-prop-field > .n-select,
+.template-prop-field > .n-slider,
+.template-prop-field > .template-color-field {
+  min-width: 0;
+  width: 100%;
+}
+
 .template-prop-form .n-form-item-blank {
   min-width: 0;
 }
