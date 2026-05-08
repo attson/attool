@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { NCheckbox, NEmpty, NForm, NFormItem, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
+import { NCheckbox, NColorPicker, NEmpty, NForm, NFormItem, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
 import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle } from '../../types/ecommerceTemplate';
 
 const props = defineProps<{ layer: TemplateLayer | null }>();
@@ -35,19 +35,23 @@ function patch(values: Partial<TemplateLayer>) {
 
 <template>
   <n-empty v-if="!selected" description="请选择一个图层" />
-  <n-form v-else label-placement="top" size="small">
+  <n-form v-else class="template-prop-form" label-placement="left" :label-width="74" size="small">
     <section class="template-prop-section">
       <h3>基础</h3>
       <n-form-item label="图层名">
         <n-input :value="selected.name" :disabled="selected.locked" @update:value="patch({ name: $event })" />
       </n-form-item>
-      <n-form-item label="X / Y / 宽 / 高">
-        <div class="template-prop-grid">
-          <n-input-number :value="selected.x" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
-          <n-input-number :value="selected.y" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
-          <n-input-number :value="selected.width" :min="1" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
-          <n-input-number :value="selected.height" :min="1" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
-        </div>
+      <n-form-item label="X">
+        <n-input-number :value="selected.x" :disabled="selected.locked" @update:value="patch({ x: $event ?? 0 })" />
+      </n-form-item>
+      <n-form-item label="Y">
+        <n-input-number :value="selected.y" :disabled="selected.locked" @update:value="patch({ y: $event ?? 0 })" />
+      </n-form-item>
+      <n-form-item label="宽">
+        <n-input-number :value="selected.width" :min="1" :disabled="selected.locked" @update:value="patch({ width: $event ?? 1 })" />
+      </n-form-item>
+      <n-form-item label="高">
+        <n-input-number :value="selected.height" :min="1" :disabled="selected.locked" @update:value="patch({ height: $event ?? 1 })" />
       </n-form-item>
       <n-form-item label="透明度">
         <n-slider :value="selected.opacity" :min="0" :max="1" :step="0.01" :disabled="selected.locked" @update:value="patch({ opacity: Number($event) })" />
@@ -90,7 +94,10 @@ function patch(values: Partial<TemplateLayer>) {
       </n-form-item>
       <n-form-item label="颜色 / 对齐">
         <div class="template-prop-grid">
-          <n-input :value="selected.text.color" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, color: $event } })" />
+          <div class="template-color-field">
+            <n-color-picker :value="selected.text.color" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, color: $event } })" />
+            <n-input :value="selected.text.color" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, color: $event } })" />
+          </div>
           <n-select :value="selected.text.align ?? 'left'" :options="alignOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, align: $event as TextAlign } })" />
         </div>
       </n-form-item>
@@ -106,19 +113,28 @@ function patch(values: Partial<TemplateLayer>) {
       <summary>填充 / 描边 / 阴影</summary>
       <n-form-item label="背景色 / 圆角">
         <div class="template-prop-grid">
-          <n-input :value="selected.text.backgroundColor" placeholder="#fff1b8" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundColor: $event || undefined } })" />
+          <div class="template-color-field">
+            <n-color-picker :value="selected.text.backgroundColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundColor: $event || undefined } })" />
+            <n-input :value="selected.text.backgroundColor" placeholder="#fff1b8" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundColor: $event || undefined } })" />
+          </div>
           <n-input-number :value="selected.text.backgroundRadius" :min="0" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, backgroundRadius: $event ?? 0 } })" />
         </div>
       </n-form-item>
       <n-form-item label="描边色 / 描边宽">
         <div class="template-prop-grid">
-          <n-input :value="selected.text.strokeColor" placeholder="#000000" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeColor: $event || undefined } })" />
+          <div class="template-color-field">
+            <n-color-picker :value="selected.text.strokeColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeColor: $event || undefined } })" />
+            <n-input :value="selected.text.strokeColor" placeholder="#000000" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeColor: $event || undefined } })" />
+          </div>
           <n-input-number :value="selected.text.strokeWidth" :min="0" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, strokeWidth: $event ?? 0 } })" />
         </div>
       </n-form-item>
       <n-form-item label="阴影色 / 模糊">
         <div class="template-prop-grid">
-          <n-input :value="selected.text.shadowColor" placeholder="#000000" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowColor: $event || undefined } })" />
+          <div class="template-color-field">
+            <n-color-picker :value="selected.text.shadowColor ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowColor: $event || undefined } })" />
+            <n-input :value="selected.text.shadowColor" placeholder="#000000" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowColor: $event || undefined } })" />
+          </div>
           <n-input-number :value="selected.text.shadowBlur" :min="0" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, shadowBlur: $event ?? 0 } })" />
         </div>
       </n-form-item>
@@ -132,9 +148,15 @@ function patch(values: Partial<TemplateLayer>) {
 
     <section v-if="selected.type === 'shape' && selected.shape" class="template-prop-section">
       <h3>形状</h3>
-      <n-form-item label="填充 / 描边">
-        <div class="template-prop-grid">
+      <n-form-item label="填充色">
+        <div class="template-color-field">
+          <n-color-picker :value="selected.shape.fill ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, fill: $event || undefined } })" />
           <n-input :value="selected.shape.fill" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, fill: $event } })" />
+        </div>
+      </n-form-item>
+      <n-form-item label="描边色">
+        <div class="template-color-field">
+          <n-color-picker :value="selected.shape.stroke ?? null" :show-alpha="false" :modes="['hex']" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, stroke: $event || undefined } })" />
           <n-input :value="selected.shape.stroke" :disabled="selected.locked" @update:value="patch({ shape: { ...selected.shape!, stroke: $event } })" />
         </div>
       </n-form-item>

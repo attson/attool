@@ -577,6 +577,7 @@ textarea {
   min-height: 20px;
   padding-bottom: 2px;
   font-size: 0.76rem;
+  justify-content: flex-start;
 }
 
 .template-editor-panel .n-input-number,
@@ -587,6 +588,22 @@ textarea {
 
 .template-prop-section .n-slider {
   margin: 2px 6px 0;
+}
+
+.template-prop-form .n-form-item-blank {
+  min-width: 0;
+}
+
+.template-color-field {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.template-color-field .n-color-picker {
+  width: 34px;
 }
 
 .template-prop-advanced {
