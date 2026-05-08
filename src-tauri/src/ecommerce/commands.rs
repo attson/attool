@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use super::{
     batch::{batch_from_folder, read_batch_table},
     render::export_images,
-    models::{BatchDataPreview, ExportRequest, ExportResult, TemplateProject, TemplateSummary},
+    models::{BatchDataPreview, ExportRequest, ExportResult, TemplateAsset, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
@@ -48,6 +48,51 @@ pub async fn save_ecommerce_template(
     store: State<'_, EcommerceStore>,
 ) -> Result<TemplateProject, String> {
     store.save_template(project)
+}
+
+#[tauri::command]
+pub async fn save_pasted_template_asset(
+    project_id: String,
+    name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
+    store: State<'_, EcommerceStore>,
+) -> Result<TemplateAsset, String> {
+    if bytes.is_empty() {
+        return Err("剪贴板图片为空".to_string());
+    }
+    let image = image::load_from_memory(&bytes)
+        .map_err(|error| format!("剪贴板图片格式不支持：{error}"))?;
+    let asset_id = format!("asset-{}", uuid::Uuid::new_v4().simple());
+    let extension = image_extension(&name, &mime_type);
+    let asset_dir = store.template_dir(&project_id).join("assets");
+    std::fs::create_dir_all(&asset_dir)
+        .map_err(|error| format!("创建素材目录失败：{error}"))?;
+    let path = asset_dir.join(format!("{asset_id}.{extension}"));
+    std::fs::write(&path, bytes)
+        .map_err(|error| format!("保存剪贴板图片失败：{error}"))?;
+
+    Ok(TemplateAsset {
+        id: asset_id,
+        name,
+        path: path.to_string_lossy().into_owned(),
+        source_layer_id: None,
+        mime_type: if mime_type.trim().is_empty() { format!("image/{extension}") } else { mime_type },
+        width: image.width(),
+        height: image.height(),
+    })
+}
+
+fn image_extension(name: &str, mime_type: &str) -> &'static str {
+    match mime_type {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ if name.to_ascii_lowercase().ends_with(".jpg") || name.to_ascii_lowercase().ends_with(".jpeg") => "jpg",
+        _ if name.to_ascii_lowercase().ends_with(".webp") => "webp",
+        _ if name.to_ascii_lowercase().ends_with(".gif") => "gif",
+        _ => "png",
+    }
 }
 
 

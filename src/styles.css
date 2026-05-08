@@ -522,6 +522,13 @@ textarea {
   font-size: 0.82rem;
 }
 
+.template-paste-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .template-preset-grid {
   display: grid;
   gap: 10px;

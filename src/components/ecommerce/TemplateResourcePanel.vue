@@ -67,9 +67,10 @@ const shapePresets: { key: ShapeKind; title: string }[] = [
     <template v-else-if="props.activeTab === 'image'">
       <div class="template-resource-heading">
         <h3>添加图片</h3>
-        <p>导入本地图片作为模板素材</p>
+        <p>导入本地图片，或直接 Cmd/Ctrl + V 粘贴图片</p>
       </div>
       <n-button type="primary" block @click="emit('add-image')">选择本地图片</n-button>
+      <p class="template-paste-hint">复制截图或图片后，在此面板按 Cmd/Ctrl + V 即可上传。</p>
     </template>
 
     <template v-else-if="props.activeTab === 'shape'">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { basename } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -37,6 +37,8 @@ const selectedLayer = computed(() => flattenLayers(project.value.layers).find((l
 const requiredFields = computed(() => collectBindingKeys(project.value.layers));
 
 onMounted(loadTemplateList);
+onMounted(() => window.addEventListener('paste', handlePaste));
+onUnmounted(() => window.removeEventListener('paste', handlePaste));
 
 async function loadTemplateList() {
   templates.value = await invoke<TemplateSummary[]>('list_ecommerce_templates');
@@ -116,6 +118,48 @@ async function addImageLayer() {
   } catch (error) {
     notice.value = String(error);
   }
+}
+
+async function handlePaste(event: ClipboardEvent) {
+  if (activeResourceTab.value !== 'image') return;
+  if (isTypingTarget(event.target)) return;
+
+  const file = findClipboardImage(event);
+  if (!file) return;
+
+  event.preventDefault();
+  notice.value = '';
+  try {
+    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const asset = await invoke<TemplateAsset>('save_pasted_template_asset', {
+      projectId: project.value.id,
+      name: file.name || `粘贴图片-${new Date().toLocaleTimeString()}.png`,
+      mimeType: file.type || 'image/png',
+      bytes
+    });
+    const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
+    layer.name = asset.name;
+    project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
+    selectedLayerId.value = layer.id;
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+
+function findClipboardImage(event: ClipboardEvent): File | null {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      return item.getAsFile();
+    }
+  }
+  return null;
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) return false;
+  return Boolean(element.closest('input, textarea, [contenteditable="true"]'));
 }
 
 function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer) {
