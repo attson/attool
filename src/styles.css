@@ -486,8 +486,7 @@ textarea {
 .template-rail-button {
   display: grid;
   place-items: center;
-  gap: 3px;
-  min-height: 54px;
+  min-height: 44px;
   border: 0;
   border-radius: 14px;
   background: transparent;
@@ -501,7 +500,7 @@ textarea {
 }
 
 .template-rail-button span {
-  font-size: 0.72rem;
+  font-size: 0.92rem;
 }
 
 .template-resource-panel {
@@ -520,13 +519,6 @@ textarea {
   margin: 4px 0 12px;
   color: var(--muted);
   font-size: 0.82rem;
-}
-
-.template-paste-hint {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.5;
 }
 
 .template-image-asset-grid {

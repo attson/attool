@@ -23,11 +23,11 @@ const emit = defineEmits<{
   reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
 }>();
 
-const tabs: { key: ResourceTab; label: string; icon: string }[] = [
-  { key: 'text', label: '文字', icon: 'T' },
-  { key: 'image', label: '图片', icon: '图' },
-  { key: 'shape', label: '素材', icon: '形' },
-  { key: 'layers', label: '图层', icon: '层' }
+const tabs: { key: ResourceTab; label: string }[] = [
+  { key: 'text', label: '文字' },
+  { key: 'image', label: '图片' },
+  { key: 'shape', label: '素材' },
+  { key: 'layers', label: '图层' }
 ];
 
 const textPresets = [
@@ -52,7 +52,6 @@ function assetPreviewSrc(asset: TemplateAsset) {
 <template>
   <div class="template-workbench-rail">
     <button v-for="tab in tabs" :key="tab.key" type="button" :class="['template-rail-button', { active: activeTab === tab.key }]" @click="emit('update:activeTab', tab.key)">
-      <b>{{ tab.icon }}</b>
       <span>{{ tab.label }}</span>
     </button>
   </div>
@@ -74,10 +73,8 @@ function assetPreviewSrc(asset: TemplateAsset) {
     <template v-else-if="props.activeTab === 'image'">
       <div class="template-resource-heading">
         <h3>添加图片</h3>
-        <p>导入本地图片，或直接 Cmd/Ctrl + V 粘贴图片</p>
       </div>
       <n-button type="primary" block @click="emit('add-image')">选择本地图片</n-button>
-      <p class="template-paste-hint">复制截图或图片后，在此面板按 Cmd/Ctrl + V 上传到下方素材库；点击素材再添加到画布。</p>
       <div v-if="props.assets.length" class="template-image-asset-grid">
         <button v-for="asset in props.assets" :key="asset.id" type="button" class="template-image-asset" @click="emit('add-asset-image', asset)">
           <img :src="assetPreviewSrc(asset)" :alt="asset.name" />
