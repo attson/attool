@@ -11,6 +11,7 @@ const props = defineProps<{
   layers: TemplateLayer[];
   assets: TemplateAsset[];
   selectedLayerId: string | null;
+  isPasteTarget?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -19,6 +20,8 @@ const emit = defineEmits<{
   'add-shape': [shape: ShapeKind];
   'add-image': [];
   'add-asset-image': [asset: TemplateAsset];
+  'remove-asset': [asset: TemplateAsset];
+  'panel-mousedown': [];
   select: [layerId: string];
   reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
 }>();
@@ -56,7 +59,7 @@ function assetPreviewSrc(asset: TemplateAsset) {
     </button>
   </div>
 
-  <aside class="template-resource-panel">
+  <aside class="template-resource-panel" :class="{ 'is-paste-target': props.isPasteTarget }" @mousedown="emit('panel-mousedown')">
     <template v-if="props.activeTab === 'text'">
       <div class="template-resource-heading">
         <h3>添加文字</h3>
@@ -72,10 +75,13 @@ function assetPreviewSrc(asset: TemplateAsset) {
 
     <template v-else-if="props.activeTab === 'image'">
       <div v-if="props.assets.length" class="template-image-asset-grid">
-        <button v-for="asset in props.assets" :key="asset.id" type="button" class="template-image-asset" @click="emit('add-asset-image', asset)">
-          <img :src="assetPreviewSrc(asset)" :alt="asset.name" />
-          <span>{{ asset.name }}</span>
-        </button>
+        <div v-for="asset in props.assets" :key="asset.id" class="template-image-asset-wrapper">
+          <button type="button" class="template-image-asset" @click="emit('add-asset-image', asset)">
+            <img :src="assetPreviewSrc(asset)" :alt="asset.name" />
+            <span>{{ asset.name }}</span>
+          </button>
+          <button type="button" class="template-image-asset-delete" :title="`删除 ${asset.name}`" @click.stop="emit('remove-asset', asset)">×</button>
+        </div>
       </div>
       <n-button type="primary" block class="template-image-add" @click="emit('add-image')">添加图片</n-button>
     </template>

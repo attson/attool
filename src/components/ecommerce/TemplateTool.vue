@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NPageHeader, NSpace, NTag } from 'naive-ui';
@@ -30,6 +30,26 @@ const notice = ref('');
 const importing = ref(false);
 const saving = ref(false);
 const activeResourceTab = ref<ResourceTab>('text');
+const pasteTarget = ref<'canvas' | 'library'>('canvas');
+
+watch(activeResourceTab, (tab) => {
+  pasteTarget.value = tab === 'image' ? 'library' : 'canvas';
+});
+
+function focusPasteTargetCanvas() {
+  pasteTarget.value = 'canvas';
+}
+
+function focusPasteTargetLibrary() {
+  if (activeResourceTab.value === 'image') pasteTarget.value = 'library';
+}
+
+function removeAsset(asset: TemplateAsset) {
+  project.value = touch({
+    ...project.value,
+    assets: project.value.assets.filter((item) => item.id !== asset.id)
+  });
+}
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
 const requiredFields = computed(() => collectBindingKeys(project.value.layers));
@@ -128,7 +148,6 @@ function addAssetImageLayer(asset: TemplateAsset) {
 }
 
 async function handlePaste(event: ClipboardEvent) {
-  if (activeResourceTab.value !== 'image') return;
   if (isTypingTarget(event.target)) return;
 
   const file = findClipboardImage(event);
@@ -144,7 +163,13 @@ async function handlePaste(event: ClipboardEvent) {
       mimeType: file.type || 'image/png',
       bytes
     });
-    project.value = touch({ ...project.value, assets: [...project.value.assets, asset] });
+    if (pasteTarget.value === 'canvas') {
+      const layer = createImageLayer({ canvasWidth: project.value.canvasWidth, canvasHeight: project.value.canvasHeight, asset });
+      project.value = touch({ ...insertLayer(project.value, layer), assets: [...project.value.assets, asset] });
+      selectedLayerId.value = layer.id;
+    } else {
+      project.value = touch({ ...project.value, assets: [...project.value.assets, asset] });
+    }
   } catch (error) {
     notice.value = String(error);
   }
@@ -212,15 +237,24 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         :layers="project.layers"
         :assets="project.assets"
         :selected-layer-id="selectedLayerId"
+        :is-paste-target="pasteTarget === 'library' && activeResourceTab === 'image'"
         @add-text="addTextLayer"
         @add-shape="addShapeLayer"
         @add-image="addImageLayer"
         @add-asset-image="addAssetImageLayer"
+        @remove-asset="removeAsset"
+        @panel-mousedown="focusPasteTargetLibrary"
         @select="selectLayer"
         @reorder="reorderLayers"
       />
 
-      <n-card title="画布" size="small" :bordered="false" class="panel-card template-canvas-card">
+      <n-card
+        title="画布"
+        size="small"
+        :bordered="false"
+        :class="['panel-card', 'template-canvas-card', { 'is-paste-target': pasteTarget === 'canvas' }]"
+        @mousedown="focusPasteTargetCanvas"
+      >
         <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" @action="handleLayerAction" />
       </n-card>
 
