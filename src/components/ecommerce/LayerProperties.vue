@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
+import { NButton, NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
 import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle } from '../../types/ecommerceTemplate';
 
 const props = defineProps<{ layer: TemplateLayer | null }>();
-const emit = defineEmits<{ update: [layer: TemplateLayer] }>();
+const emit = defineEmits<{ update: [layer: TemplateLayer]; 'batch-replace': [layer: TemplateLayer] }>();
 
 const selected = computed(() => props.layer);
 const fitOptions = [
@@ -224,6 +224,7 @@ function fixed2(value: number) {
           <span class="template-prop-label">裁剪方式</span>
           <n-select :value="selected.image.fit" :options="fitOptions" :disabled="selected.locked" @update:value="patch({ image: { ...selected.image!, fit: $event as 'cover' | 'contain' | 'stretch' } })" />
         </label>
+        <n-button block secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">批量替换该图片</n-button>
       </div>
     </section>
   </n-form>

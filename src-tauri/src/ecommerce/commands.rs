@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager, State};
 
 use super::{
     batch::{batch_from_folder, read_batch_table},
-    render::export_images,
+    render::{batch_replace_layer_image, export_images},
     models::{BatchDataPreview, ExportRequest, ExportResult, TemplateAsset, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
@@ -131,4 +131,15 @@ pub async fn export_ecommerce_images(
     store: State<'_, EcommerceStore>,
 ) -> Result<ExportResult, String> {
     export_images(&store, request)
+}
+
+#[tauri::command]
+pub async fn batch_replace_image_layer(
+    template_id: String,
+    layer_id: String,
+    source_paths: Vec<String>,
+    output_dir: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<ExportResult, String> {
+    batch_replace_layer_image(&store, &template_id, &layer_id, &source_paths, &output_dir)
 }

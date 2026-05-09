@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NFlex, NInput, NModal, NPageHeader, NSpace, NTag } from 'naive-ui';
-import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
+import type { ExportResult, ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
 import {
   collectBindingKeys,
   createImageLayer,
@@ -38,6 +38,8 @@ const nameDialogTitle = ref('');
 const nameDialogValue = ref('');
 const nameDialogBusy = ref(false);
 const nameDialogAction = ref<NameDialogAction>({ type: 'save' });
+const batchNotice = ref('');
+const batchRunning = ref(false);
 
 watch(activeResourceTab, (tab) => {
   pasteTarget.value = tab === 'image' ? 'library' : 'canvas';
@@ -156,6 +158,33 @@ async function confirmNameDialog() {
     notice.value = String(error);
   } finally {
     nameDialogBusy.value = false;
+  }
+}
+
+async function batchReplaceLayer(layer: TemplateLayer) {
+  if (batchRunning.value) return;
+  notice.value = '';
+  batchNotice.value = '';
+  try {
+    const sources = await open({ multiple: true, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (!Array.isArray(sources) || sources.length === 0) return;
+    const outputDir = await open({ directory: true, multiple: false });
+    if (typeof outputDir !== 'string') return;
+
+    batchRunning.value = true;
+    project.value = await invoke<TemplateProject>('save_ecommerce_template', { project: project.value });
+    await loadTemplateList();
+    const result = await invoke<ExportResult>('batch_replace_image_layer', {
+      templateId: project.value.id,
+      layerId: layer.id,
+      sourcePaths: sources,
+      outputDir
+    });
+    batchNotice.value = `批量生成完成：成功 ${result.succeeded} / ${result.total}，失败 ${result.failed.length}。输出：${outputDir}`;
+  } catch (error) {
+    notice.value = String(error);
+  } finally {
+    batchRunning.value = false;
   }
 }
 
@@ -314,6 +343,8 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
     </n-page-header>
 
     <n-alert v-if="notice" type="error" :bordered="false">{{ notice }}</n-alert>
+    <n-alert v-if="batchRunning" type="info" :bordered="false">正在批量生成...</n-alert>
+    <n-alert v-if="batchNotice" type="success" :bordered="false" closable @close="batchNotice = ''">{{ batchNotice }}</n-alert>
 
     <div class="template-workbench">
       <TemplateResourcePanel
@@ -370,7 +401,7 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
             {{ selectedLayer?.locked ? '🔒' : '🔓' }}
           </n-button>
         </template>
-        <LayerProperties :layer="selectedLayer" @update="updateLayer" />
+        <LayerProperties :layer="selectedLayer" @update="updateLayer" @batch-replace="batchReplaceLayer" />
       </n-card>
     </div>
 

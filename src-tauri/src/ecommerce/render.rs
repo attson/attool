@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ab_glyph::{FontArc, PxScale};
@@ -6,6 +7,69 @@ use imageproc::drawing::{draw_filled_ellipse_mut, draw_filled_rect_mut, draw_hol
 use imageproc::rect::Rect;
 
 use super::{models::*, storage::EcommerceStore};
+
+const BATCH_REPLACE_BINDING: &str = "__batch_replace_image";
+
+pub fn batch_replace_layer_image(
+    store: &EcommerceStore,
+    template_id: &str,
+    layer_id: &str,
+    source_paths: &[String],
+    output_dir: &str,
+) -> Result<ExportResult, String> {
+    let template = store.load_template(template_id)?;
+    if !flatten_layers(&template.layers).iter().any(|layer| layer.id == layer_id && matches!(layer.r#type, TemplateLayerType::Image)) {
+        return Err("请选择一个图片图层后再批量替换".to_string());
+    }
+    let output_dir = PathBuf::from(output_dir.trim());
+    if output_dir.as_os_str().is_empty() {
+        return Err("请选择输出目录".to_string());
+    }
+    std::fs::create_dir_all(&output_dir).map_err(|error| format!("创建输出目录失败：{error}"))?;
+
+    let mut patched = template.clone();
+    set_layer_binding(&mut patched.layers, layer_id, Some(BATCH_REPLACE_BINDING.to_string()));
+
+    let mut outputs = Vec::new();
+    let mut failed = Vec::new();
+    for (index, source) in source_paths.iter().enumerate() {
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            failed.push(ExportFailure { row_index: index, field: None, message: "图片路径为空".to_string() });
+            continue;
+        }
+        let stem = Path::new(trimmed)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("image")
+            .to_string();
+        let mut values = HashMap::new();
+        values.insert(BATCH_REPLACE_BINDING.to_string(), trimmed.to_string());
+        values.insert("name".to_string(), stem);
+        let row = BatchRow { id: format!("batch-{index}"), index, values };
+        match render_row(store, &patched, &row, &output_dir) {
+            Ok(path) => outputs.push(path.to_string_lossy().into_owned()),
+            Err(message) => failed.push(ExportFailure { row_index: index, field: None, message }),
+        }
+    }
+
+    Ok(ExportResult { total: source_paths.len(), succeeded: outputs.len(), outputs, failed })
+}
+
+fn set_layer_binding(layers: &mut [TemplateLayer], layer_id: &str, key: Option<String>) -> bool {
+    for layer in layers.iter_mut() {
+        if layer.id == layer_id {
+            layer.binding_key = key;
+            return true;
+        }
+        if let Some(children) = layer.children.as_mut() {
+            if set_layer_binding(children, layer_id, key.clone()) {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 pub fn export_images(store: &EcommerceStore, request: ExportRequest) -> Result<ExportResult, String> {
     let template = store.load_template(&request.template_id)?;

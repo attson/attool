@@ -1107,7 +1107,8 @@ pub fn run() {
             ecommerce::commands::import_template_asset_from_path,
             ecommerce::commands::import_batch_table,
             ecommerce::commands::create_batch_from_folder,
-            ecommerce::commands::export_ecommerce_images
+            ecommerce::commands::export_ecommerce_images,
+            ecommerce::commands::batch_replace_image_layer
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
