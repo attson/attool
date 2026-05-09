@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
-import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle } from '../../types/ecommerceTemplate';
+import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle, TextOrientation } from '../../types/ecommerceTemplate';
 
 const props = defineProps<{ layer: TemplateLayer | null }>();
 const emit = defineEmits<{ update: [layer: TemplateLayer] }>();
@@ -25,6 +25,10 @@ const decorationOptions: { label: string; value: TextDecoration }[] = [
   { label: '无', value: 'none' },
   { label: '下划线', value: 'underline' },
   { label: '删除线', value: 'line-through' }
+];
+const orientationOptions: { label: string; value: TextOrientation }[] = [
+  { label: '横排', value: 'horizontal' },
+  { label: '竖排', value: 'vertical' }
 ];
 
 function patch(values: Partial<TemplateLayer>) {
@@ -127,7 +131,11 @@ function fixed2(value: number) {
       </div>
       <h4 class="template-prop-subtitle">排版</h4>
       <div class="template-prop-row">
-        <label class="template-prop-field full">
+        <label class="template-prop-field">
+          <span class="template-prop-label">方向</span>
+          <n-select :value="selected.text.orientation ?? 'horizontal'" :options="orientationOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, orientation: $event as TextOrientation } })" />
+        </label>
+        <label class="template-prop-field">
           <span class="template-prop-label">对齐</span>
           <n-select :value="selected.text.align ?? 'left'" :options="alignOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, align: $event as TextAlign } })" />
         </label>
