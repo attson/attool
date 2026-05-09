@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { NAlert, NButton, NCard, NPageHeader, NSpace, NTag } from 'naive-ui';
+import { NAlert, NButton, NCard, NFlex, NInput, NModal, NPageHeader, NSpace, NTag } from 'naive-ui';
 import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
 import {
   collectBindingKeys,
@@ -31,6 +31,13 @@ const importing = ref(false);
 const saving = ref(false);
 const activeResourceTab = ref<ResourceTab>('text');
 const pasteTarget = ref<'canvas' | 'library'>('canvas');
+
+type NameDialogAction = { type: 'save' } | { type: 'rename'; id: string };
+const nameDialogVisible = ref(false);
+const nameDialogTitle = ref('');
+const nameDialogValue = ref('');
+const nameDialogBusy = ref(false);
+const nameDialogAction = ref<NameDialogAction>({ type: 'save' });
 
 watch(activeResourceTab, (tab) => {
   pasteTarget.value = tab === 'image' ? 'library' : 'canvas';
@@ -108,16 +115,64 @@ async function loadTemplate(id: string) {
   }
 }
 
-async function saveTemplate() {
+function requestSaveTemplate() {
+  nameDialogAction.value = { type: 'save' };
+  nameDialogTitle.value = '保存模板';
+  nameDialogValue.value = project.value.name;
+  nameDialogVisible.value = true;
+}
+
+function requestRenameTemplate(template: TemplateSummary) {
+  nameDialogAction.value = { type: 'rename', id: template.id };
+  nameDialogTitle.value = '重命名模板';
+  nameDialogValue.value = template.name;
+  nameDialogVisible.value = true;
+}
+
+async function confirmNameDialog() {
+  const name = nameDialogValue.value.trim();
+  if (!name) {
+    notice.value = '模板名称不能为空';
+    return;
+  }
+  nameDialogBusy.value = true;
   notice.value = '';
-  saving.value = true;
   try {
-    project.value = await invoke<TemplateProject>('save_ecommerce_template', { project: project.value });
+    if (nameDialogAction.value.type === 'save') {
+      project.value = await invoke<TemplateProject>('save_ecommerce_template', {
+        project: { ...project.value, name }
+      });
+      saving.value = false;
+    } else {
+      const id = nameDialogAction.value.id;
+      const renamed = await invoke<TemplateProject>('rename_ecommerce_template', { id, name });
+      if (id === project.value.id) {
+        project.value = { ...project.value, name: renamed.name, updatedAt: renamed.updatedAt };
+      }
+    }
     await loadTemplateList();
+    nameDialogVisible.value = false;
   } catch (error) {
     notice.value = String(error);
   } finally {
-    saving.value = false;
+    nameDialogBusy.value = false;
+  }
+}
+
+async function deleteTemplate(template: TemplateSummary) {
+  if (!window.confirm(`确认删除模板「${template.name}」？此操作无法撤销。`)) return;
+  notice.value = '';
+  try {
+    await invoke('delete_ecommerce_template', { id: template.id });
+    if (template.id === project.value.id) {
+      project.value = createEmptyTemplateProject();
+      project.value.assets = [];
+      selectedLayerId.value = null;
+      await loadAssetLibrary();
+    }
+    await loadTemplateList();
+  } catch (error) {
+    notice.value = String(error);
   }
 }
 
@@ -252,7 +307,7 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
       <template #extra>
         <n-space>
           <n-tag round>{{ project.canvasWidth }}x{{ project.canvasHeight }}</n-tag>
-          <n-button secondary :loading="saving" @click="saveTemplate">保存模板</n-button>
+          <n-button secondary @click="requestSaveTemplate">保存模板</n-button>
           <n-button type="primary" :loading="importing" @click="importPsd">导入 PSD</n-button>
         </n-space>
       </template>
@@ -275,6 +330,8 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         @add-asset-image="addAssetImageLayer"
         @remove-asset="removeAsset"
         @select-template="loadTemplate"
+        @rename-template="requestRenameTemplate"
+        @delete-template="deleteTemplate"
         @panel-mousedown="focusPasteTargetLibrary"
         @select="selectLayer"
         @reorder="reorderLayers"
@@ -321,4 +378,17 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
       <BatchPanel :template-id="project.id" :required-fields="requiredFields" />
     </n-card>
   </n-space>
+
+  <n-modal v-model:show="nameDialogVisible" preset="card" :title="nameDialogTitle" class="template-name-modal">
+    <n-input
+      v-model:value="nameDialogValue"
+      placeholder="输入模板名称"
+      autofocus
+      @keyup.enter="confirmNameDialog"
+    />
+    <n-flex justify="end" :size="8" style="margin-top: 14px">
+      <n-button @click="nameDialogVisible = false">取消</n-button>
+      <n-button type="primary" :loading="nameDialogBusy" @click="confirmNameDialog">确认</n-button>
+    </n-flex>
+  </n-modal>
 </template>

@@ -51,6 +51,23 @@ pub async fn save_ecommerce_template(
 }
 
 #[tauri::command]
+pub async fn delete_ecommerce_template(
+    id: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<(), String> {
+    store.delete_template(&id)
+}
+
+#[tauri::command]
+pub async fn rename_ecommerce_template(
+    id: String,
+    name: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<TemplateProject, String> {
+    store.rename_template(&id, &name)
+}
+
+#[tauri::command]
 pub async fn save_template_asset(
     name: String,
     mime_type: String,

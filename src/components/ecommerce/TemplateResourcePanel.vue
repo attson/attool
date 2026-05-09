@@ -23,6 +23,8 @@ const emit = defineEmits<{
   'add-asset-image': [asset: TemplateAsset];
   'remove-asset': [asset: TemplateAsset];
   'select-template': [id: string];
+  'rename-template': [template: TemplateSummary];
+  'delete-template': [template: TemplateSummary];
   'panel-mousedown': [];
   select: [layerId: string];
   reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
@@ -116,16 +118,24 @@ function assetPreviewSrc(asset: TemplateAsset) {
         <h3>模板</h3>
       </div>
       <div v-if="props.templates.length" class="template-summary-list">
-        <button
+        <div
           v-for="template in props.templates"
           :key="template.id"
-          type="button"
-          :class="['template-summary-item', { active: template.id === props.currentTemplateId }]"
-          @click="emit('select-template', template.id)"
+          class="template-summary-wrapper"
         >
-          <strong>{{ template.name }}</strong>
-          <span>{{ template.canvasWidth }} × {{ template.canvasHeight }} · {{ template.updatedAt }}</span>
-        </button>
+          <button
+            type="button"
+            :class="['template-summary-item', { active: template.id === props.currentTemplateId }]"
+            @click="emit('select-template', template.id)"
+          >
+            <strong>{{ template.name }}</strong>
+            <span>{{ template.canvasWidth }} × {{ template.canvasHeight }} · {{ template.updatedAt }}</span>
+          </button>
+          <div class="template-summary-actions">
+            <button type="button" class="template-summary-action" :title="`重命名 ${template.name}`" @click.stop="emit('rename-template', template)">✎</button>
+            <button type="button" class="template-summary-action" :title="`删除 ${template.name}`" @click.stop="emit('delete-template', template)">×</button>
+          </div>
+        </div>
       </div>
       <n-empty v-else description="还没有保存的模板" />
     </template>

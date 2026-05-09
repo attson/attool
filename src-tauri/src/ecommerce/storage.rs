@@ -263,6 +263,44 @@ impl EcommerceStore {
             .map_err(|error| format!("未找到模板：{error}"))?;
         serde_json::from_str(&json).map_err(|error| format!("解析模板失败：{error}"))
     }
+
+    pub fn delete_template(&self, id: &str) -> Result<(), String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        connection
+            .execute("DELETE FROM ecommerce_templates WHERE id = ?1", params![id])
+            .map_err(|error| format!("删除模板失败：{error}"))?;
+        let dir = self.template_dir(id);
+        if dir.exists() {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        Ok(())
+    }
+
+    pub fn rename_template(&self, id: &str, name: &str) -> Result<TemplateProject, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("模板名称不能为空".to_string());
+        }
+        let mut project = self.load_template(id)?;
+        project.name = trimmed.to_string();
+        project.updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let json = serde_json::to_string(&project)
+            .map_err(|error| format!("序列化模板失败：{error}"))?;
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开模板数据库失败：{error}"))?;
+        connection
+            .execute(
+                r#"
+                UPDATE ecommerce_templates
+                SET name = ?2, project_json = ?3, updated_at = ?4
+                WHERE id = ?1
+                "#,
+                params![id, project.name, json, project.updated_at],
+            )
+            .map_err(|error| format!("重命名模板失败：{error}"))?;
+        Ok(project)
+    }
 }
 
 fn guess_mime_type(name: &str) -> String {

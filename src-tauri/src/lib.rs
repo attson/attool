@@ -1099,6 +1099,8 @@ pub fn run() {
             ecommerce::commands::list_ecommerce_templates,
             ecommerce::commands::load_ecommerce_template,
             ecommerce::commands::save_ecommerce_template,
+            ecommerce::commands::delete_ecommerce_template,
+            ecommerce::commands::rename_ecommerce_template,
             ecommerce::commands::save_template_asset,
             ecommerce::commands::list_template_assets,
             ecommerce::commands::delete_template_asset,
