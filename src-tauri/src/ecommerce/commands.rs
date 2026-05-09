@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 
 use super::{
-    batch::{batch_from_folder, read_batch_table},
-    render::{batch_replace_layer_image, export_images},
-    models::{BatchDataPreview, ExportRequest, ExportResult, TemplateAsset, TemplateProject, TemplateSummary},
+    render::batch_replace_layer_image,
+    models::{ExportResult, TemplateAsset, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
@@ -107,31 +106,6 @@ pub async fn delete_template_asset(
     store.delete_asset(&asset_id)
 }
 
-
-#[tauri::command]
-pub async fn import_batch_table(
-    path: String,
-    required_fields: Vec<String>,
-) -> Result<BatchDataPreview, String> {
-    read_batch_table(PathBuf::from(path).as_path(), &required_fields)
-}
-
-#[tauri::command]
-pub async fn create_batch_from_folder(
-    folder_path: String,
-    image_binding_key: String,
-) -> Result<BatchDataPreview, String> {
-    batch_from_folder(PathBuf::from(folder_path).as_path(), &image_binding_key)
-}
-
-
-#[tauri::command]
-pub async fn export_ecommerce_images(
-    request: ExportRequest,
-    store: State<'_, EcommerceStore>,
-) -> Result<ExportResult, String> {
-    export_images(&store, request)
-}
 
 #[tauri::command]
 pub async fn batch_replace_image_layer(

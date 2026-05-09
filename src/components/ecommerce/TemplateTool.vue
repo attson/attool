@@ -5,7 +5,6 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NFlex, NInput, NModal, NPageHeader, NSpace, NTag } from 'naive-ui';
 import type { ExportResult, ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
 import {
-  collectBindingKeys,
   createImageLayer,
   createShapeLayer,
   createTextLayer,
@@ -20,7 +19,6 @@ import {
 import LayerProperties from './LayerProperties.vue';
 import TemplateResourcePanel, { type ResourceTab } from './TemplateResourcePanel.vue';
 import TemplateCanvas from './TemplateCanvas.vue';
-import BatchPanel from './BatchPanel.vue';
 import { createEmptyTemplateProject } from './templateDefaults';
 
 const templates = ref<TemplateSummary[]>([]);
@@ -76,7 +74,6 @@ async function loadAssetLibrary() {
 }
 
 const selectedLayer = computed(() => flattenLayers(project.value.layers).find((layer) => layer.id === selectedLayerId.value) ?? null);
-const requiredFields = computed(() => collectBindingKeys(project.value.layers));
 
 onMounted(loadTemplateList);
 onMounted(loadAssetLibrary);
@@ -404,10 +401,6 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         <LayerProperties :layer="selectedLayer" @update="updateLayer" @batch-replace="batchReplaceLayer" />
       </n-card>
     </div>
-
-    <n-card title="批量生成" size="small" :bordered="false" class="panel-card">
-      <BatchPanel :template-id="project.id" :required-fields="requiredFields" />
-    </n-card>
   </n-space>
 
   <n-modal v-model:show="nameDialogVisible" preset="card" :title="nameDialogTitle" class="template-name-modal">

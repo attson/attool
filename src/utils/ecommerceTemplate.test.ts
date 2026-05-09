@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TemplateAsset, TemplateLayer, TemplateProject } from '../types/ecommerceTemplate';
 import {
-  collectBindingKeys,
   createImageLayer,
   createShapeLayer,
   createTemplateAsset,
@@ -17,8 +16,7 @@ import {
   removeSelectedLayer,
   makeExportFileName,
   textLayerPreviewStyle,
-  updateLayerById,
-  validateBatchFields
+  updateLayerById
 } from './ecommerceTemplate';
 
 const layers: TemplateLayer[] = [
@@ -94,17 +92,6 @@ describe('ecommerceTemplate helpers', () => {
 
   it('flattens nested layers in paint order', () => {
     expect(flattenLayers(layers).map((layer) => layer.id)).toEqual(['group-1', 'text-1', 'image-1']);
-  });
-
-  it('collects unique binding keys from nested layers', () => {
-    expect(collectBindingKeys(layers)).toEqual(['title', 'product_image']);
-  });
-
-  it('reports missing and unused batch fields', () => {
-    expect(validateBatchFields(['title', 'product_image'], ['title', 'price'])).toEqual({
-      missingFields: ['product_image'],
-      unusedFields: ['price']
-    });
   });
 
   it('scales text styles to the rendered canvas size', () => {

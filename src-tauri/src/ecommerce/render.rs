@@ -71,26 +71,6 @@ fn set_layer_binding(layers: &mut [TemplateLayer], layer_id: &str, key: Option<S
     false
 }
 
-pub fn export_images(store: &EcommerceStore, request: ExportRequest) -> Result<ExportResult, String> {
-    let template = store.load_template(&request.template_id)?;
-    let output_dir = PathBuf::from(request.output_dir.trim());
-    if output_dir.as_os_str().is_empty() {
-        return Err("请选择输出目录".to_string());
-    }
-    std::fs::create_dir_all(&output_dir).map_err(|error| format!("创建输出目录失败：{error}"))?;
-
-    let mut outputs = Vec::new();
-    let mut failed = Vec::new();
-    for row in &request.rows {
-        match render_row(store, &template, row, &output_dir) {
-            Ok(path) => outputs.push(path.to_string_lossy().into_owned()),
-            Err(message) => failed.push(ExportFailure { row_index: row.index, field: None, message }),
-        }
-    }
-
-    Ok(ExportResult { total: request.rows.len(), succeeded: outputs.len(), outputs, failed })
-}
-
 fn render_row(store: &EcommerceStore, template: &TemplateProject, row: &BatchRow, output_dir: &Path) -> Result<PathBuf, String> {
     let mut canvas = RgbaImage::from_pixel(template.canvas_width, template.canvas_height, Rgba([255, 255, 255, 255]));
     for layer in flatten_layers(&template.layers) {

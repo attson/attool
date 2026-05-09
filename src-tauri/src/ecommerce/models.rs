@@ -162,23 +162,6 @@ pub struct BatchRow {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BatchDataPreview {
-    pub fields: Vec<String>,
-    pub rows: Vec<BatchRow>,
-    pub unused_fields: Vec<String>,
-    pub missing_fields: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportRequest {
-    pub template_id: String,
-    pub output_dir: String,
-    pub rows: Vec<BatchRow>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ExportFailure {
     pub row_index: usize,
     pub field: Option<String>,

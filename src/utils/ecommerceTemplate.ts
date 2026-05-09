@@ -20,16 +20,6 @@ export function flattenLayers(layers: TemplateLayer[]): TemplateLayer[] {
   return flattened;
 }
 
-export function collectBindingKeys(layers: TemplateLayer[]): string[] {
-  const keys: string[] = [];
-  for (const layer of flattenLayers(layers)) {
-    if (layer.bindingKey && !keys.includes(layer.bindingKey)) {
-      keys.push(layer.bindingKey);
-    }
-  }
-  return keys;
-}
-
 type CanvasSize = { canvasWidth: number; canvasHeight: number };
 type TextPreset = 'title' | 'subtitle' | 'body' | 'price';
 
@@ -322,13 +312,6 @@ export function reorderLayer(layers: TemplateLayer[], draggedLayerId: string, ta
 
 export function reorderLayerBefore(layers: TemplateLayer[], draggedLayerId: string, targetLayerId: string): TemplateLayer[] {
   return reorderLayer(layers, draggedLayerId, targetLayerId, 'before');
-}
-
-export function validateBatchFields(requiredFields: string[], incomingFields: string[]) {
-  return {
-    missingFields: requiredFields.filter((field) => !incomingFields.includes(field)),
-    unusedFields: incomingFields.filter((field) => !requiredFields.includes(field))
-  };
 }
 
 export function makeExportFileName(values: Record<string, string>, rowIndex: number): string {

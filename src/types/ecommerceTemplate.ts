@@ -92,25 +92,6 @@ export type TemplateSummary = {
   updatedAt: string;
 };
 
-export type BatchRow = {
-  id: string;
-  index: number;
-  values: Record<string, string>;
-};
-
-export type BatchDataPreview = {
-  fields: string[];
-  rows: BatchRow[];
-  unusedFields: string[];
-  missingFields: string[];
-};
-
-export type ExportRequest = {
-  templateId: string;
-  outputDir: string;
-  rows: BatchRow[];
-};
-
 export type ExportFailure = {
   rowIndex: number;
   field?: string;
