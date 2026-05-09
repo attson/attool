@@ -783,6 +783,11 @@ textarea {
   line-height: 1.1;
 }
 
+.template-text-char {
+  display: block;
+  line-height: 1;
+}
+
 .template-prop-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

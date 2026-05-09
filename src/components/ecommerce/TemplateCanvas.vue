@@ -165,7 +165,10 @@ function handleLayerKeydown(event: KeyboardEvent, layer: TemplateLayer) {
         @keydown="handleLayerKeydown($event, layer)"
       >
         <span v-if="layer.type === 'text'" class="template-text-layer" :style="textLayerPreviewStyle(layer, canvasScale)">
-          {{ layer.text?.text }}
+          <template v-if="layer.text?.orientation === 'vertical'">
+            <span v-for="(ch, charIndex) in Array.from(layer.text?.text ?? '')" :key="charIndex" class="template-text-char">{{ ch }}</span>
+          </template>
+          <template v-else>{{ layer.text?.text }}</template>
         </span>
         <img v-else-if="layer.type === 'image' && assetSrc(layer)" :src="assetSrc(layer)" :style="imageStyle(layer)" alt="模板图片图层" draggable="false" />
         <span v-else-if="layer.type === 'shape'" class="template-shape-layer" :style="{ background: layer.shape?.fill, borderColor: layer.shape?.stroke, borderWidth: `${layer.shape?.strokeWidth ?? 0}px`, borderRadius: `${layer.shape?.radius ?? 0}px` }" />
