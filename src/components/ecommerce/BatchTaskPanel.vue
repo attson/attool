@@ -32,6 +32,11 @@ const notice = ref('');
 const success = ref('');
 const mode = ref<BatchRunMode>('product');
 
+type VariantDragState = { taskId: string; index: number };
+const draggingVariant = ref<VariantDragState | null>(null);
+const dragOverVariant = ref<VariantDragState | null>(null);
+const variantDropPlacement = ref<'before' | 'after'>('before');
+
 const allEqualLength = computed(() => {
   if (tasks.value.length === 0) return false;
   const first = tasks.value[0].variants.length;
@@ -86,6 +91,63 @@ function removeVariant(taskId: string, index: number) {
   const task = tasks.value.find((item) => item.id === taskId);
   if (!task) return;
   task.variants.splice(index, 1);
+}
+
+function onVariantDragStart(event: DragEvent, taskId: string, index: number) {
+  draggingVariant.value = { taskId, index };
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `${taskId}:${index}`);
+  }
+}
+
+function onVariantDragOver(event: DragEvent, taskId: string, index: number, axis: 'x' | 'y') {
+  const dragging = draggingVariant.value;
+  if (!dragging || dragging.taskId !== taskId || dragging.index === index) return;
+  event.preventDefault();
+  const target = event.currentTarget as HTMLElement;
+  const bounds = target.getBoundingClientRect();
+  variantDropPlacement.value = axis === 'x'
+    ? (event.clientX > bounds.left + bounds.width / 2 ? 'after' : 'before')
+    : (event.clientY > bounds.top + bounds.height / 2 ? 'after' : 'before');
+  dragOverVariant.value = { taskId, index };
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function onVariantDragLeave(taskId: string, index: number) {
+  if (dragOverVariant.value?.taskId === taskId && dragOverVariant.value.index === index) {
+    dragOverVariant.value = null;
+  }
+}
+
+function onVariantDrop(event: DragEvent, taskId: string, dropIndex: number) {
+  event.preventDefault();
+  const dragging = draggingVariant.value;
+  const placement = variantDropPlacement.value;
+  endVariantDrag();
+  if (!dragging || dragging.taskId !== taskId) return;
+  const task = tasks.value.find((item) => item.id === taskId);
+  if (!task) return;
+  const fromIndex = dragging.index;
+  const insertIndex = placement === 'after' ? dropIndex + 1 : dropIndex;
+  const adjusted = fromIndex < insertIndex ? insertIndex - 1 : insertIndex;
+  if (adjusted === fromIndex) return;
+  const [moved] = task.variants.splice(fromIndex, 1);
+  task.variants.splice(adjusted, 0, moved);
+}
+
+function endVariantDrag() {
+  draggingVariant.value = null;
+  dragOverVariant.value = null;
+  variantDropPlacement.value = 'before';
+}
+
+function variantDragClasses(taskId: string, index: number) {
+  return {
+    dragging: draggingVariant.value?.taskId === taskId && draggingVariant.value.index === index,
+    'drag-over-before': dragOverVariant.value?.taskId === taskId && dragOverVariant.value.index === index && variantDropPlacement.value === 'before',
+    'drag-over-after': dragOverVariant.value?.taskId === taskId && dragOverVariant.value.index === index && variantDropPlacement.value === 'after'
+  };
 }
 
 async function pickImageVariants(taskId: string) {
@@ -211,18 +273,38 @@ async function downloadSelected() {
       </header>
 
       <div v-if="task.layerKind === 'image'" class="batch-variant-grid">
-        <div v-for="(variant, index) in task.variants" :key="`${task.id}-${index}`" class="batch-variant-image">
-          <img :src="imageVariantSrc(variant as ImageVariant)" :alt="imageVariantLabel(variant as ImageVariant)" />
+        <div
+          v-for="(variant, index) in task.variants"
+          :key="`${task.id}-${index}`"
+          :class="['batch-variant-image', variantDragClasses(task.id, index)]"
+          draggable="true"
+          @dragstart.stop="onVariantDragStart($event, task.id, index)"
+          @dragover.stop="onVariantDragOver($event, task.id, index, 'x')"
+          @dragleave.stop="onVariantDragLeave(task.id, index)"
+          @drop.stop="onVariantDrop($event, task.id, index)"
+          @dragend.stop="endVariantDrag"
+        >
+          <img :src="imageVariantSrc(variant as ImageVariant)" :alt="imageVariantLabel(variant as ImageVariant)" draggable="false" />
           <span>{{ imageVariantLabel(variant as ImageVariant) }}</span>
-          <button type="button" class="batch-variant-remove" title="移除" @click="removeVariant(task.id, index)">×</button>
+          <button type="button" class="batch-variant-remove" title="移除" @click.stop="removeVariant(task.id, index)">×</button>
         </div>
         <button type="button" class="batch-variant-add" @click="pickImageVariants(task.id)">+ 添加图片</button>
       </div>
 
       <div v-else class="batch-variant-text-list">
-        <div v-for="(variant, index) in task.variants" :key="`${task.id}-${index}`" class="batch-variant-text">
+        <div
+          v-for="(variant, index) in task.variants"
+          :key="`${task.id}-${index}`"
+          :class="['batch-variant-text', variantDragClasses(task.id, index)]"
+          draggable="true"
+          @dragstart.stop="onVariantDragStart($event, task.id, index)"
+          @dragover.stop="onVariantDragOver($event, task.id, index, 'y')"
+          @dragleave.stop="onVariantDragLeave(task.id, index)"
+          @drop.stop="onVariantDrop($event, task.id, index)"
+          @dragend.stop="endVariantDrag"
+        >
           <span>{{ (variant as TextVariant).value }}</span>
-          <button type="button" class="batch-variant-remove" title="移除" @click="removeVariant(task.id, index)">×</button>
+          <button type="button" class="batch-variant-remove" title="移除" @click.stop="removeVariant(task.id, index)">×</button>
         </div>
         <div class="batch-variant-text-add">
           <n-input v-model:value="task.textDraft" placeholder="输入文字变体" size="small" @keyup.enter="addTextVariant(task.id)" />
