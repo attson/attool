@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { NAlert, NButton, NEmpty, NInput, NRadioButton, NRadioGroup, NTag } from 'naive-ui';
+import { NAlert, NButton, NEmpty, NInput, NModal, NRadioButton, NRadioGroup, NTag } from 'naive-ui';
 import type { BatchOutputItem, BatchRunMode, BatchTaskInput, TemplateLayer } from '../../types/ecommerceTemplate';
 
 type ImageVariant = { kind: 'image'; sourcePath: string };
@@ -30,12 +30,22 @@ const running = ref(false);
 const saving = ref(false);
 const notice = ref('');
 const success = ref('');
-const mode = ref<BatchRunMode>('product');
+const mode = ref<BatchRunMode>('parallel');
 
 type VariantDragState = { taskId: string; index: number };
 const draggingVariant = ref<VariantDragState | null>(null);
 const dragOverVariant = ref<VariantDragState | null>(null);
 const variantDropPlacement = ref<'before' | 'after'>('before');
+
+const previewVisible = ref(false);
+const previewSrc = ref('');
+const previewName = ref('');
+
+function openPreview(output: BatchOutputItem) {
+  previewSrc.value = convertFileSrc(output.filePath);
+  previewName.value = output.fileName;
+  previewVisible.value = true;
+}
 
 const allEqualLength = computed(() => {
   if (tasks.value.length === 0) return false;
@@ -341,17 +351,27 @@ async function downloadSelected() {
       </div>
     </header>
     <div class="batch-output-grid">
-      <button
+      <div
         v-for="output in outputs"
         :key="output.id"
-        type="button"
         :class="['batch-output-card', { selected: selectedIds.has(output.id) }]"
-        @click="toggleOutput(output.id)"
       >
-        <img :src="outputSrc(output)" :alt="output.fileName" />
-        <span>{{ output.fileName }}</span>
+        <button type="button" class="batch-output-toggle" @click="toggleOutput(output.id)">
+          <img :src="outputSrc(output)" :alt="output.fileName" />
+          <span>{{ output.fileName }}</span>
+        </button>
         <span class="batch-output-check">{{ selectedIds.has(output.id) ? '✓' : '' }}</span>
-      </button>
+        <button type="button" class="batch-output-preview" title="放大预览" @click.stop="openPreview(output)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+      </div>
     </div>
   </section>
+
+  <n-modal v-model:show="previewVisible" preset="card" :title="previewName" class="batch-preview-modal" style="width: min(90vw, 960px)">
+    <img :src="previewSrc" :alt="previewName" class="batch-preview-image" />
+  </n-modal>
 </template>
