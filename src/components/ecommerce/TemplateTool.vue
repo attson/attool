@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { NAlert, NButton, NCard, NFlex, NInput, NModal, NPageHeader, NSpace, NTag } from 'naive-ui';
-import type { ExportResult, ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
+import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateProject, TemplateSummary } from '../../types/ecommerceTemplate';
 import {
   createImageLayer,
   createShapeLayer,
@@ -19,6 +19,7 @@ import {
 import LayerProperties from './LayerProperties.vue';
 import TemplateResourcePanel, { type ResourceTab } from './TemplateResourcePanel.vue';
 import TemplateCanvas from './TemplateCanvas.vue';
+import BatchTaskPanel from './BatchTaskPanel.vue';
 import { createEmptyTemplateProject } from './templateDefaults';
 
 const templates = ref<TemplateSummary[]>([]);
@@ -36,8 +37,7 @@ const nameDialogTitle = ref('');
 const nameDialogValue = ref('');
 const nameDialogBusy = ref(false);
 const nameDialogAction = ref<NameDialogAction>({ type: 'save' });
-const batchNotice = ref('');
-const batchRunning = ref(false);
+const batchPanelRef = ref<InstanceType<typeof BatchTaskPanel> | null>(null);
 
 watch(activeResourceTab, (tab) => {
   pasteTarget.value = tab === 'image' ? 'library' : 'canvas';
@@ -158,31 +158,13 @@ async function confirmNameDialog() {
   }
 }
 
-async function batchReplaceLayer(layer: TemplateLayer) {
-  if (batchRunning.value) return;
-  notice.value = '';
-  batchNotice.value = '';
-  try {
-    const sources = await open({ multiple: true, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
-    if (!Array.isArray(sources) || sources.length === 0) return;
-    const outputDir = await open({ directory: true, multiple: false });
-    if (typeof outputDir !== 'string') return;
+function openBatchTask(layer: TemplateLayer) {
+  batchPanelRef.value?.addTaskForLayer(layer);
+}
 
-    batchRunning.value = true;
-    project.value = await invoke<TemplateProject>('save_ecommerce_template', { project: project.value });
-    await loadTemplateList();
-    const result = await invoke<ExportResult>('batch_replace_image_layer', {
-      templateId: project.value.id,
-      layerId: layer.id,
-      sourcePaths: sources,
-      outputDir
-    });
-    batchNotice.value = `批量生成完成：成功 ${result.succeeded} / ${result.total}，失败 ${result.failed.length}。输出：${outputDir}`;
-  } catch (error) {
-    notice.value = String(error);
-  } finally {
-    batchRunning.value = false;
-  }
+async function ensureProjectSaved() {
+  project.value = await invoke<TemplateProject>('save_ecommerce_template', { project: project.value });
+  await loadTemplateList();
 }
 
 async function deleteTemplate(template: TemplateSummary) {
@@ -340,8 +322,6 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
     </n-page-header>
 
     <n-alert v-if="notice" type="error" :bordered="false">{{ notice }}</n-alert>
-    <n-alert v-if="batchRunning" type="info" :bordered="false">正在批量生成...</n-alert>
-    <n-alert v-if="batchNotice" type="success" :bordered="false" closable @close="batchNotice = ''">{{ batchNotice }}</n-alert>
 
     <div class="template-workbench">
       <TemplateResourcePanel
@@ -398,9 +378,13 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
             {{ selectedLayer?.locked ? '🔒' : '🔓' }}
           </n-button>
         </template>
-        <LayerProperties :layer="selectedLayer" @update="updateLayer" @batch-replace="batchReplaceLayer" />
+        <LayerProperties :layer="selectedLayer" @update="updateLayer" @batch-replace="openBatchTask" />
       </n-card>
     </div>
+
+    <n-card title="批量替换" size="small" :bordered="false" class="panel-card">
+      <BatchTaskPanel ref="batchPanelRef" :template-id="project.id" :save-template="ensureProjectSaved" />
+    </n-card>
   </n-space>
 
   <n-modal v-model:show="nameDialogVisible" preset="card" :title="nameDialogTitle" class="template-name-modal">

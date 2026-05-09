@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 
 use super::{
-    render::batch_replace_layer_image,
-    models::{ExportResult, TemplateAsset, TemplateProject, TemplateSummary},
+    render::run_batch_tasks,
+    models::{BatchOutputItem, BatchTaskInput, TemplateAsset, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
@@ -108,12 +108,19 @@ pub async fn delete_template_asset(
 
 
 #[tauri::command]
-pub async fn batch_replace_image_layer(
+pub async fn run_batch_replace_tasks(
     template_id: String,
-    layer_id: String,
-    source_paths: Vec<String>,
-    output_dir: String,
+    tasks: Vec<BatchTaskInput>,
     store: State<'_, EcommerceStore>,
-) -> Result<ExportResult, String> {
-    batch_replace_layer_image(&store, &template_id, &layer_id, &source_paths, &output_dir)
+) -> Result<Vec<BatchOutputItem>, String> {
+    run_batch_tasks(&store, &template_id, &tasks)
+}
+
+#[tauri::command]
+pub async fn save_batch_replace_outputs(
+    file_paths: Vec<String>,
+    target_dir: String,
+    store: State<'_, EcommerceStore>,
+) -> Result<usize, String> {
+    store.save_batch_outputs(&file_paths, &target_dir)
 }

@@ -8,52 +8,123 @@ use imageproc::rect::Rect;
 
 use super::{models::*, storage::EcommerceStore};
 
-const BATCH_REPLACE_BINDING: &str = "__batch_replace_image";
-
-pub fn batch_replace_layer_image(
+pub fn run_batch_tasks(
     store: &EcommerceStore,
     template_id: &str,
-    layer_id: &str,
-    source_paths: &[String],
-    output_dir: &str,
-) -> Result<ExportResult, String> {
+    tasks: &[BatchTaskInput],
+) -> Result<Vec<BatchOutputItem>, String> {
+    if tasks.is_empty() {
+        return Err("没有批量替换任务".to_string());
+    }
+    if tasks.iter().any(|task| task.variants.is_empty()) {
+        return Err("每个任务至少需要一个变体".to_string());
+    }
     let template = store.load_template(template_id)?;
-    if !flatten_layers(&template.layers).iter().any(|layer| layer.id == layer_id && matches!(layer.r#type, TemplateLayerType::Image)) {
-        return Err("请选择一个图片图层后再批量替换".to_string());
-    }
-    let output_dir = PathBuf::from(output_dir.trim());
-    if output_dir.as_os_str().is_empty() {
-        return Err("请选择输出目录".to_string());
-    }
-    std::fs::create_dir_all(&output_dir).map_err(|error| format!("创建输出目录失败：{error}"))?;
 
     let mut patched = template.clone();
-    set_layer_binding(&mut patched.layers, layer_id, Some(BATCH_REPLACE_BINDING.to_string()));
-
-    let mut outputs = Vec::new();
-    let mut failed = Vec::new();
-    for (index, source) in source_paths.iter().enumerate() {
-        let trimmed = source.trim();
-        if trimmed.is_empty() {
-            failed.push(ExportFailure { row_index: index, field: None, message: "图片路径为空".to_string() });
-            continue;
+    let mut binding_keys = Vec::with_capacity(tasks.len());
+    for (task_index, task) in tasks.iter().enumerate() {
+        let target_layer_kind = flatten_layers(&template.layers)
+            .iter()
+            .find(|layer| layer.id == task.layer_id)
+            .map(|layer| layer.r#type.clone())
+            .ok_or_else(|| format!("找不到图层：{}", task.layer_id))?;
+        match target_layer_kind {
+            TemplateLayerType::Image => {
+                if task.variants.iter().any(|variant| matches!(variant, BatchVariantInput::Text { .. })) {
+                    return Err(format!("图片图层 {} 不能使用文字变体", task.layer_id));
+                }
+            }
+            TemplateLayerType::Text => {
+                if task.variants.iter().any(|variant| matches!(variant, BatchVariantInput::Image { .. })) {
+                    return Err(format!("文字图层 {} 不能使用图片变体", task.layer_id));
+                }
+            }
+            _ => return Err(format!("图层 {} 不支持批量替换", task.layer_id)),
         }
-        let stem = Path::new(trimmed)
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("image")
-            .to_string();
-        let mut values = HashMap::new();
-        values.insert(BATCH_REPLACE_BINDING.to_string(), trimmed.to_string());
-        values.insert("name".to_string(), stem);
-        let row = BatchRow { id: format!("batch-{index}"), index, values };
-        match render_row(store, &patched, &row, &output_dir) {
-            Ok(path) => outputs.push(path.to_string_lossy().into_owned()),
-            Err(message) => failed.push(ExportFailure { row_index: index, field: None, message }),
-        }
+        let key = format!("__batch_task_{task_index}");
+        set_layer_binding(&mut patched.layers, &task.layer_id, Some(key.clone()));
+        binding_keys.push(key);
     }
 
-    Ok(ExportResult { total: source_paths.len(), succeeded: outputs.len(), outputs, failed })
+    let job_dir = store.batch_cache_dir().join(format!("job-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&job_dir).map_err(|error| format!("创建批量缓存目录失败：{error}"))?;
+
+    let sizes: Vec<usize> = tasks.iter().map(|task| task.variants.len()).collect();
+    let total: usize = sizes.iter().product();
+    let mut outputs = Vec::with_capacity(total);
+    for combo_index in 0..total {
+        let combo = decode_combo(combo_index, &sizes);
+        let mut values: HashMap<String, String> = HashMap::new();
+        let mut name_parts = Vec::new();
+        for (task_index, &variant_index) in combo.iter().enumerate() {
+            let task = &tasks[task_index];
+            let key = &binding_keys[task_index];
+            match &task.variants[variant_index] {
+                BatchVariantInput::Image { source_path } => {
+                    let trimmed = source_path.trim();
+                    if trimmed.is_empty() {
+                        return Err(format!("任务 {} 第 {} 个变体的图片路径为空", task_index + 1, variant_index + 1));
+                    }
+                    values.insert(key.clone(), trimmed.to_string());
+                    let stem = Path::new(trimmed)
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("image")
+                        .to_string();
+                    name_parts.push(stem);
+                }
+                BatchVariantInput::Text { value } => {
+                    values.insert(key.clone(), value.clone());
+                    name_parts.push(value.clone());
+                }
+            }
+        }
+        let raw_name = if name_parts.is_empty() {
+            format!("{:03}", combo_index + 1)
+        } else {
+            name_parts.join("_")
+        };
+        let safe_name = sanitize_filename(&raw_name);
+        let final_stem = if safe_name.trim().is_empty() {
+            format!("{:03}", combo_index + 1)
+        } else {
+            safe_name
+        };
+        values.insert("name".to_string(), final_stem.clone());
+        let row = BatchRow { id: format!("combo-{combo_index}"), index: combo_index, values };
+        let path = render_row(store, &patched, &row, &job_dir)
+            .map_err(|error| format!("渲染第 {} 张失败：{error}", combo_index + 1))?;
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("output.png")
+            .to_string();
+        outputs.push(BatchOutputItem {
+            id: format!("output-{combo_index}"),
+            file_path: path.to_string_lossy().into_owned(),
+            file_name,
+        });
+    }
+
+    Ok(outputs)
+}
+
+fn decode_combo(linear: usize, sizes: &[usize]) -> Vec<usize> {
+    let mut combo = vec![0usize; sizes.len()];
+    let mut rem = linear;
+    for i in (0..sizes.len()).rev() {
+        combo[i] = rem % sizes[i];
+        rem /= sizes[i];
+    }
+    combo
+}
+
+fn sanitize_filename(input: &str) -> String {
+    input
+        .chars()
+        .map(|ch| if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_whitespace() { '_' } else { ch })
+        .collect()
 }
 
 fn set_layer_binding(layers: &mut [TemplateLayer], layer_id: &str, key: Option<String>) -> bool {

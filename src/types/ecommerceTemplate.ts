@@ -92,15 +92,17 @@ export type TemplateSummary = {
   updatedAt: string;
 };
 
-export type ExportFailure = {
-  rowIndex: number;
-  field?: string;
-  message: string;
+export type BatchVariantInput =
+  | { kind: 'image'; sourcePath: string }
+  | { kind: 'text'; value: string };
+
+export type BatchTaskInput = {
+  layerId: string;
+  variants: BatchVariantInput[];
 };
 
-export type ExportResult = {
-  total: number;
-  succeeded: number;
-  outputs: string[];
-  failed: ExportFailure[];
+export type BatchOutputItem = {
+  id: string;
+  filePath: string;
+  fileName: string;
 };

@@ -416,6 +416,223 @@ textarea {
   cursor: pointer;
 }
 
+.batch-task-list {
+  display: grid;
+  gap: 12px;
+}
+
+.batch-task-card {
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 250, 238, 0.78);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.batch-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.batch-task-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.batch-task-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.batch-task-remove {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(23, 33, 27, 0.6);
+  color: #fff7e9;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.batch-variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.batch-variant-image {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  padding: 6px;
+}
+
+.batch-variant-image img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(23, 33, 27, 0.06);
+}
+
+.batch-variant-image span {
+  font-size: 0.72rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-variant-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(23, 33, 27, 0.7);
+  color: #fff7e9;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.batch-variant-add {
+  display: grid;
+  place-items: center;
+  min-height: 100px;
+  border: 1px dashed rgba(23, 33, 27, 0.24);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.batch-variant-text-list {
+  display: grid;
+  gap: 6px;
+}
+
+.batch-variant-text {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 28px 6px 10px;
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.batch-variant-text-add {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.batch-task-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.batch-task-summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.batch-output-section {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.batch-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.batch-output-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.batch-output-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.batch-output-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 250, 238, 0.78);
+  padding: 7px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.batch-output-card.selected {
+  border-color: rgba(86, 113, 93, 0.6);
+  box-shadow: 0 0 0 2px rgba(86, 113, 93, 0.18);
+}
+
+.batch-output-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: rgba(23, 33, 27, 0.06);
+}
+
+.batch-output-card span {
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-output-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(86, 113, 93, 0.95);
+  color: #fff7e9;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+}
+
+.batch-output-card.selected .batch-output-check {
+  opacity: 1;
+}
+
 .template-layer-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

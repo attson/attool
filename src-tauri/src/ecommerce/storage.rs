@@ -29,6 +29,55 @@ impl EcommerceStore {
         self.root_dir.join("templates").join(id)
     }
 
+    pub fn batch_cache_dir(&self) -> PathBuf {
+        self.root_dir.join("batch_cache")
+    }
+
+    pub fn save_batch_outputs(&self, file_paths: &[String], target_dir: &str) -> Result<usize, String> {
+        let target = PathBuf::from(target_dir.trim());
+        if target.as_os_str().is_empty() {
+            return Err("请选择输出目录".to_string());
+        }
+        fs::create_dir_all(&target)
+            .map_err(|error| format!("创建输出目录失败：{error}"))?;
+        let mut saved = 0usize;
+        for source in file_paths {
+            let src = PathBuf::from(source);
+            if !src.is_file() {
+                continue;
+            }
+            let original = src
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("output.png")
+                .to_string();
+            let mut destination = target.join(&original);
+            if destination.exists() {
+                let stem = src
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("output")
+                    .to_string();
+                let extension = src
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("png")
+                    .to_string();
+                for index in 1..1000 {
+                    let candidate = target.join(format!("{stem}_{index:03}.{extension}"));
+                    if !candidate.exists() {
+                        destination = candidate;
+                        break;
+                    }
+                }
+            }
+            fs::copy(&src, &destination)
+                .map_err(|error| format!("拷贝失败 {}: {error}", src.display()))?;
+            saved += 1;
+        }
+        Ok(saved)
+    }
+
     pub fn init_database(&self) -> Result<(), String> {
         let connection = Connection::open(&self.db_path)
             .map_err(|error| format!("打开模板数据库失败：{error}"))?;

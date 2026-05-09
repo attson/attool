@@ -169,6 +169,30 @@ pub struct ExportFailure {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BatchVariantInput {
+    #[serde(rename_all = "camelCase")]
+    Image { source_path: String },
+    #[serde(rename_all = "camelCase")]
+    Text { value: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchTaskInput {
+    pub layer_id: String,
+    pub variants: Vec<BatchVariantInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchOutputItem {
+    pub id: String,
+    pub file_path: String,
+    pub file_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportResult {
     pub total: usize,
