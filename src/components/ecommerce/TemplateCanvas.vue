@@ -67,6 +67,10 @@ function assetSrc(layer: TemplateLayer) {
   return asset?.dataUrl ?? '';
 }
 
+function isToolbarInside(layer: TemplateLayer) {
+  return layer.y * canvasScale.value < 40;
+}
+
 function imageStyle(layer: TemplateLayer) {
   const fit = layer.image?.fit ?? 'stretch';
   return { objectFit: fit === 'stretch' ? 'fill' : fit };
@@ -165,7 +169,11 @@ function handleLayerKeydown(event: KeyboardEvent, layer: TemplateLayer) {
         </span>
         <img v-else-if="layer.type === 'image' && assetSrc(layer)" :src="assetSrc(layer)" :style="imageStyle(layer)" alt="模板图片图层" draggable="false" />
         <span v-else-if="layer.type === 'shape'" class="template-shape-layer" :style="{ background: layer.shape?.fill, borderColor: layer.shape?.stroke, borderWidth: `${layer.shape?.strokeWidth ?? 0}px`, borderRadius: `${layer.shape?.radius ?? 0}px` }" />
-        <span v-if="layer.id === selectedLayerId" class="template-layer-toolbar" @pointerdown.stop>
+        <span
+          v-if="layer.id === selectedLayerId"
+          :class="['template-layer-toolbar', { 'is-inside': isToolbarInside(layer) }]"
+          @pointerdown.stop
+        >
           <button type="button" @click.stop="emit('action', 'duplicate', layer)">复制</button>
           <button type="button" @click.stop="emit('action', 'delete', layer)">删除</button>
           <button type="button" @click.stop="emit('action', 'front', layer)">置顶</button>

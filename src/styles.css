@@ -1088,6 +1088,10 @@ textarea {
   padding: 6px;
 }
 
+.template-layer-toolbar.is-inside {
+  top: 6px;
+}
+
 .template-layer-toolbar button {
   border: 0;
   border-radius: 9px;
