@@ -36,6 +36,18 @@ function patch(values: Partial<TemplateLayer>) {
   emit('update', { ...props.layer, ...values });
 }
 
+function changeOrientation(next: TextOrientation) {
+  const layer = props.layer;
+  if (!layer || !layer.text || layer.locked) return;
+  const current = layer.text.orientation ?? 'horizontal';
+  if (current === next) return;
+  patch({
+    text: { ...layer.text, orientation: next },
+    width: layer.height,
+    height: layer.width
+  });
+}
+
 function fixed2(value: number) {
   return Number(value.toFixed(2));
 }
@@ -133,7 +145,7 @@ function fixed2(value: number) {
       <div class="template-prop-row">
         <label class="template-prop-field">
           <span class="template-prop-label">方向</span>
-          <n-select :value="selected.text.orientation ?? 'horizontal'" :options="orientationOptions" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, orientation: $event as TextOrientation } })" />
+          <n-select :value="selected.text.orientation ?? 'horizontal'" :options="orientationOptions" :disabled="selected.locked" @update:value="changeOrientation($event as TextOrientation)" />
         </label>
         <label class="template-prop-field">
           <span class="template-prop-label">对齐</span>
