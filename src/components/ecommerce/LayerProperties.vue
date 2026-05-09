@@ -139,7 +139,7 @@ function fixed2(value: number) {
           <span class="template-prop-label">行高</span>
           <n-input-number :value="selected.text.lineHeight" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, lineHeight: $event ?? undefined } })" />
         </label>
-        <n-button block secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
+        <n-button secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
       </div>
     </section>
 
@@ -225,7 +225,7 @@ function fixed2(value: number) {
           <span class="template-prop-label">裁剪方式</span>
           <n-select :value="selected.image.fit" :options="fitOptions" :disabled="selected.locked" @update:value="patch({ image: { ...selected.image!, fit: $event as 'cover' | 'contain' | 'stretch' } })" />
         </label>
-        <n-button block secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
+        <n-button secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
       </div>
     </section>
   </n-form>

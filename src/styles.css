@@ -1158,13 +1158,23 @@ textarea {
 }
 
 .template-editor-panel .template-header-action {
-  --n-height: 22px;
+  --n-height: 24px;
   padding: 0 6px;
   color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.template-editor-panel .template-header-action svg {
+  display: block;
 }
 
 .template-editor-panel .template-header-action.is-active {
   color: var(--ink);
+}
+
+.template-prop-batch {
+  grid-column: 1 / -1;
+  margin-top: 4px;
 }
