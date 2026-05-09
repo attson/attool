@@ -1174,7 +1174,3 @@ textarea {
   color: var(--ink);
 }
 
-.template-prop-batch {
-  grid-column: 1 / -1;
-  margin-top: 4px;
-}

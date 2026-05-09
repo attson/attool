@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { NButton, NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
+import { NColorPicker, NEmpty, NForm, NInput, NInputNumber, NSelect, NSlider } from 'naive-ui';
 import type { TemplateLayer, TextAlign, TextDecoration, TextFontStyle } from '../../types/ecommerceTemplate';
 
 const props = defineProps<{ layer: TemplateLayer | null }>();
-const emit = defineEmits<{ update: [layer: TemplateLayer]; 'batch-replace': [layer: TemplateLayer] }>();
+const emit = defineEmits<{ update: [layer: TemplateLayer] }>();
 
 const selected = computed(() => props.layer);
 const fitOptions = [
@@ -139,7 +139,6 @@ function fixed2(value: number) {
           <span class="template-prop-label">行高</span>
           <n-input-number :value="selected.text.lineHeight" :disabled="selected.locked" @update:value="patch({ text: { ...selected.text!, lineHeight: $event ?? undefined } })" />
         </label>
-        <n-button secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
       </div>
     </section>
 
@@ -225,7 +224,6 @@ function fixed2(value: number) {
           <span class="template-prop-label">裁剪方式</span>
           <n-select :value="selected.image.fit" :options="fitOptions" :disabled="selected.locked" @update:value="patch({ image: { ...selected.image!, fit: $event as 'cover' | 'contain' | 'stretch' } })" />
         </label>
-        <n-button secondary class="template-prop-batch" @click="emit('batch-replace', selected!)">添加批量替换</n-button>
       </div>
     </section>
   </n-form>

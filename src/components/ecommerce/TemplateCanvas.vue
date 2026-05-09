@@ -14,7 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [layerId: string];
   update: [layer: TemplateLayer];
-  action: [action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer];
+  action: [action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible' | 'batch-replace', layer: TemplateLayer];
 }>();
 
 const flatLayers = computed(() => flattenLayers(props.layers).filter((layer) => layer.type !== 'group' && layer.visible));
@@ -172,6 +172,7 @@ function handleLayerKeydown(event: KeyboardEvent, layer: TemplateLayer) {
           <button type="button" @click.stop="emit('action', 'back', layer)">置底</button>
           <button type="button" @click.stop="emit('action', 'lock', layer)">{{ layer.locked ? '解锁' : '锁定' }}</button>
           <button type="button" @click.stop="emit('action', 'toggle-visible', layer)">{{ layer.visible ? '隐藏' : '显示' }}</button>
+          <button v-if="layer.type === 'image' || layer.type === 'text'" type="button" @click.stop="emit('action', 'batch-replace', layer)">批量替换</button>
         </span>
         <span v-if="layer.id === selectedLayerId && !layer.locked" class="template-resize-handle" @pointerdown="startResize($event, layer)" />
       </button>

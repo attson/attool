@@ -283,7 +283,7 @@ function isTypingTarget(target: EventTarget | null) {
   return Boolean(element.closest('input, textarea, [contenteditable="true"]'));
 }
 
-function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible', layer: TemplateLayer) {
+function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | 'lock' | 'toggle-visible' | 'batch-replace', layer: TemplateLayer) {
   if (action === 'delete') {
     const result = removeSelectedLayer(project.value, layer.id);
     project.value = result.project;
@@ -304,6 +304,10 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
   }
   if (action === 'toggle-visible') {
     updateLayer({ ...layer, visible: !layer.visible });
+    return;
+  }
+  if (action === 'batch-replace') {
+    openBatchTask(layer);
   }
 }
 </script>
@@ -394,7 +398,7 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
             </svg>
           </n-button>
         </template>
-        <LayerProperties :layer="selectedLayer" @update="updateLayer" @batch-replace="openBatchTask" />
+        <LayerProperties :layer="selectedLayer" @update="updateLayer" />
       </n-card>
     </div>
 
