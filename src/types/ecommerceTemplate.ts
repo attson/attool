@@ -4,6 +4,7 @@ export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'line';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextFontStyle = 'normal' | 'italic';
 export type TextDecoration = 'none' | 'underline' | 'line-through';
+export type TextOrientation = 'horizontal' | 'vertical';
 
 export type TemplateProject = {
   id: string;
@@ -50,6 +51,7 @@ export type TextLayerData = {
   align?: TextAlign;
   fontStyle?: TextFontStyle;
   textDecoration?: TextDecoration;
+  orientation?: TextOrientation;
   backgroundColor?: string;
   backgroundRadius?: number;
   shadowColor?: string;

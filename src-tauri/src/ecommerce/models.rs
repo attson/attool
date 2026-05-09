@@ -60,6 +60,7 @@ pub struct TextLayerData {
     pub align: Option<TextAlign>,
     pub font_style: Option<TextFontStyle>,
     pub text_decoration: Option<TextDecoration>,
+    pub orientation: Option<TextOrientation>,
     pub background_color: Option<String>,
     pub background_radius: Option<f32>,
     pub shadow_color: Option<String>,
@@ -89,6 +90,13 @@ pub enum TextDecoration {
     None,
     Underline,
     LineThrough,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextOrientation {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

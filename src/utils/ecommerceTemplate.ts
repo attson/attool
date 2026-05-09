@@ -358,6 +358,7 @@ export function textLayerPreviewStyle(layer: TemplateLayer, canvasScale: number)
     letterSpacing: scaledPx(normalizedLetterSpacingPx(layer), scale),
     textAlign: text?.align,
     textDecoration: text?.textDecoration && text.textDecoration !== 'none' ? text.textDecoration : undefined,
+    writingMode: text?.orientation === 'vertical' ? 'vertical-rl' : undefined,
     backgroundColor: text?.backgroundColor,
     borderRadius: scaledPx(text?.backgroundRadius, scale),
     textShadow:

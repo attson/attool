@@ -210,6 +210,26 @@ def first_text_style(layer):
     return result
 
 
+def detect_text_orientation(layer, text, font_size):
+    try:
+        engine = layer.engine_dict
+        editor = engine.get("EngineDict", {}).get("Editor") if isinstance(engine, dict) else None
+        if isinstance(editor, dict):
+            for key in ("Orientation", "Orntn", "TextOrientation"):
+                value = editor.get(key)
+                if isinstance(value, (int, float)) and int(value) == 1:
+                    return "vertical"
+                if isinstance(value, str) and value.lower().startswith("vert"):
+                    return "vertical"
+    except Exception:
+        pass
+    if text and len(text) >= 2 and font_size and font_size > 0:
+        _, _, _, _, width, height = bbox_values(layer)
+        if width > 0 and height >= width * 1.5:
+            return "vertical"
+    return None
+
+
 def save_layer_png(layer, asset_dir):
     image = layer.composite()
     if image is None:
@@ -270,6 +290,9 @@ def layer_to_template(layer, asset_dir):
         for optional_key in ("letterSpacing", "lineHeight", "strokeColor", "strokeWidth"):
             if optional_key in style:
                 text_data[optional_key] = style[optional_key]
+        orientation = detect_text_orientation(layer, text_data["text"], text_data["fontSize"])
+        if orientation:
+            text_data["orientation"] = orientation
         base["text"] = text_data
         return base, assets
 

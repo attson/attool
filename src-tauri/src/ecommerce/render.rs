@@ -295,11 +295,12 @@ fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow
     draw_text_background(canvas, layer, text_data);
     let fill = with_layer_alpha(parse_hex(&text_data.color), layer.opacity);
     let scale = PxScale::from(text_data.font_size.max(1.0));
+    let vertical = matches!(text_data.orientation, Some(TextOrientation::Vertical));
 
     if let Some(shadow_color) = &text_data.shadow_color {
         let shadow = with_layer_alpha(parse_hex(shadow_color), layer.opacity);
         let mut shadow_layer = RgbaImage::from_pixel(canvas.width(), canvas.height(), Rgba([0, 0, 0, 0]));
-        draw_text_mut(
+        draw_text_run(
             &mut shadow_layer,
             shadow,
             (layer.x + text_data.shadow_offset_x.unwrap_or(0.0)).round() as i32,
@@ -307,6 +308,7 @@ fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow
             scale,
             &font,
             &text,
+            vertical,
         );
         let blur = text_data.shadow_blur.unwrap_or(0.0).max(0.0);
         let shadow_layer = if blur > 0.0 { imageops::blur(&shadow_layer, blur) } else { shadow_layer };
@@ -319,13 +321,28 @@ fn draw_text_layer(canvas: &mut RgbaImage, layer: &TemplateLayer, row: &BatchRow
         for dy in -width..=width {
             for dx in -width..=width {
                 if dx == 0 && dy == 0 { continue; }
-                draw_text_mut(canvas, stroke, layer.x.round() as i32 + dx, layer.y.round() as i32 + dy, scale, &font, &text);
+                draw_text_run(canvas, stroke, layer.x.round() as i32 + dx, layer.y.round() as i32 + dy, scale, &font, &text, vertical);
             }
         }
     }
 
-    draw_text_mut(canvas, fill, layer.x.round() as i32, layer.y.round() as i32, scale, &font, &text);
-    draw_text_decoration(canvas, layer, text_data, fill);
+    draw_text_run(canvas, fill, layer.x.round() as i32, layer.y.round() as i32, scale, &font, &text, vertical);
+    if !vertical {
+        draw_text_decoration(canvas, layer, text_data, fill);
+    }
+}
+
+fn draw_text_run(canvas: &mut RgbaImage, color: Rgba<u8>, x: i32, y: i32, scale: PxScale, font: &FontArc, text: &str, vertical: bool) {
+    if !vertical {
+        draw_text_mut(canvas, color, x, y, scale, font, text);
+        return;
+    }
+    let step = scale.y.round() as i32;
+    let mut buffer = [0u8; 4];
+    for (index, ch) in text.chars().enumerate() {
+        let glyph = ch.encode_utf8(&mut buffer);
+        draw_text_mut(canvas, color, x, y + (index as i32) * step, scale, font, glyph);
+    }
 }
 
 fn load_font(preferred_family: &str) -> Option<FontArc> {
