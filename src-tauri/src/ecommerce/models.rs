@@ -192,6 +192,19 @@ pub struct BatchTaskInput {
     pub variants: Vec<BatchVariantInput>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum BatchRunMode {
+    Product,
+    Parallel,
+}
+
+impl Default for BatchRunMode {
+    fn default() -> Self {
+        BatchRunMode::Product
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchOutputItem {

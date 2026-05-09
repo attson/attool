@@ -103,6 +103,8 @@ export type BatchTaskInput = {
   variants: BatchVariantInput[];
 };
 
+export type BatchRunMode = 'product' | 'parallel';
+
 export type BatchOutputItem = {
   id: string;
   filePath: string;

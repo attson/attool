@@ -12,6 +12,7 @@ pub fn run_batch_tasks(
     store: &EcommerceStore,
     template_id: &str,
     tasks: &[BatchTaskInput],
+    mode: BatchRunMode,
 ) -> Result<Vec<BatchOutputItem>, String> {
     if tasks.is_empty() {
         return Err("没有批量替换任务".to_string());
@@ -47,14 +48,26 @@ pub fn run_batch_tasks(
         binding_keys.push(key);
     }
 
+    let sizes: Vec<usize> = tasks.iter().map(|task| task.variants.len()).collect();
+    let combos: Vec<Vec<usize>> = match mode {
+        BatchRunMode::Product => {
+            let total: usize = sizes.iter().product();
+            (0..total).map(|index| decode_combo(index, &sizes)).collect()
+        }
+        BatchRunMode::Parallel => {
+            let first = sizes[0];
+            if !sizes.iter().all(|&s| s == first) {
+                return Err("1:1 模式要求所有任务的变体数相等".to_string());
+            }
+            (0..first).map(|index| vec![index; tasks.len()]).collect()
+        }
+    };
+
     let job_dir = store.batch_cache_dir().join(format!("job-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&job_dir).map_err(|error| format!("创建批量缓存目录失败：{error}"))?;
 
-    let sizes: Vec<usize> = tasks.iter().map(|task| task.variants.len()).collect();
-    let total: usize = sizes.iter().product();
-    let mut outputs = Vec::with_capacity(total);
-    for combo_index in 0..total {
-        let combo = decode_combo(combo_index, &sizes);
+    let mut outputs = Vec::with_capacity(combos.len());
+    for (combo_index, combo) in combos.iter().enumerate() {
         let mut values: HashMap<String, String> = HashMap::new();
         let mut name_parts = Vec::new();
         for (task_index, &variant_index) in combo.iter().enumerate() {

@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { NAlert, NButton, NEmpty, NInput, NTag } from 'naive-ui';
-import type { BatchOutputItem, BatchTaskInput, TemplateLayer } from '../../types/ecommerceTemplate';
+import { NAlert, NButton, NEmpty, NInput, NRadioButton, NRadioGroup, NTag } from 'naive-ui';
+import type { BatchOutputItem, BatchRunMode, BatchTaskInput, TemplateLayer } from '../../types/ecommerceTemplate';
 
 type ImageVariant = { kind: 'image'; sourcePath: string };
 type TextVariant = { kind: 'text'; value: string };
@@ -30,15 +30,28 @@ const running = ref(false);
 const saving = ref(false);
 const notice = ref('');
 const success = ref('');
+const mode = ref<BatchRunMode>('product');
+
+const allEqualLength = computed(() => {
+  if (tasks.value.length === 0) return false;
+  const first = tasks.value[0].variants.length;
+  return tasks.value.every((task) => task.variants.length === first);
+});
 
 const totalCombinations = computed(() => {
   if (tasks.value.length === 0) return 0;
-  return tasks.value.reduce((acc, task) => acc * Math.max(task.variants.length, 0), 1);
+  if (tasks.value.some((task) => task.variants.length === 0)) return 0;
+  if (mode.value === 'product') {
+    return tasks.value.reduce((acc, task) => acc * task.variants.length, 1);
+  }
+  return allEqualLength.value ? tasks.value[0].variants.length : 0;
 });
 
 const canRun = computed(() => {
   if (tasks.value.length === 0) return false;
-  return tasks.value.every((task) => task.variants.length > 0);
+  if (tasks.value.some((task) => task.variants.length === 0)) return false;
+  if (mode.value === 'parallel' && !allEqualLength.value) return false;
+  return true;
 });
 
 const allSelected = computed(() => outputs.value.length > 0 && selectedIds.value.size === outputs.value.length);
@@ -128,7 +141,8 @@ async function runBatch() {
     }));
     const result = await invoke<BatchOutputItem[]>('run_batch_replace_tasks', {
       templateId: props.templateId,
-      tasks: payload
+      tasks: payload,
+      mode: mode.value
     });
     outputs.value = result;
     selectedIds.value = new Set(result.map((item) => item.id));
@@ -218,7 +232,16 @@ async function downloadSelected() {
     </div>
 
     <footer class="batch-task-footer">
-      <span class="batch-task-summary">将生成 {{ totalCombinations }} 张组合</span>
+      <div class="batch-task-footer-info">
+        <n-radio-group v-model:value="mode" size="small">
+          <n-radio-button value="product">叉乘</n-radio-button>
+          <n-radio-button value="parallel">1:1</n-radio-button>
+        </n-radio-group>
+        <span class="batch-task-summary">
+          <template v-if="mode === 'parallel' && !allEqualLength">1:1 模式要求各任务变体数相等</template>
+          <template v-else>将生成 {{ totalCombinations }} 张组合</template>
+        </span>
+      </div>
       <n-button type="primary" :loading="running" :disabled="!canRun" @click="runBatch">执行生成</n-button>
     </footer>
   </div>

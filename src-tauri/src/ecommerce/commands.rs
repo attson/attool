@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager, State};
 
 use super::{
     render::run_batch_tasks,
-    models::{BatchOutputItem, BatchTaskInput, TemplateAsset, TemplateProject, TemplateSummary},
+    models::{BatchOutputItem, BatchRunMode, BatchTaskInput, TemplateAsset, TemplateProject, TemplateSummary},
     psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
@@ -111,9 +111,10 @@ pub async fn delete_template_asset(
 pub async fn run_batch_replace_tasks(
     template_id: String,
     tasks: Vec<BatchTaskInput>,
+    mode: Option<BatchRunMode>,
     store: State<'_, EcommerceStore>,
 ) -> Result<Vec<BatchOutputItem>, String> {
-    run_batch_tasks(&store, &template_id, &tasks)
+    run_batch_tasks(&store, &template_id, &tasks, mode.unwrap_or_default())
 }
 
 #[tauri::command]

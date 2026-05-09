@@ -548,7 +548,14 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-top: 4px;
+}
+
+.batch-task-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .batch-task-summary {
