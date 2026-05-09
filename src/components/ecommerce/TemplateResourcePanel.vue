@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { NButton, NEmpty } from 'naive-ui';
-import type { ShapeKind, TemplateAsset, TemplateLayer } from '../../types/ecommerceTemplate';
+import type { ShapeKind, TemplateAsset, TemplateLayer, TemplateSummary } from '../../types/ecommerceTemplate';
 import LayerTree from './LayerTree.vue';
 
-export type ResourceTab = 'text' | 'image' | 'shape' | 'layers';
+export type ResourceTab = 'text' | 'image' | 'shape' | 'layers' | 'templates';
 
 const props = defineProps<{
   activeTab: ResourceTab;
   layers: TemplateLayer[];
   assets: TemplateAsset[];
+  templates: TemplateSummary[];
   selectedLayerId: string | null;
+  currentTemplateId: string;
   isPasteTarget?: boolean;
 }>();
 
@@ -20,6 +22,7 @@ const emit = defineEmits<{
   'add-image': [];
   'add-asset-image': [asset: TemplateAsset];
   'remove-asset': [asset: TemplateAsset];
+  'select-template': [id: string];
   'panel-mousedown': [];
   select: [layerId: string];
   reorder: [draggedLayerId: string, targetLayerId: string, placement: 'before' | 'after'];
@@ -29,7 +32,8 @@ const tabs: { key: ResourceTab; label: string }[] = [
   { key: 'text', label: '文字' },
   { key: 'image', label: '图片' },
   { key: 'shape', label: '素材' },
-  { key: 'layers', label: '图层' }
+  { key: 'layers', label: '图层' },
+  { key: 'templates', label: '模板' }
 ];
 
 const textPresets = [
@@ -98,13 +102,32 @@ function assetPreviewSrc(asset: TemplateAsset) {
       </div>
     </template>
 
-    <template v-else>
+    <template v-else-if="props.activeTab === 'layers'">
       <div class="template-resource-heading">
         <h3>图层</h3>
         <p>选择和管理当前模板图层</p>
       </div>
       <LayerTree :layers="props.layers" :selected-layer-id="props.selectedLayerId" @select="emit('select', $event)" @reorder="(draggedLayerId, targetLayerId, placement) => emit('reorder', draggedLayerId, targetLayerId, placement)" />
       <n-empty v-if="!props.layers.length" description="暂无图层" />
+    </template>
+
+    <template v-else>
+      <div class="template-resource-heading">
+        <h3>模板</h3>
+      </div>
+      <div v-if="props.templates.length" class="template-summary-list">
+        <button
+          v-for="template in props.templates"
+          :key="template.id"
+          type="button"
+          :class="['template-summary-item', { active: template.id === props.currentTemplateId }]"
+          @click="emit('select-template', template.id)"
+        >
+          <strong>{{ template.name }}</strong>
+          <span>{{ template.canvasWidth }} × {{ template.canvasHeight }} · {{ template.updatedAt }}</span>
+        </button>
+      </div>
+      <n-empty v-else description="还没有保存的模板" />
     </template>
   </aside>
 </template>

@@ -95,6 +95,19 @@ async function importPsd() {
   }
 }
 
+async function loadTemplate(id: string) {
+  if (id === project.value.id) return;
+  notice.value = '';
+  try {
+    const loaded = await invoke<TemplateProject>('load_ecommerce_template', { id });
+    project.value = loaded;
+    selectedLayerId.value = loaded.layers[0]?.id ?? null;
+    await loadAssetLibrary();
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+
 async function saveTemplate() {
   notice.value = '';
   saving.value = true;
@@ -252,13 +265,16 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         v-model:active-tab="activeResourceTab"
         :layers="project.layers"
         :assets="project.assets"
+        :templates="templates"
         :selected-layer-id="selectedLayerId"
+        :current-template-id="project.id"
         :is-paste-target="pasteTarget === 'library' && activeResourceTab === 'image'"
         @add-text="addTextLayer"
         @add-shape="addShapeLayer"
         @add-image="addImageLayer"
         @add-asset-image="addAssetImageLayer"
         @remove-asset="removeAsset"
+        @select-template="loadTemplate"
         @panel-mousedown="focusPasteTargetLibrary"
         @select="selectLayer"
         @reorder="reorderLayers"

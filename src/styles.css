@@ -356,6 +356,34 @@ textarea {
   gap: 4px;
 }
 
+.template-summary-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.template-summary-item {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 250, 238, 0.68);
+  color: var(--ink);
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.template-summary-item.active {
+  border-color: rgba(86, 113, 93, 0.42);
+  background: rgba(86, 113, 93, 0.14);
+}
+
+.template-summary-item span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 .template-layer-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
