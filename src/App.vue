@@ -112,7 +112,7 @@ onMounted(() => {
     setTimeout(async () => {
       await updaterCheck('auto');
       if (updaterState.value.status === 'available' &&
-          updaterShouldSkip(updaterState.value.available!.version)) {
+          updaterShouldSkip(updaterState.value.available?.version ?? '')) {
         updaterDismiss();
       }
     }, 5000);
@@ -158,19 +158,10 @@ function openSearch() {
   alert('命令面板敬请期待');
 }
 
-function handleInstall() {
-  updaterInstall();
-}
 function handleSkip() {
   if (updaterState.value.available) {
     updaterSkipVersion(updaterState.value.available.version);
   }
-  updaterDismiss();
-}
-function handleRelaunch() {
-  updaterRelaunch();
-}
-function handleDismiss() {
   updaterDismiss();
 }
 function openSettings() {
@@ -298,10 +289,10 @@ async function openTaskFolder(id: string) {
         <template #banner>
           <UpdateBanner
             :state="updaterState"
-            @install="handleInstall"
+            @install="updaterInstall"
             @skip="handleSkip"
-            @relaunch="handleRelaunch"
-            @dismiss="handleDismiss"
+            @relaunch="updaterRelaunch"
+            @dismiss="updaterDismiss"
           />
         </template>
         <template #topbar-right>
