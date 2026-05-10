@@ -1,71 +1,58 @@
 # AT Tool
 
-一个基于 Tauri 的个人桌面工具集合。当前首个工具是 aria2 多线程下载工作台，后续可以继续在左侧导航中扩展更多个人常用工具。
+个人桌面工具集合，基于 Tauri 2 + Vue 3 + Naive UI。Mono Dark / Light 双主题，集成 in-app 自动更新。
 
-## 功能
+## 当前内置工具
 
-- 使用本机 `aria2c` 启动多连接 / 分片下载
-- 支持保存目录、输出文件名、连接数、分片数、最小分片大小配置
-- 通过 Tauri 事件实时回传下载进度、速度、ETA 和任务状态
-- 支持取消正在运行的下载任务
+- **Aria2 多线程下载** —— shell out 到本机 `aria2c`，支持多连接 / 分片 / 批量 URL / 实时进度
+- **电商主图模板** —— PSD 导入（Python `psd-tools` 桥接）+ 字段占位 `{{key}}` + 笛卡尔展开批量导出 PNG
 
-## 本机依赖
+## 下载安装
 
-Tauri 需要 Rust 工具链，下载功能需要本机安装 aria2。
+到 [Releases](https://github.com/attson/attool/releases) 抓对应平台的安装包：
 
-```bash
-# macOS 示例
-brew install rustup aria2
-rustup-init
-```
+| 文件 | 适用平台 |
+|---|---|
+| `AT Tool_<version>_arm64.dmg` | macOS Apple Silicon (M1/M2/M3/M4) |
+| `AT Tool_<version>_amd64.dmg` | macOS Intel |
+| `AT Tool_<version>_amd64.exe` | Windows 64-bit |
+| `AT Tool_<version>_amd64.deb` | Linux x86_64（Debian / Ubuntu） |
+| `AT Tool_<version>_arm64.deb` | Linux ARM64 |
 
-也可以参考 Tauri 官方文档安装对应系统依赖。
+未做代码签名，首次打开 macOS / Windows 会有 Gatekeeper / SmartScreen 警告，按系统说明放行即可。
+
+应用启动后会自动检查更新（可在设置里关闭）；macOS / Windows 走 in-app 一键更新，Linux 仍需重新下载 `.deb` 安装。
+
+## 运行时依赖
+
+| 依赖 | 用途 | 安装 |
+|---|---|---|
+| `aria2c` | 下载工具调用 | `brew install aria2` / `apt install aria2` / `choco install aria2` |
+| `python3` + `psd-tools` | PSD 模板解析 | `python3 -m pip install --user psd-tools` |
 
 ## 开发
 
 ```bash
 npm install
-npm run tauri:dev
+npm run tauri:dev   # 开发：起 vite + 拉起桌面窗口
 ```
 
-仅调试前端页面：
+仅前端（浏览器调试）：
 
 ```bash
-npm run dev
+npm run dev         # http://127.0.0.1:1420
 ```
 
-## 构建
+测试 + 构建：
 
 ```bash
-npm run tauri:build
+npm test            # vitest run
+npm run build       # tsc + vite build
+npm run tauri:build # 全量打包桌面应用
 ```
 
-### 电商 PSD 模板导入
+更多上下文：
 
-PSD 导入首版通过本机 Python 解析 PSD 图层结构，需要安装 psd-tools：
-
-```bash
-python3 -m pip install --user psd-tools
-```
-
-PSD 图层名可用 `{{field_name}}` 标记批量替换字段，例如 `{{product_image}} 商品图`、`{{title}} 大标题`、`{{bottom_title}} 底部文案`。
-
-## 电商主图模板工具
-
-首版支持从分层 PSD 导入主图模板草稿，编辑图层字段，并用表格或图片文件夹批量导出 PNG。
-
-推荐 PSD 图层命名：
-
-- `{{product_image}} 商品图`
-- `{{logo}} LOGO`
-- `{{title}} 大标题`
-- `{{subtitle}} 副标题`
-- `{{selling_point_1}} 卖点 1`
-- `{{bottom_title}} 底部文案`
-
-批量表格要求：
-
-- 第一行是字段名。
-- 图片字段填写本地图片路径。
-- 每一行导出一张 PNG。
-- 缺失字段使用模板默认值。
+- `AGENTS.md` —— 给 AI 看的工程地图（技术栈、约定、目录速览、加新工具最小路径、发布流程）
+- `docs/spec/` —— 当前态规范（overview / ui-design-system / architecture）
+- `docs/superpowers/` —— 每个任务的设计文档 + 实施计划

@@ -54,7 +54,9 @@
 - 配置：`tauri.conf.json plugins.updater.endpoints` + `pubkey`
 - 前端：`src/composables/useUpdater.ts`（状态机，注入式 client）+ `useUpdaterPrefs.ts`（autoCheck / skippedVersion 持久化）
 - UI：`UpdateBanner.vue`（topbar 下方，4 状态）+ `SettingsModal.vue`（sidebar 齿轮触发）
-- CI：`.github/workflows/build.yml` 在 tag push 时通过 `tauri-action` 的 `includeUpdaterJson: true` + secrets 注入私钥，自动生成签名后的 `latest.json` 上传到 GitHub Release
+- CI 签名：`TAURI_SIGNING_PRIVATE_KEY`（Environment `prod` 的 secret）+ 空字符串密码注入到 `tauri build` 的环境变量；Tauri 自身完成签名生成 `.sig` 文件
+- `latest.json` 由 `.github/scripts/build-latest-json.mjs` 在 release job 里生成（聚合 5 个 matrix 上传的 artifact），不依赖 `tauri-action` 的内置功能
+- **Linux 不在 updater 覆盖范围**：Tauri 不签 `.deb`，所以 `latest.json` 的 `platforms` 字段只有 `darwin-aarch64` / `darwin-x86_64` / `windows-x86_64`；脚本检测到 `.sig` 缺失会自动跳过该平台
 
 ## 关键模块
 
@@ -122,12 +124,43 @@ export function useTheme(
 
 ## 构建与发布
 
+### 本地
+
 - `npm run build` —— TS 类型检查 + Vite 生产构建（输出 `dist/`）
-- `npm run tauri:build` —— 上一步 + Rust 编译 + 打包（dmg / deb / appimage / msi / nsis）
-- CI：`.github/workflows/build.yml` 上 5 平台矩阵
-  - `workflow_dispatch` —— 上传 14 天 artifact
-  - tag `v*` push —— 创建 GitHub Release 草稿，用户 review 后手动 publish
-- 无代码签名（用户首次打开会触发 OS 警告）
+- `npm run tauri:build` —— 上一步 + Rust 编译 + 打包
+
+`tauri.conf.json` 的 `bundle.targets` 限制为 `["dmg", "app", "deb", "nsis"]` —— macOS 出 dmg + app.tar.gz、Linux 出 deb、Windows 出 NSIS exe。其它平台对应字段静默忽略。
+
+### CI（`.github/workflows/build.yml`）
+
+两阶段 job 结构：
+
+1. **build matrix（5 平台）**
+
+   每个 runner 跑：
+   - `dtolnay/rust-toolchain@stable` 装 target
+   - `swatinem/rust-cache@v2` 缓存 Cargo
+   - `actions/setup-node@v4` + `npm ci`
+   - `npm run tauri -- build --target <triple>` 编译 + 打包 + 签名（签名走 env：`TAURI_SIGNING_PRIVATE_KEY` 来自 environment `prod` 的 secret，密码空字符串）
+   - `bash .github/scripts/stage-bundles.sh <target> <label> <stage-dir>` 把 bundle 输出 copy 到 `runner.temp/stage` 并改名（aarch64 → arm64、x86_64/x64 → amd64、NSIS 去掉 `-setup`）
+   - `actions/upload-artifact@v4` 把 stage 全部上传，名 `bundle-<label>`
+
+2. **release job（单 ubuntu-latest）** 仅在 tag push 时跑
+
+   - `actions/download-artifact@v4 merge-multiple: true` 把 5 个 bundle artifact 合并到一个目录
+   - `node .github/scripts/build-latest-json.mjs <dir> <tag> <repo>` 扫描目录、按后缀（`_arm64.app.tar.gz` / `_amd64.app.tar.gz` / `_amd64.exe` / `_amd64.deb` / `_arm64.deb`）找 bundle，读取相邻 `.sig` 文件，输出 `latest.json` 到同目录
+   - `gh release create --draft --title ...` 一次性挂载所有文件创建草稿 release
+
+### 触发条件
+
+| 事件 | 行为 |
+|---|---|
+| `workflow_dispatch` | 仅跑 build matrix，artifact 14 天有效；不进入 release job |
+| push tag `v*` | build matrix → release job，创建草稿 release，待人工 publish |
+
+### 无代码签名
+
+未配 macOS notarization / Windows Authenticode。用户首次打开会触发 Gatekeeper / SmartScreen 警告，按 OS 说明放行即可。这与 Tauri updater 签名（`TAURI_SIGNING_PRIVATE_KEY`，独立机制）不是同一回事 —— updater 签名是有的，OS 代码签名没有。
 
 ## 性能 / 包大小现状
 
