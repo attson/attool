@@ -63,34 +63,62 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build (release on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: 'AT Tool ${{ github.ref_name }}'
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
+      - name: Build Tauri bundle
+        shell: bash
+        run: npm run tauri -- build --target ${{ matrix.target }}
 
-      - name: Build (manual, no release)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --target ${{ matrix.target }}
+      - name: Stage and rename artifacts
+        shell: bash
+        run: bash .github/scripts/stage-bundles.sh "${{ matrix.target }}" "${{ matrix.label }}" "${{ runner.temp }}/stage"
 
       - name: Upload artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
-          name: attool-${{ matrix.label }}
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
-          if-no-files-found: error
+          name: bundle-${{ matrix.label }}
+          path: ${{ runner.temp }}/stage/
           retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/all-bundles
+          merge-multiple: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate latest.json
+        run: |
+          node .github/scripts/build-latest-json.mjs \
+            "${{ runner.temp }}/all-bundles" \
+            "${{ github.ref_name }}" \
+            "${{ github.repository }}" \
+            > "${{ runner.temp }}/all-bundles/latest.json"
+          echo '--- latest.json ---'
+          cat "${{ runner.temp }}/all-bundles/latest.json"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Replace any existing draft for this tag (e.g. from a cancelled run).
+          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false 2>/dev/null || true
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --title "AT Tool ${{ github.ref_name }}" \
+            --notes "" \
+            "${{ runner.temp }}/all-bundles/"*
