@@ -28,11 +28,12 @@ import { darkOverrides } from './theme';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import TaskCard from './components/TaskCard.vue';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import Dashboard from './components/shell/Dashboard.vue';
 import StatPill from './components/ui/StatPill.vue';
+import Panel from './components/ui/Panel.vue';
+import TaskRow from './components/ui/TaskRow.vue';
 import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
@@ -549,98 +550,81 @@ async function addLogoBatch() {
         />
 
         <template v-else-if="selectedTool.id === 'aria2'">
-              <n-page-header subtitle="本机 aria2c 引擎，支持断点续传、分片、多连接和实时进度回传。">
-                <template #title>多线程下载工作台</template>
-                <template #extra>
-                  <n-tag round>Aria2 Engine</n-tag>
-                </template>
-              </n-page-header>
+          <div class="page">
+            <header class="page-header">
+              <h2>多线程下载工作台</h2>
+              <p>本机 aria2c 引擎，支持断点续传、分片、多连接和实时进度回传。</p>
+            </header>
 
-              <n-grid responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16">
-                <n-grid-item>
-                  <n-card title="新建下载" size="small" :bordered="false" class="panel-card">
-                    <template #header-extra>
-                      <n-tag round size="small">支持批量</n-tag>
-                    </template>
-                    <form @submit.prevent="startDownload">
-                      <n-form label-placement="top" size="small">
-                        <n-form-item label="资源链接（每行一个，或用逗号分隔）">
-                          <n-input
-                            v-model:value="url"
-                            type="textarea"
-                            placeholder="https://example.com/file-a.zip&#10;https://example.com/file-b.zip"
-                            :autosize="{ minRows: 5, maxRows: 10 }"
-                          />
-                        </n-form-item>
+            <div class="aria2-grid">
+              <Panel title="新建下载">
+                <template #right><span>支持批量</span></template>
+                <form @submit.prevent="startDownload" class="form">
+                  <label class="field">
+                    <span class="lbl">资源链接（每行一个，或用逗号分隔）</span>
+                    <n-input
+                      v-model:value="url"
+                      type="textarea"
+                      placeholder="https://example.com/file-a.zip&#10;https://example.com/file-b.zip"
+                      :autosize="{ minRows: 5, maxRows: 10 }"
+                    />
+                  </label>
 
-                        <n-grid responsive="screen" cols="1 m:2" :x-gap="12">
-                          <n-grid-item>
-                            <n-form-item label="保存目录">
-                              <n-input-group>
-                                <n-input v-model:value="downloadDir" placeholder="/Users/you/Downloads" />
-                                <n-button secondary :loading="choosingDir" @click="chooseDownloadDir">
-                                  选择文件夹
-                                </n-button>
-                              </n-input-group>
-                            </n-form-item>
-                          </n-grid-item>
-                          <n-grid-item>
-                            <n-form-item label="文件名（仅单个链接时生效）">
-                              <n-input v-model:value="fileName" placeholder="archive.zip" />
-                            </n-form-item>
-                          </n-grid-item>
-                        </n-grid>
+                  <div class="row2">
+                    <label class="field">
+                      <span class="lbl">保存目录</span>
+                      <n-input-group>
+                        <n-input v-model:value="downloadDir" placeholder="/Users/you/Downloads" />
+                        <n-button secondary :loading="choosingDir" @click="chooseDownloadDir">选择文件夹</n-button>
+                      </n-input-group>
+                    </label>
+                    <label class="field">
+                      <span class="lbl">文件名（仅单个链接时生效）</span>
+                      <n-input v-model:value="fileName" placeholder="archive.zip" />
+                    </label>
+                  </div>
 
-                        <n-grid responsive="screen" cols="1 m:3" :x-gap="12">
-                          <n-grid-item>
-                            <n-form-item label="单服务器连接数">
-                              <n-input-number v-model:value="connections" :min="1" :max="16" style="width: 100%" />
-                            </n-form-item>
-                          </n-grid-item>
-                          <n-grid-item>
-                            <n-form-item label="分片数">
-                              <n-input-number v-model:value="split" :min="1" :max="64" style="width: 100%" />
-                            </n-form-item>
-                          </n-grid-item>
-                          <n-grid-item>
-                            <n-form-item label="最小分片大小">
-                              <n-select v-model:value="minSplitSize" :options="minSplitOptions" />
-                            </n-form-item>
-                          </n-grid-item>
-                        </n-grid>
-                      </n-form>
+                  <div class="row3">
+                    <label class="field">
+                      <span class="lbl">单服务器连接数</span>
+                      <n-input-number v-model:value="connections" :min="1" :max="16" style="width: 100%" />
+                    </label>
+                    <label class="field">
+                      <span class="lbl">分片数</span>
+                      <n-input-number v-model:value="split" :min="1" :max="64" style="width: 100%" />
+                    </label>
+                    <label class="field">
+                      <span class="lbl">最小分片大小</span>
+                      <n-select v-model:value="minSplitSize" :options="minSplitOptions" />
+                    </label>
+                  </div>
 
-                      <n-alert v-if="notice" type="error" :bordered="false" class="notice-alert">
-                        {{ notice }}
-                      </n-alert>
+                  <n-alert v-if="notice" type="error" :bordered="false" class="notice-alert">
+                    {{ notice }}
+                  </n-alert>
 
-                      <n-button type="primary" block attr-type="submit" :loading="submitting">
-                        {{ submitting ? '正在创建...' : '开始下载' }}
-                      </n-button>
-                    </form>
-                  </n-card>
-                </n-grid-item>
+                  <n-button type="primary" block attr-type="submit" :loading="submitting">
+                    {{ submitting ? '正在创建...' : '开始下载' }}
+                  </n-button>
+                </form>
+              </Panel>
 
-                <n-grid-item>
-                  <n-card title="任务队列" size="small" :bordered="false" class="panel-card queue-card">
-                    <template #header-extra>
-                      <n-text depth="3">实时解析 aria2 输出</n-text>
-                    </template>
-
-                    <n-empty v-if="tasks.length === 0" class="empty-state" description="还没有下载任务" />
-                    <n-space v-else vertical :size="6">
-                      <TaskCard
-                        v-for="task in tasks"
-                        :key="task.id"
-                        :task="task"
-                        @cancel="cancelTask"
-                        @open-folder="openTaskFolder"
-                      />
-                    </n-space>
-                  </n-card>
-                </n-grid-item>
-              </n-grid>
-            </template>
+              <Panel title="任务队列">
+                <template #right><span class="mono">实时</span></template>
+                <div v-if="tasks.length === 0" class="empty">还没有下载任务</div>
+                <div v-else class="tasks">
+                  <TaskRow
+                    v-for="task in tasks"
+                    :key="task.id"
+                    :task="task"
+                    @cancel="cancelTask"
+                    @open-folder="openTaskFolder"
+                  />
+                </div>
+              </Panel>
+            </div>
+          </div>
+        </template>
 
             <template v-else-if="selectedTool.id === 'template'">
               <TemplateTool />
@@ -809,3 +793,49 @@ async function addLogoBatch() {
     </n-message-provider>
   </n-config-provider>
 </template>
+
+<style scoped>
+.page { display: grid; gap: 16px; }
+.page-header { display: grid; gap: 4px; }
+.page-header h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+.page-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.aria2-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .aria2-grid { grid-template-columns: 1fr; }
+}
+
+.form { display: grid; gap: 12px; }
+.field { display: grid; gap: 5px; }
+.field .lbl {
+  font-size: var(--fs-xxs);
+  color: var(--text-muted);
+}
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+.notice-alert { margin-bottom: 4px; }
+
+.tasks { display: grid; gap: 6px; }
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+}
+</style>
