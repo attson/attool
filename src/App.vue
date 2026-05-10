@@ -154,10 +154,26 @@ onMounted(() => {
         : task
     );
   });
+
+  window.addEventListener('keydown', handleHotkey);
 });
+
+function handleHotkey(event: KeyboardEvent) {
+  const meta = event.metaKey || event.ctrlKey;
+  if (!meta) return;
+
+  if (event.key === '\\') {
+    event.preventDefault();
+    toggleSidebar();
+  } else if (event.key === 'k' || event.key === 'K') {
+    event.preventDefault();
+    openSearch();
+  }
+}
 
 onUnmounted(() => {
   unlistenProgress?.then((dispose) => dispose()).catch(() => undefined);
+  window.removeEventListener('keydown', handleHotkey);
 });
 
 const activeCount = computed(
