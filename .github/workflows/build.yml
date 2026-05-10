@@ -111,6 +111,12 @@ jobs:
           echo '--- latest.json ---'
           cat "${{ runner.temp }}/all-bundles/latest.json"
 
+      - name: Drop .sig files (embedded in latest.json already)
+        run: rm -f "${{ runner.temp }}/all-bundles/"*.sig
+
+      - name: List release contents
+        run: ls -la "${{ runner.temp }}/all-bundles/"
+
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
