@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import ToolIcon from './ToolIcon.vue';
 import type { Tool } from '../../types/tool';
 
 const props = defineProps<{
@@ -29,7 +30,7 @@ const lastTool = computed(() =>
     <div v-if="lastTool" class="block">
       <div class="block-title">上次使用</div>
       <button class="last" type="button" @click="emit('open', lastTool.id)">
-        <span class="dot"></span>
+        <ToolIcon :name="lastTool.icon" :size="16" class="last-icon" />
         <span class="text">
           <strong>{{ lastTool.name }}</strong>
           <span class="desc">{{ lastTool.description }}</span>
@@ -48,6 +49,7 @@ const lastTool = computed(() =>
           type="button"
           @click="emit('open', tool.id)"
         >
+          <ToolIcon :name="tool.icon" :size="16" class="tile-icon" />
           <span class="tile-name">{{ tool.name }}</span>
           <span class="tile-desc">{{ tool.description }}</span>
         </button>
@@ -99,12 +101,7 @@ const lastTool = computed(() =>
   text-align: left;
 }
 .last:hover { border-color: var(--line-strong); }
-.last .dot {
-  width: 8px; height: 8px;
-  background: var(--accent);
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+.last :deep(.last-icon) { color: var(--accent); }
 .last .text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .last .text strong { font-size: var(--fs-md); font-weight: 600; }
 .last .text .desc { color: var(--text-muted); font-size: var(--fs-xs); }
@@ -129,6 +126,8 @@ const lastTool = computed(() =>
   text-align: left;
 }
 .tile:hover { border-color: var(--line-strong); }
+.tile :deep(.tile-icon) { color: var(--text-muted); }
+.tile:hover :deep(.tile-icon) { color: var(--accent); }
 .tile-name { font-size: var(--fs-md); font-weight: 600; }
 .tile-desc { color: var(--text-muted); font-size: var(--fs-xs); }
 </style>

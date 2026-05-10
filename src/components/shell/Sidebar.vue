@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import BrandMark from './BrandMark.vue';
+import ToolIcon from './ToolIcon.vue';
 import Kbd from '../ui/Kbd.vue';
 import type { Tool } from '../../types/tool';
 
@@ -44,7 +45,7 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
       :title="tool.name"
       @click="emit('select', tool.id)"
     >
-      <span class="ico"></span>
+      <ToolIcon :name="tool.icon" />
       <span class="label">{{ tool.name }}</span>
     </button>
 
@@ -57,7 +58,7 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
       disabled
       :title="tool.name"
     >
-      <span class="ico"></span>
+      <ToolIcon :name="tool.icon" />
       <span class="label">{{ tool.name }}</span>
       <span class="pill">Soon</span>
     </button>
@@ -171,13 +172,8 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
   background: var(--accent-soft);
   color: var(--accent);
 }
-.item .ico {
-  width: 14px; height: 14px;
-  border-radius: 3px;
-  background: var(--line-strong);
-  flex-shrink: 0;
-}
-.item.active .ico { background: var(--accent); }
+.item :deep(.tool-icon) { color: var(--text-muted); }
+.item.active :deep(.tool-icon) { color: var(--accent); }
 .item.dim { color: var(--text-muted); }
 .item .label {
   white-space: nowrap;
