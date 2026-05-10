@@ -109,13 +109,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleHotkey);
 
   if (updaterAutoCheck.value) {
-    setTimeout(async () => {
-      await updaterCheck('auto');
-      if (updaterState.value.status === 'available' &&
-          updaterShouldSkip(updaterState.value.available?.version ?? '')) {
-        updaterDismiss();
-      }
-    }, 5000);
+    setTimeout(() => runUpdateCheck('auto'), 5000);
   }
 });
 
@@ -167,8 +161,15 @@ function handleSkip() {
 function openSettings() {
   settingsOpen.value = true;
 }
+async function runUpdateCheck(trigger: 'auto' | 'manual') {
+  await updaterCheck(trigger);
+  if (updaterState.value.status === 'available' &&
+      updaterShouldSkip(updaterState.value.available?.version ?? '')) {
+    updaterDismiss();
+  }
+}
 function handleSettingsCheck() {
-  updaterCheck('manual');
+  runUpdateCheck('manual');
 }
 
 async function chooseDownloadDir() {

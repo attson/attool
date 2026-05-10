@@ -31,7 +31,7 @@ const latestText = computed(() => {
     case 'idle': return '未检查';
     case 'checking': return '检查中...';
     case 'up-to-date': return '已是最新版本';
-    case 'available': return `v${props.state.available!.version}`;
+    case 'available': return `v${props.state.available?.version ?? ''}`;
     case 'downloading': return `下载中 ${props.state.downloadPercent ?? 0}%`;
     case 'ready': return '已下载，待重启';
     case 'error': return '检查失败';
