@@ -11,7 +11,7 @@ import {
   NSelect,
   darkTheme
 } from 'naive-ui';
-import { darkOverrides } from './theme';
+import { darkOverrides, lightOverrides } from './theme';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -23,6 +23,7 @@ import Panel from './components/ui/Panel.vue';
 import TaskRow from './components/ui/TaskRow.vue';
 import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
+import { useTheme } from './composables/useTheme';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
 import type { Tool } from './types/tool';
 
@@ -54,6 +55,9 @@ const choosingDir = ref(false);
 const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
+const { theme, toggle: toggleTheme } = useTheme();
+const naiveTheme = computed(() => (theme.value === 'dark' ? darkTheme : null));
+const naiveOverrides = computed(() => (theme.value === 'dark' ? darkOverrides : lightOverrides));
 const initialToolId = (() => {
   const id = lastToolId.value;
   if (!id) return null;
@@ -237,17 +241,19 @@ async function openTaskFolder(id: string) {
 </script>
 
 <template>
-  <n-config-provider :theme="darkTheme" :theme-overrides="darkOverrides">
+  <n-config-provider :theme="naiveTheme" :theme-overrides="naiveOverrides">
     <n-message-provider>
       <AppShell
         :tools="tools"
         :active-id="selectedToolId"
         :collapsed="sidebarCollapsed"
         :crumb="selectedTool?.name"
+        :theme="theme"
         @select="selectTool"
         @toggle="toggleSidebar"
         @brand="goHome"
         @search="openSearch"
+        @theme-toggle="toggleTheme"
       >
         <template #topbar-right>
           <template v-if="selectedTool?.id === 'aria2'">
