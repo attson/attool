@@ -9,6 +9,7 @@ const props = defineProps<{
   tools: Tool[];
   activeId: string | null;
   collapsed: boolean;
+  theme: 'dark' | 'light';
 }>();
 
 const emit = defineEmits<{
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   toggle: [];
   brand: [];
   search: [];
+  themeToggle: [];
 }>();
 
 const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
@@ -65,6 +67,27 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 
     <div class="foot">
       <span class="ver">v0.1.0</span>
+      <button
+        class="theme-toggle"
+        type="button"
+        :title="theme === 'dark' ? '切换到亮色' : '切换到暗色'"
+        @click="emit('themeToggle')"
+      >
+        <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <line x1="12" y1="2" x2="12" y2="5" />
+          <line x1="12" y1="19" x2="12" y2="22" />
+          <line x1="4.22" y1="4.22" x2="6.34" y2="6.34" />
+          <line x1="17.66" y1="17.66" x2="19.78" y2="19.78" />
+          <line x1="2" y1="12" x2="5" y2="12" />
+          <line x1="19" y1="12" x2="22" y2="12" />
+          <line x1="4.22" y1="19.78" x2="6.34" y2="17.66" />
+          <line x1="17.66" y1="6.34" x2="19.78" y2="4.22" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
       <button class="toggle" type="button" :title="collapsed ? '展开' : '折叠'" @click="emit('toggle')">
         {{ collapsed ? '›' : '‹' }}
       </button>
@@ -207,8 +230,8 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 .sidebar.collapsed .foot .ver { display: none; }
 .sidebar.collapsed .foot { justify-content: center; }
 
-.toggle {
-  margin-left: auto;
+.toggle,
+.theme-toggle {
   width: 22px; height: 22px;
   display: grid;
   place-items: center;
@@ -220,5 +243,8 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
   font-size: 13px;
   line-height: 1;
 }
-.toggle:hover { color: var(--text); }
+.toggle { margin-left: auto; }
+.toggle:hover,
+.theme-toggle:hover { color: var(--text); }
+.sidebar.collapsed .theme-toggle { display: none; }
 </style>

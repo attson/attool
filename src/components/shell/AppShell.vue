@@ -8,6 +8,7 @@ defineProps<{
   activeId: string | null;
   collapsed: boolean;
   crumb?: string;
+  theme: 'dark' | 'light';
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   toggle: [];
   brand: [];
   search: [];
+  themeToggle: [];
 }>();
 </script>
 
@@ -24,10 +26,12 @@ const emit = defineEmits<{
       :tools="tools"
       :active-id="activeId"
       :collapsed="collapsed"
+      :theme="theme"
       @select="(id) => emit('select', id)"
       @toggle="emit('toggle')"
       @brand="emit('brand')"
       @search="emit('search')"
+      @theme-toggle="emit('themeToggle')"
     />
     <main class="main">
       <Topbar :crumb="crumb">
