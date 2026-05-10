@@ -50,15 +50,9 @@ if (macArm) platforms['darwin-aarch64'] = macArm;
 const macX64 = findBundleWithSig('_amd64.app.tar.gz');
 if (macX64) platforms['darwin-x86_64'] = macX64;
 
-const linuxX64 = findBundleWithSig('_amd64.deb');
-if (linuxX64) platforms['linux-x86_64'] = linuxX64;
-
-const linuxArm = findBundleWithSig('_arm64.deb');
-if (linuxArm) platforms['linux-aarch64'] = linuxArm;
-
-// Windows updater uses the .nsis.zip artifact (signed). The .exe is for
-// users who want to download the installer manually; it has no .sig.
-const winX64 = findBundleWithSig('_amd64.nsis.zip');
+// Linux .deb assets are uploaded for manual install only; in-app updater
+// metadata is intentionally limited to macOS and Windows.
+const winX64 = findBundleWithSig('_amd64.exe');
 if (winX64) platforms['windows-x86_64'] = winX64;
 
 const output = {

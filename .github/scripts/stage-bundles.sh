@@ -28,6 +28,29 @@ stage() {
   cp "$src" "$STAGE/$newname"
 }
 
+mac_app_name() {
+  local name="$1"
+  local arch="$2"
+  local sig=""
+  local base
+
+  if [[ "$name" == *.app.tar.gz.sig ]]; then
+    sig=".sig"
+    base="${name%.app.tar.gz.sig}"
+  else
+    base="${name%.app.tar.gz}"
+  fi
+
+  base="${base//aarch64/arm64}"
+  base="${base//x86_64/amd64}"
+  base="${base//x64/amd64}"
+  if [[ "$base" != *_"$arch" ]]; then
+    base="${base}_${arch}"
+  fi
+
+  printf '%s.app.tar.gz%s\n' "$base" "$sig"
+}
+
 case "$LABEL" in
   macos-arm64)
     for src in "$BUNDLE"/dmg/*.dmg; do
@@ -36,14 +59,7 @@ case "$LABEL" in
     done
     for src in "$BUNDLE"/macos/*.app.tar.gz "$BUNDLE"/macos/*.app.tar.gz.sig; do
       name=$(basename "$src")
-      # Tauri may emit "AT Tool.app.tar.gz" (no arch suffix) or "AT Tool_aarch64.app.tar.gz".
-      # Normalize to *_arm64.app.tar.gz for consistency.
-      newname="${name//aarch64/arm64}"
-      if [[ "$newname" != *_arm64* ]]; then
-        # No arch suffix in original — inject _arm64 before .app.tar.gz
-        newname="${newname%.app.tar.gz}_arm64.app.tar.gz${name##*.app.tar.gz}"
-      fi
-      stage "$src" "$newname"
+      stage "$src" "$(mac_app_name "$name" arm64)"
     done
     ;;
   macos-x64)
@@ -55,12 +71,7 @@ case "$LABEL" in
     done
     for src in "$BUNDLE"/macos/*.app.tar.gz "$BUNDLE"/macos/*.app.tar.gz.sig; do
       name=$(basename "$src")
-      newname="${name//x86_64/amd64}"
-      newname="${newname//x64/amd64}"
-      if [[ "$newname" != *_amd64* ]]; then
-        newname="${newname%.app.tar.gz}_amd64.app.tar.gz${name##*.app.tar.gz}"
-      fi
-      stage "$src" "$newname"
+      stage "$src" "$(mac_app_name "$name" amd64)"
     done
     ;;
   linux-x64|linux-arm64)
@@ -70,12 +81,13 @@ case "$LABEL" in
     ;;
   windows-x64)
     # User-facing installer
-    for src in "$BUNDLE"/nsis/*-setup.exe; do
+    for src in "$BUNDLE"/nsis/*-setup.exe "$BUNDLE"/nsis/*-setup.exe.sig; do
       name=$(basename "$src")
-      stage "$src" "${name//x64-setup.exe/amd64.exe}"
+      newname="${name//x64-setup.exe.sig/amd64.exe.sig}"
+      newname="${newname//x64-setup.exe/amd64.exe}"
+      stage "$src" "$newname"
     done
-    # Updater artifact (signed). Tauri 2 with createUpdaterArtifacts emits
-    # *-setup.nsis.zip (+ .sig).
+    # Keep compatibility if a future Tauri release emits a zipped NSIS updater.
     for src in "$BUNDLE"/nsis/*-setup.nsis.zip "$BUNDLE"/nsis/*-setup.nsis.zip.sig; do
       name=$(basename "$src")
       stage "$src" "${name//x64-setup/amd64}"
