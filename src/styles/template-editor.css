@@ -496,6 +496,25 @@
   align-items: stretch;
 }
 
+.template-workbench.props-collapsed {
+  grid-template-columns: 64px minmax(220px, 280px) minmax(0, 1fr);
+}
+
+.template-props-toggle {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.template-props-toggle:hover { color: var(--text); border-color: #3a3a40; }
+
 .template-workbench-rail,
 .template-resource-panel {
   border-radius: var(--radius-md);
