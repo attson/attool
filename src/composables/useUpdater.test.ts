@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useUpdater, type UpdaterClient, type UpdateInfo } from './useUpdater';
+import { useUpdater, type UpdaterClient, type UpdateInfo, type ProgressEvent } from './useUpdater';
 
 function makeClient(opts: {
   update?: { version: string; notes?: string };
   failCheck?: string;
   failInstall?: string;
 }): UpdaterClient {
-  const dl = vi.fn(async (cb: (e: { event: string; data?: any }) => void) => {
+  const dl = vi.fn(async (cb: (e: ProgressEvent) => void) => {
     if (opts.failInstall) throw new Error(opts.failInstall);
     cb({ event: 'Started', data: { contentLength: 100 } });
     cb({ event: 'Progress', data: { chunkLength: 50 } });

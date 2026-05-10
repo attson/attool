@@ -1,9 +1,9 @@
 import { ref } from 'vue';
 
-export interface ProgressEvent {
-  event: 'Started' | 'Progress' | 'Finished';
-  data?: { contentLength?: number; chunkLength?: number };
-}
+export type ProgressEvent =
+  | { event: 'Started'; data: { contentLength?: number } }
+  | { event: 'Progress'; data: { chunkLength: number } }
+  | { event: 'Finished' };
 
 export interface UpdateInfo {
   version: string;
@@ -41,7 +41,7 @@ function defaultClient(): UpdaterClient {
       return {
         version: update.version,
         notes: update.body ?? undefined,
-        downloadAndInstall: (cb) => update.downloadAndInstall(cb as any)
+        downloadAndInstall: (cb) => update.downloadAndInstall(cb)
       };
     },
     async relaunch() {
