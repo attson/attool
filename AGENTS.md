@@ -76,6 +76,14 @@ docs/superpowers/                # superpowers 流程产物（每任务 1 份 sp
 
 无需碰 Sidebar / Dashboard —— 它们从 `tools[]` 自动派生。
 
+## 软件更新
+
+- 走 Tauri 官方 `tauri-plugin-updater`（v2）+ `tauri-plugin-process`，配置在 `src-tauri/tauri.conf.json` 的 `plugins.updater`，endpoint 指向 GitHub Releases 的 `latest.json`
+- 启动 5s 后若 `attool.updater.autoCheck=1` 自动检查；发现新版在 topbar 下方显示 banner，用户点 "现在安装" 触发下载 + 安装
+- 设置入口：sidebar 底栏齿轮按钮 → SettingsModal
+- 签名密钥（**必须妥善备份**）：本地 `tauri signer generate` 出私钥 + 公钥；公钥写入 `tauri.conf.json`；私钥 + 口令存 GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，CI 在 tag push 时自动签名 + 上传 latest.json
+- 状态机：`idle → checking → {up-to-date | available | error}`；`available → downloading → ready → relaunch`
+
 ## 已知遗留
 
 - `src-tauri/src/lib.rs` 还保留 `batch_add_logo` / `list_logo_presets` / `save_logo_preset` 命令，前端"电商图片处理"工具已下线（被主图模板替代）。要清理就把这些命令和相关 struct 一起删掉，并从 `invoke_handler` 列表移除

@@ -24,6 +24,10 @@ import TaskRow from './components/ui/TaskRow.vue';
 import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
 import { useTheme } from './composables/useTheme';
+import UpdateBanner from './components/shell/UpdateBanner.vue';
+import SettingsModal from './components/shell/SettingsModal.vue';
+import { useUpdater } from './composables/useUpdater';
+import { useUpdaterPrefs } from './composables/useUpdaterPrefs';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
 import type { Tool } from './types/tool';
 
@@ -56,6 +60,9 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const { state: updaterState, check: updaterCheck, install: updaterInstall, relaunch: updaterRelaunch, dismiss: updaterDismiss } = useUpdater();
+const { autoCheck: updaterAutoCheck, setAutoCheck: updaterSetAutoCheck, skipVersion: updaterSkipVersion, shouldSkip: updaterShouldSkip } = useUpdaterPrefs();
+const settingsOpen = ref(false);
 const naiveTheme = computed(() => (theme.value === 'dark' ? darkTheme : null));
 const naiveOverrides = computed(() => (theme.value === 'dark' ? darkOverrides : lightOverrides));
 const initialToolId = (() => {
@@ -100,6 +107,10 @@ onMounted(() => {
   });
 
   window.addEventListener('keydown', handleHotkey);
+
+  if (updaterAutoCheck.value) {
+    setTimeout(() => runUpdateCheck('auto'), 5000);
+  }
 });
 
 function handleHotkey(event: KeyboardEvent) {
@@ -139,6 +150,26 @@ function goHome() {
 
 function openSearch() {
   alert('命令面板敬请期待');
+}
+
+function handleSkip() {
+  if (updaterState.value.available) {
+    updaterSkipVersion(updaterState.value.available.version);
+  }
+  updaterDismiss();
+}
+function openSettings() {
+  settingsOpen.value = true;
+}
+async function runUpdateCheck(trigger: 'auto' | 'manual') {
+  await updaterCheck(trigger);
+  if (updaterState.value.status === 'available' &&
+      updaterShouldSkip(updaterState.value.available?.version ?? '')) {
+    updaterDismiss();
+  }
+}
+function handleSettingsCheck() {
+  runUpdateCheck('manual');
 }
 
 async function chooseDownloadDir() {
@@ -254,7 +285,17 @@ async function openTaskFolder(id: string) {
         @brand="goHome"
         @search="openSearch"
         @theme-toggle="toggleTheme"
+        @settings-toggle="openSettings"
       >
+        <template #banner>
+          <UpdateBanner
+            :state="updaterState"
+            @install="updaterInstall"
+            @skip="handleSkip"
+            @relaunch="updaterRelaunch"
+            @dismiss="updaterDismiss"
+          />
+        </template>
         <template #topbar-right>
           <template v-if="selectedTool?.id === 'aria2'">
             <StatPill tone="accent">进行中 {{ activeCount }}</StatPill>
@@ -350,6 +391,14 @@ async function openTaskFolder(id: string) {
           <TemplateTool />
         </template>
       </AppShell>
+
+      <SettingsModal
+        v-model:show="settingsOpen"
+        :state="updaterState"
+        :auto-check="updaterAutoCheck"
+        @check="handleSettingsCheck"
+        @update:auto-check="updaterSetAutoCheck"
+      />
     </n-message-provider>
   </n-config-provider>
 </template>

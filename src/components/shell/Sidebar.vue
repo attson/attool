@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import BrandMark from './BrandMark.vue';
 import ToolIcon from './ToolIcon.vue';
+import SettingsIcon from './SettingsIcon.vue';
 import Kbd from '../ui/Kbd.vue';
 import type { Tool } from '../../types/tool';
 
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   brand: [];
   search: [];
   themeToggle: [];
+  settingsToggle: [];
 }>();
 
 const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
@@ -67,6 +69,14 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 
     <div class="foot">
       <span class="ver">v0.1.0</span>
+      <button
+        class="settings-toggle"
+        type="button"
+        title="设置"
+        @click="emit('settingsToggle')"
+      >
+        <SettingsIcon />
+      </button>
       <button
         class="theme-toggle"
         type="button"
@@ -231,7 +241,8 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 .sidebar.collapsed .foot { justify-content: center; }
 
 .toggle,
-.theme-toggle {
+.theme-toggle,
+.settings-toggle {
   width: 22px; height: 22px;
   display: grid;
   place-items: center;
@@ -245,6 +256,8 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 }
 .toggle { margin-left: auto; }
 .toggle:hover,
-.theme-toggle:hover { color: var(--text); }
-.sidebar.collapsed .theme-toggle { display: none; }
+.theme-toggle:hover,
+.settings-toggle:hover { color: var(--text); }
+.sidebar.collapsed .theme-toggle,
+.sidebar.collapsed .settings-toggle { display: none; }
 </style>
