@@ -48,6 +48,14 @@
 | 应用持久 | rusqlite（Tauri data dir） | 模板项目、模板素材库、Logo 预设（遗留）、下载任务历史 |
 | 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`） |
 
+## 软件更新
+
+- Rust 端：`tauri-plugin-updater` + `tauri-plugin-process`，在 `lib.rs` 的 `run()` 里注册
+- 配置：`tauri.conf.json plugins.updater.endpoints` + `pubkey`
+- 前端：`src/composables/useUpdater.ts`（状态机，注入式 client）+ `useUpdaterPrefs.ts`（autoCheck / skippedVersion 持久化）
+- UI：`UpdateBanner.vue`（topbar 下方，4 状态）+ `SettingsModal.vue`（sidebar 齿轮触发）
+- CI：`.github/workflows/build.yml` 在 tag push 时通过 `tauri-action` 的 `includeUpdaterJson: true` + secrets 注入私钥，自动生成签名后的 `latest.json` 上传到 GitHub Release
+
 ## 关键模块
 
 ### `App.vue`
