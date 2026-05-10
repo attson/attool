@@ -21,8 +21,10 @@ import {
   NSelect,
   NSpace,
   NTag,
-  NText
+  NText,
+  darkTheme
 } from 'naive-ui';
+import { darkOverrides } from './theme';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -36,24 +38,6 @@ type ToolEntry = {
   description: string;
   badge: string;
   active: boolean;
-};
-
-const themeOverrides = {
-  common: {
-    primaryColor: '#56715d',
-    primaryColorHover: '#68866f',
-    primaryColorPressed: '#263c2d',
-    borderRadius: '14px',
-    borderRadiusSmall: '10px',
-    fontFamily: '"Avenir Next", "Gill Sans", "PingFang SC", "Microsoft YaHei", sans-serif'
-  },
-  Card: {
-    borderRadius: '24px'
-  },
-  Button: {
-    borderRadiusMedium: '14px',
-    borderRadiusSmall: '12px'
-  }
 };
 
 const tools: ToolEntry[] = [
@@ -571,7 +555,7 @@ async function addLogoBatch() {
 </script>
 
 <template>
-  <n-config-provider :theme-overrides="themeOverrides">
+  <n-config-provider :theme="darkTheme" :theme-overrides="darkOverrides">
     <n-message-provider>
       <main class="app-shell">
         <n-card v-if="!selectedTool" class="surface-card home-surface" :bordered="false">
