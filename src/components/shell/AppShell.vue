@@ -17,6 +17,7 @@ const emit = defineEmits<{
   brand: [];
   search: [];
   themeToggle: [];
+  settingsToggle: [];
 }>();
 </script>
 
@@ -32,6 +33,7 @@ const emit = defineEmits<{
       @brand="emit('brand')"
       @search="emit('search')"
       @theme-toggle="emit('themeToggle')"
+      @settings-toggle="emit('settingsToggle')"
     />
     <main class="main">
       <Topbar :crumb="crumb">
