@@ -4,13 +4,13 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "./node_modules/.bin/vite --host 127.0.0.1",
-    "build": "./node_modules/.bin/tsc && ./node_modules/.bin/vite build",
-    "preview": "./node_modules/.bin/vite preview",
-    "tauri": "./node_modules/.bin/tauri",
-    "tauri:dev": "./node_modules/.bin/tauri dev",
-    "tauri:build": "./node_modules/.bin/tauri build",
-    "test": "./node_modules/.bin/vitest run"
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",
