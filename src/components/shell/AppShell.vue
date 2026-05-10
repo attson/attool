@@ -41,6 +41,7 @@ const emit = defineEmits<{
           <slot name="topbar-right" />
         </template>
       </Topbar>
+      <slot name="banner" />
       <div class="content">
         <slot />
       </div>
