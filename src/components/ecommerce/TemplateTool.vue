@@ -31,6 +31,13 @@ const saving = ref(false);
 const activeResourceTab = ref<ResourceTab>('text');
 const pasteTarget = ref<'canvas' | 'library'>('canvas');
 
+const PROPS_COLLAPSED_KEY = 'attool.template.propsCollapsed';
+const propsCollapsed = ref(localStorage.getItem(PROPS_COLLAPSED_KEY) !== '0');
+function togglePropsCollapsed() {
+  propsCollapsed.value = !propsCollapsed.value;
+  localStorage.setItem(PROPS_COLLAPSED_KEY, propsCollapsed.value ? '1' : '0');
+}
+
 type NameDialogAction = { type: 'save' } | { type: 'rename'; id: string };
 const nameDialogVisible = ref(false);
 const nameDialogTitle = ref('');
@@ -327,7 +334,7 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
 
     <n-alert v-if="notice" type="error" :bordered="false">{{ notice }}</n-alert>
 
-    <div class="template-workbench">
+    <div class="template-workbench" :class="{ 'props-collapsed': propsCollapsed }">
       <TemplateResourcePanel
         v-model:active-tab="activeResourceTab"
         :layers="project.layers"
@@ -356,10 +363,18 @@ function handleLayerAction(action: 'duplicate' | 'delete' | 'front' | 'back' | '
         :class="['panel-card', 'template-canvas-card', { 'is-paste-target': pasteTarget === 'canvas' }]"
         @mousedown="focusPasteTargetCanvas"
       >
+        <template #header-extra>
+          <button
+            type="button"
+            class="template-props-toggle"
+            :title="propsCollapsed ? '显示属性面板' : '隐藏属性面板'"
+            @click="togglePropsCollapsed"
+          >{{ propsCollapsed ? '‹' : '›' }}</button>
+        </template>
         <TemplateCanvas :canvas-width="project.canvasWidth" :canvas-height="project.canvasHeight" :layers="project.layers" :assets="project.assets" :selected-layer-id="selectedLayerId" @select="selectLayer" @update="updateLayer" @action="handleLayerAction" />
       </n-card>
 
-      <n-card title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">
+      <n-card v-if="!propsCollapsed" title="属性" size="small" :bordered="false" class="panel-card template-editor-panel">
         <template #header-extra>
           <n-button
             text

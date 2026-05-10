@@ -1,5 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
-import './styles.css';
+import './styles/tokens.css';
+import './styles/reset.css';
+import './styles/template-editor.css';
 
 createApp(App).mount('#root');
