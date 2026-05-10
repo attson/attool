@@ -30,66 +30,22 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import TaskCard from './components/TaskCard.vue';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
+import AppShell from './components/shell/AppShell.vue';
+import Dashboard from './components/shell/Dashboard.vue';
+import StatPill from './components/ui/StatPill.vue';
+import { useSidebarState } from './composables/useSidebarState';
+import { useLastTool } from './composables/useLastTool';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
+import type { Tool } from './types/tool';
 
-type ToolEntry = {
-  id: string;
-  name: string;
-  description: string;
-  badge: string;
-  active: boolean;
-};
-
-const tools: ToolEntry[] = [
-  {
-    id: 'aria2',
-    name: 'Aria2 下载',
-    description: 'HTTP / HTTPS / FTP / BitTorrent 多连接下载',
-    badge: 'Ready',
-    active: true
-  },
-  {
-    id: 'clipboard',
-    name: '剪贴板工具',
-    description: '剪贴板历史、清洗与批量转换',
-    badge: 'Soon',
-    active: false
-  },
-  {
-    id: 'template',
-    name: '主图模板',
-    description: 'PSD 导入、字段替换、批量生成主图',
-    badge: 'New',
-    active: true
-  },
-  {
-    id: 'image',
-    name: '电商图片处理',
-    description: '批量加 Logo、商品图处理',
-    badge: 'Ready',
-    active: true
-  },
-  {
-    id: 'text',
-    name: '文本工具',
-    description: '去重、排序、分割、大小写转换',
-    badge: 'Soon',
-    active: false
-  },
-  {
-    id: 'network',
-    name: '网络工具',
-    description: 'Ping、端口检查、URL 分析',
-    badge: 'Soon',
-    active: false
-  },
-  {
-    id: 'codec',
-    name: '编码转换',
-    description: 'Base64、URL Encode、Hash 摘要',
-    badge: 'Soon',
-    active: false
-  }
+const tools: Tool[] = [
+  { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready' },
+  { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready' },
+  { id: 'image',     name: '电商图片处理',   description: '批量加 Logo、商品图处理',             status: 'ready' },
+  { id: 'clipboard', name: '剪贴板工具',     description: '剪贴板历史、清洗与批量转换',         status: 'soon' },
+  { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon' },
+  { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon' },
+  { id: 'codec',     name: '编码转换',       description: 'Base64、URL Encode、Hash 摘要',      status: 'soon' }
 ];
 
 const minSplitOptions = [
@@ -128,7 +84,15 @@ const tasks = ref<DownloadTask[]>([]);
 const submitting = ref(false);
 const choosingDir = ref(false);
 const notice = ref('');
-const selectedToolId = ref<string | null>(null);
+const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
+const { lastToolId, remember: rememberLastTool } = useLastTool();
+const initialToolId = (() => {
+  const id = lastToolId.value;
+  if (!id) return null;
+  const t = tools.find((x) => x.id === id);
+  return t && t.status === 'ready' ? id : null;
+})();
+const selectedToolId = ref<string | null>(initialToolId);
 const imagePaths = ref<string[]>([]);
 const selectedPreviewIndex = ref(0);
 const logoPath = ref('');
@@ -218,16 +182,19 @@ const logoPresetOptions = computed(() =>
   }))
 );
 
-function openTool(tool: ToolEntry) {
-  if (!tool.active) {
-    return;
-  }
-
-  selectedToolId.value = tool.id;
+function selectTool(id: string) {
+  const tool = tools.find((t) => t.id === id);
+  if (!tool || tool.status !== 'ready') return;
+  selectedToolId.value = id;
+  rememberLastTool(id);
 }
 
 function goHome() {
   selectedToolId.value = null;
+}
+
+function openSearch() {
+  alert('命令面板敬请期待');
 }
 
 async function chooseDownloadDir() {
@@ -557,59 +524,31 @@ async function addLogoBatch() {
 <template>
   <n-config-provider :theme="darkTheme" :theme-overrides="darkOverrides">
     <n-message-provider>
-      <main class="app-shell">
-        <n-card v-if="!selectedTool" class="surface-card home-surface" :bordered="false">
-          <n-flex class="home-brand" align="center" :gap="12">
-            <div class="brand-mark">AT</div>
-            <div>
-              <div class="brand-name">AT Tool</div>
-              <n-text depth="3">Personal Utility Deck</n-text>
-            </div>
-          </n-flex>
+      <AppShell
+        :tools="tools"
+        :active-id="selectedToolId"
+        :collapsed="sidebarCollapsed"
+        :crumb="selectedTool?.name"
+        @select="selectTool"
+        @toggle="toggleSidebar"
+        @brand="goHome"
+        @search="openSearch"
+      >
+        <template #topbar-right>
+          <template v-if="selectedTool?.id === 'aria2'">
+            <StatPill tone="accent">进行中 {{ activeCount }}</StatPill>
+            <StatPill>已完成 {{ completedCount }}</StatPill>
+          </template>
+        </template>
 
-          <n-grid class="tool-grid" responsive="screen" cols="1 s:2 m:3 l:4" :x-gap="12" :y-gap="12">
-            <n-grid-item v-for="tool in tools" :key="tool.id">
-              <n-card
-                class="tool-card"
-                :class="{ disabled: !tool.active }"
-                size="small"
-                hoverable
-                :bordered="false"
-                role="button"
-                @click="openTool(tool)"
-              >
-                <template #header>
-                  <n-ellipsis :tooltip="false">{{ tool.name }}</n-ellipsis>
-                </template>
-                <template #header-extra>
-                  <n-tag size="small" round :type="tool.active ? 'success' : 'default'">
-                    {{ tool.badge }}
-                  </n-tag>
-                </template>
-                <n-ellipsis :line-clamp="2" :tooltip="false">
-                  <n-text depth="3">{{ tool.description }}</n-text>
-                </n-ellipsis>
-                <template #footer>
-                  <n-button size="small" block secondary :type="tool.active ? 'primary' : 'default'" :disabled="!tool.active">
-                    {{ tool.active ? '进入工具' : '等待接入' }}
-                  </n-button>
-                </template>
-              </n-card>
-            </n-grid-item>
-          </n-grid>
-        </n-card>
+        <Dashboard
+          v-if="!selectedTool"
+          :tools="tools"
+          :last-tool-id="lastToolId"
+          @open="selectTool"
+        />
 
-        <n-card v-else class="surface-card tool-surface" :bordered="false">
-          <n-space vertical :size="18">
-            <n-flex justify="space-between" align="center">
-              <n-button secondary size="small" @click="goHome">返回首页</n-button>
-              <n-space v-if="selectedTool.id === 'aria2'" :size="10">
-                <n-tag round type="info">进行中 {{ activeCount }}</n-tag>
-                <n-tag round type="success">已完成 {{ completedCount }}</n-tag>
-              </n-space>
-            </n-flex>
-
-            <template v-if="selectedTool.id === 'aria2'">
+        <template v-else-if="selectedTool.id === 'aria2'">
               <n-page-header subtitle="本机 aria2c 引擎，支持断点续传、分片、多连接和实时进度回传。">
                 <template #title>多线程下载工作台</template>
                 <template #extra>
@@ -847,10 +786,9 @@ async function addLogoBatch() {
                 </n-card>
               </div>
             </template>
-          </n-space>
-        </n-card>
+      </AppShell>
 
-        <n-modal v-model:show="showPresetModal" preset="card" title="保存当前方案" class="preset-modal">
+      <n-modal v-model:show="showPresetModal" preset="card" title="保存当前方案" class="preset-modal">
           <n-space vertical :size="14">
             <n-form label-placement="top" size="small">
               <n-form-item label="方案名称">
@@ -868,7 +806,6 @@ async function addLogoBatch() {
             </n-flex>
           </n-space>
         </n-modal>
-      </main>
     </n-message-provider>
   </n-config-provider>
 </template>
