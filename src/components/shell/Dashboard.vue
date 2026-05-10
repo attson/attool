@@ -1,0 +1,134 @@
+<script setup lang="ts">
+import { computed } from 'vue';
+import type { Tool } from '../../types/tool';
+
+const props = defineProps<{
+  tools: Tool[];
+  lastToolId: string | null;
+}>();
+
+const emit = defineEmits<{
+  open: [id: string];
+}>();
+
+const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
+const soonCount = computed(() => props.tools.filter((t) => t.status === 'soon').length);
+
+const lastTool = computed(() =>
+  props.lastToolId ? ready.value.find((t) => t.id === props.lastToolId) ?? null : null
+);
+</script>
+
+<template>
+  <section class="dashboard">
+    <div class="hero">
+      <div class="title">欢迎回来</div>
+      <div class="meta">{{ ready.length }} 个工具就绪 · {{ soonCount }} 个规划中</div>
+    </div>
+
+    <div v-if="lastTool" class="block">
+      <div class="block-title">上次使用</div>
+      <button class="last" type="button" @click="emit('open', lastTool.id)">
+        <span class="dot"></span>
+        <span class="text">
+          <strong>{{ lastTool.name }}</strong>
+          <span class="desc">{{ lastTool.description }}</span>
+        </span>
+        <span class="arrow">→</span>
+      </button>
+    </div>
+
+    <div class="block">
+      <div class="block-title">快速入口</div>
+      <div class="grid">
+        <button
+          v-for="tool in ready"
+          :key="tool.id"
+          class="tile"
+          type="button"
+          @click="emit('open', tool.id)"
+        >
+          <span class="tile-name">{{ tool.name }}</span>
+          <span class="tile-desc">{{ tool.description }}</span>
+        </button>
+      </div>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.dashboard {
+  max-width: 720px;
+  margin: 36px auto 0;
+  padding: 0 22px 36px;
+  display: grid;
+  gap: 28px;
+}
+
+.hero .title {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  margin-bottom: 4px;
+}
+.hero .meta {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.block-title {
+  font-size: var(--fs-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.last {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.last:hover { border-color: var(--line-strong); }
+.last .dot {
+  width: 8px; height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.last .text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.last .text strong { font-size: var(--fs-md); font-weight: 600; }
+.last .text .desc { color: var(--text-muted); font-size: var(--fs-xs); }
+.last .arrow { color: var(--text-muted); font-size: 14px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+}
+.tile:hover { border-color: var(--line-strong); }
+.tile-name { font-size: var(--fs-md); font-weight: 600; }
+.tile-desc { color: var(--text-muted); font-size: var(--fs-xs); }
+</style>
