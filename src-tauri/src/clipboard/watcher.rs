@@ -1,4 +1,5 @@
 use std::{
+    io::Cursor,
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -8,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use image::{ImageBuffer, ImageFormat, Rgba};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -52,12 +54,15 @@ pub fn start_clipboard_watcher(app: AppHandle, store: ClipboardStore, state: Cli
                             store.insert_text(&text)
                         };
                         if matches!(result, Ok(Some(_))) {
-                            let _ = app.emit(CLIPBOARD_EVENT, ());
-                            let limit = store
-                                .load_settings()
-                                .map(|settings| settings.retention_limit)
-                                .unwrap_or(500);
-                            let _ = store.enforce_retention(limit);
+                            emit_update_and_enforce_retention(&app, &store);
+                        }
+                    }
+                }
+
+                if let Ok(image) = app.clipboard().read_image() {
+                    if let Ok(bytes) = encode_png(image.rgba(), image.width(), image.height()) {
+                        if matches!(store.insert_image_bytes("image/png", &bytes, image.width(), image.height()), Ok(Some(_))) {
+                            emit_update_and_enforce_retention(&app, &store);
                         }
                     }
                 }
@@ -84,6 +89,26 @@ pub fn register_clipboard_shortcut(app: &AppHandle) -> Result<(), String> {
             }
         })
         .map_err(|error| format!("注册剪贴板快捷键失败：{error}"))
+}
+
+
+fn emit_update_and_enforce_retention(app: &AppHandle, store: &ClipboardStore) {
+    let _ = app.emit(CLIPBOARD_EVENT, ());
+    let limit = store
+        .load_settings()
+        .map(|settings| settings.retention_limit)
+        .unwrap_or(500);
+    let _ = store.enforce_retention(limit);
+}
+
+fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, rgba.to_vec())
+        .ok_or_else(|| "剪贴板图片数据无效".to_string())?;
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, ImageFormat::Png)
+        .map_err(|error| format!("编码剪贴板图片失败：{error}"))?;
+    Ok(bytes.into_inner())
 }
 
 fn looks_like_file_paths(value: &str) -> bool {

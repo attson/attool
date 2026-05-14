@@ -7,6 +7,7 @@ export interface ClipboardHistoryItem {
   preview: string;
   contentText: string;
   filePaths: string[];
+  assetPath: string | null;
   assetUrl: string | null;
   isPinned: boolean;
   createdAt: string;

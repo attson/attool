@@ -8,6 +8,7 @@ const item: ClipboardHistoryItem = {
   preview: 'hello',
   contentText: 'hello',
   filePaths: [],
+  assetPath: null,
   assetUrl: null,
   isPinned: false,
   createdAt: '2026-05-15T10:00:00+08:00',

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ClipboardHistoryItem } from '../../types/clipboard';
 
 const props = defineProps<{ item: ClipboardHistoryItem }>();
@@ -7,6 +9,8 @@ const emit = defineEmits<{
   delete: [id: string];
   pin: [id: string, isPinned: boolean];
 }>();
+
+const imageSrc = computed(() => props.item.assetUrl ?? (props.item.assetPath ? convertFileSrc(props.item.assetPath) : null));
 
 const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
   text: '文本',
@@ -23,8 +27,8 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
     </div>
     <div class="clipboard-card__preview">
       <img
-        v-if="props.item.kind === 'image' && props.item.assetUrl"
-        :src="props.item.assetUrl"
+        v-if="props.item.kind === 'image' && imageSrc"
+        :src="imageSrc"
         alt="剪贴板图片预览"
         class="clipboard-card__image"
       />

@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{image::Image, AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use super::{
@@ -73,7 +73,11 @@ pub async fn restore_clipboard_item(
         ClipboardItemKind::Text => app.clipboard().write_text(item.content_text.clone()),
         ClipboardItemKind::Files => app.clipboard().write_text(item.file_paths.join("\n")),
         ClipboardItemKind::Image => {
-            return Err("当前版本暂不支持从历史恢复图片到系统剪贴板".to_string());
+            let path = item.asset_path.ok_or_else(|| "剪贴板图片资源不存在".to_string())?;
+            let decoded = image::open(path).map_err(|error| format!("读取剪贴板图片失败：{error}"))?.to_rgba8();
+            let (width, height) = decoded.dimensions();
+            let image = Image::new_owned(decoded.into_raw(), width, height);
+            app.clipboard().write_image(&image)
         }
     }
     .map_err(|error| format!("写入剪贴板失败：{error}"))?;
