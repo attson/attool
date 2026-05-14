@@ -1087,6 +1087,14 @@ pub fn run() {
             let ecommerce_store = EcommerceStore::new(ecommerce_dir)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(ecommerce_store);
+            let clipboard_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("clipboard");
+            let clipboard_store = clipboard::storage::ClipboardStore::new(clipboard_dir)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(clipboard_store);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1109,7 +1117,12 @@ pub fn run() {
             ecommerce::commands::delete_template_asset,
             ecommerce::commands::import_template_asset_from_path,
             ecommerce::commands::run_batch_replace_tasks,
-            ecommerce::commands::save_batch_replace_outputs
+            ecommerce::commands::save_batch_replace_outputs,
+            clipboard::commands::list_clipboard_items,
+            clipboard::commands::delete_clipboard_item,
+            clipboard::commands::set_clipboard_item_pinned,
+            clipboard::commands::clear_clipboard_history,
+            clipboard::commands::get_clipboard_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
