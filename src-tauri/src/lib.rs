@@ -1,3 +1,4 @@
+mod clipboard;
 pub mod ecommerce;
 
 use ecommerce::EcommerceStore;
