@@ -1,4 +1,5 @@
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use super::{
     models::{ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind},
@@ -39,4 +40,29 @@ pub async fn clear_clipboard_history(store: State<'_, ClipboardStore>) -> Result
 #[tauri::command]
 pub async fn get_clipboard_settings() -> Result<ClipboardHistorySettings, String> {
     Ok(ClipboardHistorySettings::default())
+}
+
+
+#[tauri::command]
+pub async fn restore_clipboard_item(
+    id: String,
+    app: AppHandle,
+    store: State<'_, ClipboardStore>,
+) -> Result<(), String> {
+    let item = store
+        .list_items(None, None)?
+        .into_iter()
+        .find(|item| item.id == id)
+        .ok_or_else(|| "剪贴板历史不存在".to_string())?;
+
+    match item.kind {
+        ClipboardItemKind::Text => app.clipboard().write_text(item.content_text.clone()),
+        ClipboardItemKind::Files => app.clipboard().write_text(item.file_paths.join("\n")),
+        ClipboardItemKind::Image => {
+            return Err("当前版本暂不支持从历史恢复图片到系统剪贴板".to_string());
+        }
+    }
+    .map_err(|error| format!("写入剪贴板失败：{error}"))?;
+
+    store.touch_copied(&id)
 }

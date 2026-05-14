@@ -21,6 +21,7 @@ describe('useClipboardHistory', () => {
       deleteItem: async () => undefined,
       setPinned: async () => undefined,
       clearHistory: async () => undefined,
+      restoreItem: async () => undefined,
     });
 
     await history.refresh();
@@ -43,6 +44,7 @@ describe('useClipboardHistory', () => {
       },
       setPinned: async () => undefined,
       clearHistory: async () => undefined,
+      restoreItem: async () => undefined,
     });
 
     await history.deleteItem('text-1');
@@ -62,4 +64,17 @@ describe('useClipboardHistory', () => {
 
     expect(calls[0]).toEqual({ command: 'list_clipboard_items', args: { kind: 'text', query: 'abc' } });
   });
+
+  it('restores an item through the backend command', async () => {
+    const calls: Array<{ command: string; args?: unknown }> = [];
+    const api = createClipboardHistoryApi(async <T>(command: string, args?: unknown) => {
+      calls.push({ command, args });
+      return [] as T;
+    });
+
+    await api.restoreItem('text-1');
+
+    expect(calls[0]).toEqual({ command: 'restore_clipboard_item', args: { id: 'text-1' } });
+  });
+
 });

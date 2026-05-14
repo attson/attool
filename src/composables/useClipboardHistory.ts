@@ -8,6 +8,7 @@ export interface ClipboardHistoryApi {
   deleteItem(id: string): Promise<void>;
   setPinned(id: string, isPinned: boolean): Promise<void>;
   clearHistory(): Promise<void>;
+  restoreItem(id: string): Promise<void>;
 }
 
 export function createClipboardHistoryApi(invoker = invoke): ClipboardHistoryApi {
@@ -26,6 +27,9 @@ export function createClipboardHistoryApi(invoker = invoke): ClipboardHistoryApi
     },
     clearHistory() {
       return invoker('clear_clipboard_history');
+    },
+    restoreItem(id) {
+      return invoker('restore_clipboard_item', { id });
     },
   };
 }
@@ -66,5 +70,10 @@ export function useClipboardHistory(api: ClipboardHistoryApi = createClipboardHi
     await refresh();
   }
 
-  return { items, filteredItems, kind, query, loading, error, refresh, deleteItem, setPinned, clearHistory };
+  async function restoreItem(id: string) {
+    await api.restoreItem(id);
+    await refresh();
+  }
+
+  return { items, filteredItems, kind, query, loading, error, refresh, deleteItem, setPinned, clearHistory, restoreItem };
 }

@@ -9,7 +9,7 @@ import type { ClipboardHistoryItem } from '../../types/clipboard';
 const history = useClipboardHistory();
 
 async function restore(item: ClipboardHistoryItem) {
-  await navigator.clipboard.writeText(item.kind === 'files' ? item.filePaths.join('\n') : item.contentText);
+  await history.restoreItem(item.id);
 }
 
 onMounted(() => history.refresh());

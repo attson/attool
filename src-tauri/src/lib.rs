@@ -1135,7 +1135,8 @@ pub fn run() {
             clipboard::commands::delete_clipboard_item,
             clipboard::commands::set_clipboard_item_pinned,
             clipboard::commands::clear_clipboard_history,
-            clipboard::commands::get_clipboard_settings
+            clipboard::commands::get_clipboard_settings,
+            clipboard::commands::restore_clipboard_item
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");

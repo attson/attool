@@ -10,7 +10,7 @@ const history = useClipboardHistory();
 const currentWindow = getCurrentWindow();
 
 async function restore(item: ClipboardHistoryItem) {
-  await navigator.clipboard.writeText(item.kind === 'files' ? item.filePaths.join('\n') : item.contentText);
+  await history.restoreItem(item.id);
   await currentWindow.hide();
 }
 
