@@ -1075,6 +1075,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let state = create_download_state(app.handle())
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
@@ -1094,6 +1096,17 @@ pub fn run() {
                 .join("clipboard");
             let clipboard_store = clipboard::storage::ClipboardStore::new(clipboard_dir)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let clipboard_watcher_state = clipboard::watcher::ClipboardWatcherState::new();
+            let clipboard_store_for_watcher = clipboard_store.clone();
+            app.manage(clipboard_watcher_state.clone());
+            clipboard::watcher::start_clipboard_watcher(
+                app.handle().clone(),
+                clipboard_store_for_watcher,
+                clipboard_watcher_state,
+            );
+            if let Err(error) = clipboard::watcher::register_clipboard_shortcut(app.handle()) {
+                eprintln!("{error}");
+            }
             app.manage(clipboard_store);
             Ok(())
         })
