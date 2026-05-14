@@ -53,9 +53,9 @@ describe('useClipboardHistory', () => {
 
   it('creates an invoke-backed api with stable command names', () => {
     const calls: Array<{ command: string; args?: unknown }> = [];
-    const api = createClipboardHistoryApi(async (command, args) => {
+    const api = createClipboardHistoryApi(async <T>(command: string, args?: unknown) => {
       calls.push({ command, args });
-      return [];
+      return [] as T;
     });
 
     api.listItems({ kind: 'text', query: 'abc' });
