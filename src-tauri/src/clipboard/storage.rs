@@ -1,9 +1,4 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    fs,
-    hash::{Hash, Hasher},
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -64,14 +59,13 @@ impl ClipboardStore {
     }
 
     pub fn insert_text(&self, value: &str) -> Result<Option<ClipboardHistoryItem>, String> {
-        let text = value.trim();
-        if text.is_empty() {
+        if value.trim().is_empty() {
             return Ok(None);
         }
         self.insert_item(
             ClipboardItemKind::Text,
-            preview(text),
-            text.to_string(),
+            preview(value.trim()),
+            value.to_string(),
             None,
             Vec::new(),
         )
@@ -323,7 +317,7 @@ impl ClipboardStore {
             preview,
             content_text,
             asset_path: asset_path.clone(),
-            asset_url: asset_path.map(|path| format!("asset://localhost/{path}")),
+            asset_url: None,
             file_paths,
             is_pinned: false,
             created_at,
@@ -342,11 +336,15 @@ fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipboardHistoryItem
             .map_err(rusqlite::Error::InvalidParameterName)?,
         preview: row.get(2)?,
         content_text: row.get(3)?,
-        asset_url: asset_path
-            .as_ref()
-            .map(|path| format!("asset://localhost/{path}")),
+        asset_url: None,
         asset_path,
-        file_paths: serde_json::from_str(&file_paths_json).unwrap_or_default(),
+        file_paths: serde_json::from_str(&file_paths_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
         is_pinned: row.get::<_, i64>(6)? == 1,
         created_at: row.get(7)?,
         last_copied_at: row.get(8)?,
@@ -362,15 +360,23 @@ fn preview(value: &str) -> String {
 }
 
 fn content_hash(value: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    fnv1a64_hex(value.as_bytes())
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    fnv1a64_hex(bytes)
+}
+
+fn fnv1a64_hex(bytes: &[u8]) -> String {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]
@@ -416,6 +422,63 @@ mod tests {
         assert!(store.insert_text("same").expect("first").is_some());
         assert!(store.insert_text("same").expect("duplicate").is_none());
         assert_eq!(store.list_items(None, None).expect("list").len(), 1);
+    }
+
+    #[test]
+    fn stores_exact_text_while_skipping_whitespace_only_values() {
+        let store = temp_store();
+        let item = store
+            .insert_text("  hello clipboard\n")
+            .expect("insert text")
+            .expect("text item");
+
+        assert_eq!(item.content_text, "  hello clipboard\n");
+        assert_eq!(item.preview, "hello clipboard");
+        assert!(store.insert_text(" \n\t ").expect("blank").is_none());
+
+        let items = store.list_items(None, None).expect("list");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].content_text, "  hello clipboard\n");
+    }
+
+    #[test]
+    fn omits_asset_url_for_stored_image_items() {
+        let store = temp_store();
+        let item = store
+            .insert_image_bytes("image/png", &[1, 2, 3, 4], 10, 10)
+            .expect("insert image")
+            .expect("image item");
+
+        assert!(item.asset_path.is_some());
+        assert_eq!(item.asset_url, None);
+
+        let items = store
+            .list_items(Some(ClipboardItemKind::Image), None)
+            .expect("list");
+        assert_eq!(items[0].asset_path, item.asset_path);
+        assert_eq!(items[0].asset_url, None);
+    }
+
+    #[test]
+    fn uses_stable_fnv_content_hashes() {
+        assert_eq!(content_hash("text:same:"), "fe41d4513fa0d610");
+        assert_eq!(hash_bytes(&[1, 2, 3, 4]), "be7a5e775165785d");
+    }
+
+    #[test]
+    fn reports_corrupt_file_paths_json() {
+        let store = temp_store();
+        store.insert_text("valid").expect("insert");
+        let connection = Connection::open(&store.db_path).expect("open db");
+        connection
+            .execute(
+                "UPDATE clipboard_items SET file_paths_json = ?1",
+                params!["not-json"],
+            )
+            .expect("corrupt json");
+
+        let error = store.list_items(None, None).expect_err("list should fail");
+        assert!(error.contains("读取剪贴板历史失败"));
     }
 
     #[test]
