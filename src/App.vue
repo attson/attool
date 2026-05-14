@@ -15,7 +15,10 @@ import { darkOverrides, lightOverrides } from './theme';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
+import ClipboardHistoryWindow from './components/clipboard/ClipboardHistoryWindow.vue';
+import ClipboardTool from './components/clipboard/ClipboardTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import Dashboard from './components/shell/Dashboard.vue';
 import StatPill from './components/ui/StatPill.vue';
@@ -34,11 +37,14 @@ import type { Tool } from './types/tool';
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
   { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout' },
-  { id: 'clipboard', name: '剪贴板工具',     description: '剪贴板历史、清洗与批量转换',         status: 'soon',  icon: 'clipboard' },
+  { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard' },
   { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon',  icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon',  icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64、URL Encode、Hash 摘要',      status: 'soon',  icon: 'hash' }
 ];
+
+const currentWindow = getCurrentWindow();
+const isClipboardHistoryWindow = currentWindow.label === 'clipboard-history';
 
 const minSplitOptions = [
   { label: '1M', value: '1M' },
@@ -76,6 +82,8 @@ const selectedToolId = ref<string | null>(initialToolId);
 let unlistenProgress: Promise<UnlistenFn> | undefined;
 
 onMounted(() => {
+  if (isClipboardHistoryWindow) return;
+
   invoke<string>('get_default_download_dir')
     .then((dir) => {
       downloadDir.value = dir;
@@ -274,7 +282,9 @@ async function openTaskFolder(id: string) {
 <template>
   <n-config-provider :theme="naiveTheme" :theme-overrides="naiveOverrides">
     <n-message-provider>
+      <ClipboardHistoryWindow v-if="isClipboardHistoryWindow" />
       <AppShell
+        v-else
         :tools="tools"
         :active-id="selectedToolId"
         :collapsed="sidebarCollapsed"
@@ -389,6 +399,10 @@ async function openTaskFolder(id: string) {
 
         <template v-else-if="selectedTool.id === 'template'">
           <TemplateTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'clipboard'">
+          <ClipboardTool />
         </template>
       </AppShell>
 

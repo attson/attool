@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "Default desktop permissions for AT Tool",
   "windows": [
-    "main"
+    "main",
+    "clipboard-history"
   ],
   "permissions": [
     "core:default",

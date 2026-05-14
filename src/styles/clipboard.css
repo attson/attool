@@ -1,0 +1,49 @@
+.clipboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.clipboard-card {
+  min-height: 132px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.clipboard-card:hover {
+  border-color: var(--accent);
+}
+
+.clipboard-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.clipboard-card__preview {
+  margin-top: 10px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.clipboard-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.clipboard-muted {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
