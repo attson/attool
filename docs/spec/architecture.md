@@ -158,9 +158,9 @@ export function useTheme(
 | `workflow_dispatch` | 仅跑 build matrix，artifact 14 天有效；不进入 release job |
 | push tag `v*` | build matrix → release job，创建草稿 release，待人工 publish |
 
-### 无代码签名
+### 代码签名
 
-未配 macOS notarization / Windows Authenticode。用户首次打开会触发 Gatekeeper / SmartScreen 警告，按 OS 说明放行即可。这与 Tauri updater 签名（`TAURI_SIGNING_PRIVATE_KEY`，独立机制）不是同一回事 —— updater 签名是有的，OS 代码签名没有。
+macOS app bundle 使用 `signingIdentity: "-"` 做 ad-hoc 签名，确保 `.app` 内资源被封存，避免下载后因无 sealed resources 被判定为损坏。未配 macOS Developer ID notarization / Windows Authenticode；用户首次打开仍可能触发 Gatekeeper / SmartScreen 警告，按 OS 说明放行即可。这与 Tauri updater 签名（`TAURI_SIGNING_PRIVATE_KEY`，独立机制）不是同一回事 —— updater 签名是有的。
 
 ## 性能 / 包大小现状
 
