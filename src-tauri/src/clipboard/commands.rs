@@ -4,6 +4,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use super::{
     models::{ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind},
     storage::ClipboardStore,
+    watcher::ClipboardWatcherState,
 };
 
 #[tauri::command]
@@ -38,8 +39,21 @@ pub async fn clear_clipboard_history(store: State<'_, ClipboardStore>) -> Result
 }
 
 #[tauri::command]
-pub async fn get_clipboard_settings() -> Result<ClipboardHistorySettings, String> {
-    Ok(ClipboardHistorySettings::default())
+pub async fn get_clipboard_settings(
+    store: State<'_, ClipboardStore>,
+) -> Result<ClipboardHistorySettings, String> {
+    store.load_settings()
+}
+
+#[tauri::command]
+pub async fn save_clipboard_settings(
+    settings: ClipboardHistorySettings,
+    watcher: State<'_, ClipboardWatcherState>,
+    store: State<'_, ClipboardStore>,
+) -> Result<ClipboardHistorySettings, String> {
+    store.save_settings(&settings)?;
+    watcher.set_enabled(settings.capture_enabled);
+    Ok(settings)
 }
 
 

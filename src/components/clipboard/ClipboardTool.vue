@@ -1,18 +1,35 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { NButton, NInput, NPopconfirm, NSelect } from 'naive-ui';
+import { onMounted, ref } from 'vue';
+import { NButton, NInput, NInputNumber, NPopconfirm, NSelect, NSwitch } from 'naive-ui';
+import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
-import type { ClipboardHistoryItem } from '../../types/clipboard';
+import type { ClipboardHistoryItem, ClipboardHistorySettings } from '../../types/clipboard';
 
 const history = useClipboardHistory();
+const settings = ref<ClipboardHistorySettings>({
+  captureEnabled: true,
+  retentionLimit: 500,
+  shortcut: 'CommandOrControl+Shift+V',
+});
 
 async function restore(item: ClipboardHistoryItem) {
   await history.restoreItem(item.id);
 }
 
-onMounted(() => history.refresh());
+async function loadSettings() {
+  settings.value = await invoke<ClipboardHistorySettings>('get_clipboard_settings');
+}
+
+async function saveSettings() {
+  settings.value = await invoke<ClipboardHistorySettings>('save_clipboard_settings', { settings: settings.value });
+}
+
+onMounted(() => {
+  history.refresh();
+  loadSettings();
+});
 </script>
 
 <template>
@@ -21,6 +38,18 @@ onMounted(() => history.refresh());
       <p class="clipboard-muted clipboard-intro">
         AT Tool 运行时记录文本、图片和文件路径；按 Command/Ctrl + Shift + V 打开快捷面板。
       </p>
+      <div class="clipboard-toolbar">
+        <n-switch v-model:value="settings.captureEnabled" @update:value="saveSettings" />
+        <span class="clipboard-muted">{{ settings.captureEnabled ? '正在记录剪贴板' : '已暂停记录剪贴板' }}</span>
+        <n-input-number
+          v-model:value="settings.retentionLimit"
+          class="clipboard-limit-input"
+          :min="50"
+          :max="5000"
+          @blur="saveSettings"
+        />
+        <span class="clipboard-muted">最多保留条数</span>
+      </div>
       <div class="clipboard-toolbar">
         <n-input v-model:value="history.query.value" placeholder="搜索内容、文件名或路径" clearable />
         <n-select
@@ -57,4 +86,5 @@ onMounted(() => history.refresh());
 <style scoped>
 .clipboard-intro { margin: 0 0 14px; }
 .clipboard-kind-select { width: 140px; }
+.clipboard-limit-input { width: 140px; }
 </style>

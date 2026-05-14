@@ -53,7 +53,11 @@ pub fn start_clipboard_watcher(app: AppHandle, store: ClipboardStore, state: Cli
                         };
                         if matches!(result, Ok(Some(_))) {
                             let _ = app.emit(CLIPBOARD_EVENT, ());
-                            let _ = store.enforce_retention(500);
+                            let limit = store
+                                .load_settings()
+                                .map(|settings| settings.retention_limit)
+                                .unwrap_or(500);
+                            let _ = store.enforce_retention(limit);
                         }
                     }
                 }

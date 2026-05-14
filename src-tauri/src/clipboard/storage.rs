@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::models::{ClipboardHistoryItem, ClipboardItemKind};
+use super::models::{ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind};
 
 #[derive(Clone, Debug)]
 pub struct ClipboardStore {
@@ -52,6 +52,11 @@ impl ClipboardStore {
 
                 CREATE INDEX IF NOT EXISTS idx_clipboard_items_kind
                     ON clipboard_items(kind);
+
+                CREATE TABLE IF NOT EXISTS clipboard_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 "#,
             )
             .map_err(|error| format!("初始化剪贴板数据库失败：{error}"))?;
@@ -242,6 +247,51 @@ impl ClipboardStore {
         }
         for item in unpinned.into_iter().skip(unpinned_limit) {
             self.delete_item(&item.id)?;
+        }
+        Ok(())
+    }
+
+
+    pub fn load_settings(&self) -> Result<ClipboardHistorySettings, String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开剪贴板数据库失败：{error}"))?;
+        let mut settings = ClipboardHistorySettings::default();
+        let mut statement = connection
+            .prepare("SELECT key, value FROM clipboard_settings")
+            .map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
+        for row in rows {
+            let (key, value) = row.map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
+            match key.as_str() {
+                "capture_enabled" => settings.capture_enabled = value == "1",
+                "retention_limit" => settings.retention_limit = value.parse().unwrap_or(settings.retention_limit),
+                "shortcut" => settings.shortcut = value,
+                _ => {}
+            }
+        }
+        Ok(settings)
+    }
+
+    pub fn save_settings(&self, settings: &ClipboardHistorySettings) -> Result<(), String> {
+        let connection = Connection::open(&self.db_path)
+            .map_err(|error| format!("打开剪贴板数据库失败：{error}"))?;
+        let values = [
+            (
+                "capture_enabled",
+                if settings.capture_enabled { "1".to_string() } else { "0".to_string() },
+            ),
+            ("retention_limit", settings.retention_limit.to_string()),
+            ("shortcut", settings.shortcut.clone()),
+        ];
+        for (key, value) in values {
+            connection
+                .execute(
+                    "INSERT INTO clipboard_settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![key, value],
+                )
+                .map_err(|error| format!("保存剪贴板设置失败：{error}"))?;
         }
         Ok(())
     }
@@ -513,4 +563,19 @@ mod tests {
         store.delete_item(&item.id).expect("delete");
         assert!(fs::metadata(&asset_path).is_err());
     }
+
+    #[test]
+    fn persists_capture_settings() {
+        let store = temp_store();
+        let mut settings = store.load_settings().expect("load defaults");
+        assert!(settings.capture_enabled);
+        settings.capture_enabled = false;
+        settings.retention_limit = 25;
+        store.save_settings(&settings).expect("save");
+
+        let loaded = store.load_settings().expect("load saved");
+        assert!(!loaded.capture_enabled);
+        assert_eq!(loaded.retention_limit, 25);
+    }
+
 }
