@@ -1,6 +1,6 @@
 [package]
 name = "attool"
-version = "0.3.3"
+version = "0.3.4"
 description = "Personal desktop tools powered by Tauri"
 authors = ["attson"]
 edition = "2021"
