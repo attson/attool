@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { getVersion } from '@tauri-apps/api/app';
 import BrandMark from './BrandMark.vue';
 import ToolIcon from './ToolIcon.vue';
 import SettingsIcon from './SettingsIcon.vue';
@@ -12,6 +13,15 @@ const props = defineProps<{
   collapsed: boolean;
   theme: 'dark' | 'light';
 }>();
+
+const appVersion = ref('');
+onMounted(async () => {
+  try {
+    appVersion.value = await getVersion();
+  } catch {
+    appVersion.value = '';
+  }
+});
 
 const emit = defineEmits<{
   select: [id: string];
@@ -68,7 +78,7 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
     </button>
 
     <div class="foot">
-      <span class="ver">v0.1.0</span>
+      <span class="ver">{{ appVersion ? `v${appVersion}` : '' }}</span>
       <button
         class="settings-toggle"
         type="button"

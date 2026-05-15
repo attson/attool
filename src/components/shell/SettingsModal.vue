@@ -13,6 +13,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:show': [v: boolean];
   check: [];
+  install: [];
+  relaunch: [];
   'update:autoCheck': [v: boolean];
 }>();
 
@@ -38,10 +40,6 @@ const latestText = computed(() => {
   }
 });
 
-const checking = computed(() =>
-  props.state.status === 'checking' || props.state.status === 'downloading'
-);
-
 const showProxy = computed({
   get: () => props.show,
   set: (v) => emit('update:show', v)
@@ -61,7 +59,22 @@ const showProxy = computed({
         <span class="val">{{ latestText }}</span>
       </div>
       <div class="actions">
-        <n-button :loading="checking" @click="emit('check')">立即检查更新</n-button>
+        <n-button :loading="state.status === 'checking'" @click="emit('check')">立即检查更新</n-button>
+        <n-button
+          v-if="state.status === 'available'"
+          type="primary"
+          @click="emit('install')"
+        >下载并安装</n-button>
+        <n-button
+          v-else-if="state.status === 'downloading'"
+          :loading="true"
+          disabled
+        >下载中 {{ state.downloadPercent ?? 0 }}%</n-button>
+        <n-button
+          v-else-if="state.status === 'ready'"
+          type="primary"
+          @click="emit('relaunch')"
+        >立即重启</n-button>
       </div>
       <label class="toggle-row">
         <input
