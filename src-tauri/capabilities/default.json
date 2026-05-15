@@ -8,6 +8,7 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-hide",
     "dialog:default",
     "updater:default",
     "process:default",
