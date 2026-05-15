@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
@@ -14,5 +15,8 @@ export default defineConfig({
     target: 'es2022',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG)
+  },
+  test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '.worktrees/**']
   }
 });

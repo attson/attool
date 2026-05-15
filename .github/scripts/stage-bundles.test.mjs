@@ -33,8 +33,8 @@ describe('stage-bundles.sh', () => {
 
     const files = runStage(cwd, 'aarch64-apple-darwin', 'macos-arm64', stage);
 
-    expect(files).toContain('AT Tool_arm64.app.tar.gz');
-    expect(files).toContain('AT Tool_arm64.app.tar.gz.sig');
+    expect(files).toContain('AT.Tool_arm64.app.tar.gz');
+    expect(files).toContain('AT.Tool_arm64.app.tar.gz.sig');
   });
 
   it('stages Windows installer signatures for updater metadata', () => {
@@ -47,9 +47,9 @@ describe('stage-bundles.sh', () => {
     const files = runStage(cwd, 'x86_64-pc-windows-msvc', 'windows-x64', stage);
 
     expect(files).toEqual([
-      'AT Tool_0.2.0_amd64.exe',
-      'AT Tool_0.2.0_amd64.exe.sig',
+      'AT.Tool_0.2.0_amd64.exe',
+      'AT.Tool_0.2.0_amd64.exe.sig',
     ]);
-    expect(readFileSync(join(stage, 'AT Tool_0.2.0_amd64.exe.sig'), 'utf8')).toBe('sig');
+    expect(readFileSync(join(stage, 'AT.Tool_0.2.0_amd64.exe.sig'), 'utf8')).toBe('sig');
   });
 });
