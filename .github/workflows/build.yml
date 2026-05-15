@@ -117,14 +117,20 @@ jobs:
       - name: List release contents
         run: ls -la "${{ runner.temp }}/all-bundles/"
 
-      - name: Create draft release
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Replace any existing draft for this tag (e.g. from a cancelled run).
-          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false 2>/dev/null || true
+          if gh release view "${{ github.ref_name }}" --json isDraft --jq .isDraft > /tmp/release-is-draft 2>/dev/null; then
+            if [ "$(cat /tmp/release-is-draft)" = "true" ]; then
+              gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false
+            else
+              echo "Release ${{ github.ref_name }} already exists and is published; refusing to replace it."
+              exit 1
+            fi
+          fi
+
           gh release create "${{ github.ref_name }}" \
-            --draft \
             --title "AT Tool ${{ github.ref_name }}" \
             --notes "" \
             "${{ runner.temp }}/all-bundles/"*

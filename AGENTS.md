@@ -112,15 +112,15 @@ docs/superpowers/                # superpowers 流程产物（每任务 1 份 sp
 4. tag push 触发 `.github/workflows/build.yml`：
 
    - **build job（matrix × 5）**：每个 runner 跑 `npm run tauri build --target <triple>`，跑完用 `stage-bundles.sh` 把产物 copy 到 `runner.temp/stage` 并按 `amd64`/`arm64` 改名，上传成 artifact
-   - **release job（单 ubuntu）**：下载所有 artifact 到一个目录，跑 `build-latest-json.mjs` 生成 `latest.json`，`gh release create --draft` 一次性建 release 草稿 + 把所有文件挂上去
+   - **release job（单 ubuntu）**：下载所有 artifact 到一个目录，跑 `build-latest-json.mjs` 生成 `latest.json`，`gh release create` 一次性创建正式 release + 把所有文件挂上去
 
-5. 全部跑完（约 5-10 分钟）后到 GitHub Releases 页 review 草稿。文件名应该正好这 5 个 + macOS 的 2 个 `.app.tar.gz`（updater 内部用）+ 各自的 `.sig` + 一个 `latest.json`。手动点 publish
+5. 全部跑完（约 5-10 分钟）后 GitHub Releases 会直接公开正式 release。文件名应该正好这 5 个 + macOS 的 2 个 `.app.tar.gz`（updater 内部用）+ 各自的 `.sig` + 一个 `latest.json`
 
-6. publish 后约 5 分钟（GitHub CDN 缓存），装着旧版的 macOS / Windows 客户端启动 5 秒就会看到 banner
+6. release 公开后约 5 分钟（GitHub CDN 缓存），装着旧版的 macOS / Windows 客户端启动 5 秒就会看到 banner
 
 如果 CI 失败：
 - 取消 stuck run（`gh run cancel <id>`）
-- 删除 draft release（`gh release delete vX.Y.Z --yes`）
+- 删除 release（`gh release delete vX.Y.Z --yes`）
 - 删除 tag 本地+远端（`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`）
 - 修代码、push 到 main、重新打同名 tag
 
