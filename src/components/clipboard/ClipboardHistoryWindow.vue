@@ -11,11 +11,15 @@ const currentWindow = getCurrentWindow();
 
 async function restore(item: ClipboardHistoryItem) {
   await history.restoreItem(item.id);
+  await closeWindow();
+}
+
+async function closeWindow() {
   await currentWindow.hide();
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') currentWindow.hide();
+  if (event.key === 'Escape') closeWindow();
 }
 
 onMounted(() => {
@@ -28,6 +32,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
 <template>
   <main class="clipboard-window">
+    <header class="clipboard-window__header">
+      <div>
+        <h1 class="clipboard-window__title">剪贴板历史</h1>
+        <p class="clipboard-muted clipboard-window__hint">选择条目后会写入系统剪贴板</p>
+      </div>
+      <n-button secondary @click="closeWindow">关闭</n-button>
+    </header>
     <div class="clipboard-toolbar">
       <n-input v-model:value="history.query.value" placeholder="搜索剪贴板历史" clearable @keyup.enter="history.refresh" />
       <n-select
@@ -62,6 +73,25 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   padding: 18px;
   background: var(--bg-base);
   color: var(--text);
+}
+
+.clipboard-window__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.clipboard-window__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  line-height: 1.2;
+}
+
+.clipboard-window__hint {
+  margin: 6px 0 0;
 }
 
 .clipboard-kind-select { width: 140px; }

@@ -3,7 +3,9 @@ use std::{fs, path::PathBuf};
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::models::{ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind};
+use super::models::{
+    normalize_clipboard_shortcut, ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind,
+};
 
 #[derive(Clone, Debug)]
 pub struct ClipboardStore {
@@ -251,7 +253,6 @@ impl ClipboardStore {
         Ok(())
     }
 
-
     pub fn load_settings(&self) -> Result<ClipboardHistorySettings, String> {
         let connection = Connection::open(&self.db_path)
             .map_err(|error| format!("打开剪贴板数据库失败：{error}"))?;
@@ -260,14 +261,18 @@ impl ClipboardStore {
             .prepare("SELECT key, value FROM clipboard_settings")
             .map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
         let rows = statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
         for row in rows {
             let (key, value) = row.map_err(|error| format!("读取剪贴板设置失败：{error}"))?;
             match key.as_str() {
                 "capture_enabled" => settings.capture_enabled = value == "1",
-                "retention_limit" => settings.retention_limit = value.parse().unwrap_or(settings.retention_limit),
-                "shortcut" => settings.shortcut = value,
+                "retention_limit" => {
+                    settings.retention_limit = value.parse().unwrap_or(settings.retention_limit)
+                }
+                "shortcut" => settings.shortcut = normalize_clipboard_shortcut(&value),
                 _ => {}
             }
         }
@@ -280,10 +285,14 @@ impl ClipboardStore {
         let values = [
             (
                 "capture_enabled",
-                if settings.capture_enabled { "1".to_string() } else { "0".to_string() },
+                if settings.capture_enabled {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
             ),
             ("retention_limit", settings.retention_limit.to_string()),
-            ("shortcut", settings.shortcut.clone()),
+            ("shortcut", normalize_clipboard_shortcut(&settings.shortcut)),
         ];
         for (key, value) in values {
             connection
@@ -569,6 +578,7 @@ mod tests {
         let store = temp_store();
         let mut settings = store.load_settings().expect("load defaults");
         assert!(settings.capture_enabled);
+        assert_eq!(settings.shortcut, "CommandOrControl+Alt+V");
         settings.capture_enabled = false;
         settings.retention_limit = 25;
         store.save_settings(&settings).expect("save");
@@ -578,4 +588,14 @@ mod tests {
         assert_eq!(loaded.retention_limit, 25);
     }
 
+    #[test]
+    fn migrates_old_conflicting_shortcut_default() {
+        let store = temp_store();
+        let mut settings = store.load_settings().expect("load defaults");
+        settings.shortcut = "CommandOrControl+Shift+V".to_string();
+        store.save_settings(&settings).expect("save old shortcut");
+
+        let loaded = store.load_settings().expect("load migrated");
+        assert_eq!(loaded.shortcut, "CommandOrControl+Alt+V");
+    }
 }

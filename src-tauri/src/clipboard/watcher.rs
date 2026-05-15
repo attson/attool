@@ -14,10 +14,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use super::storage::ClipboardStore;
+use super::{models::DEFAULT_CLIPBOARD_SHORTCUT, storage::ClipboardStore};
 
 const CLIPBOARD_EVENT: &str = "clipboard-history-updated";
-const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 
 #[derive(Clone, Debug)]
 pub struct ClipboardWatcherState {
@@ -40,7 +39,11 @@ impl ClipboardWatcherState {
     }
 }
 
-pub fn start_clipboard_watcher(app: AppHandle, store: ClipboardStore, state: ClipboardWatcherState) {
+pub fn start_clipboard_watcher(
+    app: AppHandle,
+    store: ClipboardStore,
+    state: ClipboardWatcherState,
+) {
     thread::spawn(move || {
         let mut last_text = String::new();
         loop {
@@ -61,7 +64,15 @@ pub fn start_clipboard_watcher(app: AppHandle, store: ClipboardStore, state: Cli
 
                 if let Ok(image) = app.clipboard().read_image() {
                     if let Ok(bytes) = encode_png(image.rgba(), image.width(), image.height()) {
-                        if matches!(store.insert_image_bytes("image/png", &bytes, image.width(), image.height()), Ok(Some(_))) {
+                        if matches!(
+                            store.insert_image_bytes(
+                                "image/png",
+                                &bytes,
+                                image.width(),
+                                image.height()
+                            ),
+                            Ok(Some(_))
+                        ) {
                             emit_update_and_enforce_retention(&app, &store);
                         }
                     }
@@ -73,7 +84,7 @@ pub fn start_clipboard_watcher(app: AppHandle, store: ClipboardStore, state: Cli
 }
 
 pub fn register_clipboard_shortcut(app: &AppHandle) -> Result<(), String> {
-    let shortcut: Shortcut = DEFAULT_SHORTCUT
+    let shortcut: Shortcut = DEFAULT_CLIPBOARD_SHORTCUT
         .parse()
         .map_err(|error| format!("解析剪贴板快捷键失败：{error}"))?;
     let handle = app.clone();
@@ -90,7 +101,6 @@ pub fn register_clipboard_shortcut(app: &AppHandle) -> Result<(), String> {
         })
         .map_err(|error| format!("注册剪贴板快捷键失败：{error}"))
 }
-
 
 fn emit_update_and_enforce_retention(app: &AppHandle, store: &ClipboardStore) {
     let _ = app.emit(CLIPBOARD_EVENT, ());

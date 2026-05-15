@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ClipboardHistoryItem } from '../types/clipboard';
-import { filterClipboardItems, formatClipboardPreview, isFilePathText } from './clipboardHistory';
+import {
+  DEFAULT_CLIPBOARD_SHORTCUT,
+  filterClipboardItems,
+  formatClipboardPreview,
+  formatShortcutLabel,
+  isFilePathText,
+} from './clipboardHistory';
 
 const ITEMS: ClipboardHistoryItem[] = [
   {
@@ -57,5 +63,10 @@ describe('clipboardHistory helpers', () => {
     expect(isFilePathText('/Users/attson/a.png\n/Users/attson/b.psd')).toBe(true);
     expect(isFilePathText('https://example.com/a.png')).toBe(false);
     expect(isFilePathText('plain copied text')).toBe(false);
+  });
+
+  it('uses a default shortcut that avoids paste-without-formatting conflicts', () => {
+    expect(DEFAULT_CLIPBOARD_SHORTCUT).toBe('CommandOrControl+Alt+V');
+    expect(formatShortcutLabel(DEFAULT_CLIPBOARD_SHORTCUT)).toBe('Command/Ctrl + Alt + V');
   });
 });

@@ -1,5 +1,16 @@
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_CLIPBOARD_SHORTCUT: &str = "CommandOrControl+Alt+V";
+pub const LEGACY_CLIPBOARD_SHORTCUT: &str = "CommandOrControl+Shift+V";
+
+pub fn normalize_clipboard_shortcut(shortcut: &str) -> String {
+    let trimmed = shortcut.trim();
+    if trimmed.is_empty() || trimmed == LEGACY_CLIPBOARD_SHORTCUT {
+        return DEFAULT_CLIPBOARD_SHORTCUT.to_string();
+    }
+    trimmed.to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardHistoryItem {
@@ -56,7 +67,7 @@ impl Default for ClipboardHistorySettings {
         Self {
             capture_enabled: true,
             retention_limit: 500,
-            shortcut: "CommandOrControl+Shift+V".to_string(),
+            shortcut: DEFAULT_CLIPBOARD_SHORTCUT.to_string(),
         }
     }
 }

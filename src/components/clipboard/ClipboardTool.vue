@@ -5,13 +5,15 @@ import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
+import { DEFAULT_CLIPBOARD_SHORTCUT, formatShortcutLabel } from '../../utils/clipboardHistory';
 import type { ClipboardHistoryItem, ClipboardHistorySettings } from '../../types/clipboard';
 
 const history = useClipboardHistory();
+const shortcutLabel = formatShortcutLabel(DEFAULT_CLIPBOARD_SHORTCUT);
 const settings = ref<ClipboardHistorySettings>({
   captureEnabled: true,
   retentionLimit: 500,
-  shortcut: 'CommandOrControl+Shift+V',
+  shortcut: DEFAULT_CLIPBOARD_SHORTCUT,
 });
 
 async function restore(item: ClipboardHistoryItem) {
@@ -36,7 +38,7 @@ onMounted(() => {
   <div class="tool-page">
     <Panel title="剪贴板历史">
       <p class="clipboard-muted clipboard-intro">
-        AT Tool 运行时记录文本、图片和文件路径；按 Command/Ctrl + Shift + V 打开快捷面板。
+        AT Tool 运行时记录文本、图片和文件路径；按 {{ shortcutLabel }} 打开快捷面板。
       </p>
       <div class="clipboard-toolbar">
         <n-switch v-model:value="settings.captureEnabled" @update:value="saveSettings" />

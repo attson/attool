@@ -1,5 +1,14 @@
 import type { ClipboardHistoryFilter, ClipboardHistoryItem } from '../types/clipboard';
 
+export const DEFAULT_CLIPBOARD_SHORTCUT = 'CommandOrControl+Alt+V';
+
+export function formatShortcutLabel(shortcut: string): string {
+  return shortcut
+    .replace('CommandOrControl', 'Command/Ctrl')
+    .split('+')
+    .join(' + ');
+}
+
 export function formatClipboardPreview(value: string, maxLength = 120): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxLength) return normalized;
