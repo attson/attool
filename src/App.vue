@@ -411,6 +411,8 @@ async function openTaskFolder(id: string) {
         :state="updaterState"
         :auto-check="updaterAutoCheck"
         @check="handleSettingsCheck"
+        @install="updaterInstall"
+        @relaunch="updaterRelaunch"
         @update:auto-check="updaterSetAutoCheck"
       />
     </n-message-provider>
