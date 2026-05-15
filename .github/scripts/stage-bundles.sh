@@ -24,6 +24,9 @@ BUNDLE="src-tauri/target/$TARGET/release/bundle"
 stage() {
   local src="$1"
   local newname="$2"
+  # GitHub release uploads replace spaces with dots in stored asset names.
+  # Pre-rename here so latest.json URLs match the actual asset filenames.
+  newname="${newname// /.}"
   echo "stage: $(basename "$src") -> $newname"
   cp "$src" "$STAGE/$newname"
 }
