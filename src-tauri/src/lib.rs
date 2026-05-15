@@ -15,6 +15,10 @@ use std::{
         Arc,
     },
 };
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},
@@ -1070,6 +1074,18 @@ fn path_to_string(path: PathBuf) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = app.set_activation_policy(ActivationPolicy::Regular);
+        }
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1079,8 +1095,15 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                if let WindowEvent::CloseRequested { .. } = event {
-                    window.app_handle().exit(0);
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = window
+                            .app_handle()
+                            .set_activation_policy(ActivationPolicy::Accessory);
+                    }
                 }
             }
         })
@@ -1115,6 +1138,22 @@ pub fn run() {
                 eprintln!("{error}");
             }
             app.manage(clipboard_store);
+
+            let show_item =
+                MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&tray_menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show-main" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
