@@ -59,6 +59,12 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <line x1="10" y1="3" x2="8" y2="21" />
       <line x1="16" y1="3" x2="14" y2="21" />
     </template>
+
+    <!-- code -->
+    <template v-else-if="name === 'code'">
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </template>
   </svg>
 </template>
 
