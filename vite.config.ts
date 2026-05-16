@@ -11,6 +11,9 @@ export default defineConfig({
     host: '127.0.0.1'
   },
   envPrefix: ['VITE_', 'TAURI_'],
+  define: {
+    global: 'globalThis'
+  },
   build: {
     target: 'es2022',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
