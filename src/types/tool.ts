@@ -6,7 +6,8 @@ export type ToolIconId =
   | 'clipboard'
   | 'type'
   | 'wifi'
-  | 'hash';
+  | 'hash'
+  | 'code';
 
 export interface Tool {
   id: string;
