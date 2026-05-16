@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { NTabs, NTabPane } from 'naive-ui';
 import JsonFormatPane from './JsonFormatPane.vue';
+import JsonQueryPane from './JsonQueryPane.vue';
 
 const tab = ref('format');
 </script>
@@ -11,6 +12,9 @@ const tab = ref('format');
     <n-tabs v-model:value="tab" type="line" animated>
       <n-tab-pane name="format" tab="格式化">
         <div class="pane-wrap"><JsonFormatPane /></div>
+      </n-tab-pane>
+      <n-tab-pane name="query" tab="查询">
+        <div class="pane-wrap"><JsonQueryPane /></div>
       </n-tab-pane>
     </n-tabs>
   </div>
