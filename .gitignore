@@ -21,3 +21,6 @@ src-tauri/gen/
 
 # Superpowers local artifacts
 .superpowers/
+
+# Playwright MCP captures
+.playwright-mcp/
