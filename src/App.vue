@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue';
 import {
   NAlert,
   NButton,
@@ -19,7 +19,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import ClipboardHistoryWindow from './components/clipboard/ClipboardHistoryWindow.vue';
 import ClipboardTool from './components/clipboard/ClipboardTool.vue';
-import JsonTool from './components/json/JsonTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import Dashboard from './components/shell/Dashboard.vue';
 import StatPill from './components/ui/StatPill.vue';
@@ -34,6 +33,8 @@ import { useUpdater } from './composables/useUpdater';
 import { useUpdaterPrefs } from './composables/useUpdaterPrefs';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
 import type { Tool } from './types/tool';
+
+const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
