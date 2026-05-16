@@ -14,20 +14,20 @@ export function parseJson(text: string): JsonParseResult {
 
 export function format(text: string, indent = 2): string {
   const result = parseJson(text);
-  if (!result.ok) throw new Error(result.error?.message ?? 'JSON 解析失败');
+  if (!result.ok) throw new Error(result.error.message);
   return JSON.stringify(result.value, null, indent);
 }
 
 export function minify(text: string): string {
   const result = parseJson(text);
-  if (!result.ok) throw new Error(result.error?.message ?? 'JSON 解析失败');
+  if (!result.ok) throw new Error(result.error.message);
   return JSON.stringify(result.value);
 }
 
 export function sortKeys(text: string, indent = 2): string {
   const result = parseJson(text);
-  if (!result.ok) throw new Error(result.error?.message ?? 'JSON 解析失败');
-  return JSON.stringify(sortValue(result.value as JsonValue), null, indent);
+  if (!result.ok) throw new Error(result.error.message);
+  return JSON.stringify(sortValue(result.value), null, indent);
 }
 
 function sortValue(value: JsonValue): JsonValue {
@@ -44,11 +44,22 @@ function sortValue(value: JsonValue): JsonValue {
 
 function toParseError(error: unknown, text: string): JsonParseError {
   const message = error instanceof Error ? error.message : String(error);
-  const match = /position (\d+)/.exec(message);
-  if (!match) return { message };
-  const position = Number(match[1]);
-  const upto = text.slice(0, position);
-  const line = upto.split('\n').length;
-  const column = position - upto.lastIndexOf('\n');
-  return { message, line, column };
+
+  // Newer V8 emits "... (line N column M)"; prefer this when present.
+  const lineCol = /\(line (\d+) column (\d+)\)/.exec(message);
+  if (lineCol) {
+    return { message, line: Number(lineCol[1]), column: Number(lineCol[2]) };
+  }
+
+  // Older V8 emits "... at position N" without line/column.
+  const positional = /position (\d+)/.exec(message);
+  if (positional) {
+    const position = Number(positional[1]);
+    const upto = text.slice(0, position);
+    const line = upto.split('\n').length;
+    const column = position - upto.lastIndexOf('\n');
+    return { message, line, column };
+  }
+
+  return { message };
 }

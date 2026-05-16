@@ -14,8 +14,6 @@ export interface JsonParseError {
   column?: number;
 }
 
-export interface JsonParseResult {
-  ok: boolean;
-  value?: JsonValue;
-  error?: JsonParseError;
-}
+export type JsonParseResult =
+  | { ok: true; value: JsonValue }
+  | { ok: false; error: JsonParseError };

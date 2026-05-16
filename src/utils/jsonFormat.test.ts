@@ -7,9 +7,16 @@ describe('parseJson', () => {
   });
 
   it('reports an error with line/column for invalid JSON', () => {
-    const result = parseJson('{ "a": }');
+    // "{" reliably triggers V8 "position N" / "(line N column M)" — both message
+    // shapes feed line/column into the error. Avoid inputs like '{"a":}' whose
+    // V8 message varies across Node versions.
+    const result = parseJson('{');
     expect(result.ok).toBe(false);
-    expect(result.error?.message).toMatch(/./);
+    if (!result.ok) {
+      expect(result.error.message).toMatch(/./);
+      expect(result.error.line).toBe(1);
+      expect(result.error.column).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it('treats empty input as an error', () => {
