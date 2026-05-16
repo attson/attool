@@ -2,11 +2,9 @@ import yaml from 'js-yaml';
 import toml from '@iarna/toml';
 import type { ConvertFormat, JsonValue } from '../types/json';
 
-export interface ConvertResult {
-  ok: boolean;
-  value?: string;
-  error?: string;
-}
+export type ConvertResult =
+  | { ok: true; value: string }
+  | { ok: false; error: string };
 
 export function convert(text: string, from: ConvertFormat, to: ConvertFormat): ConvertResult {
   if (from === to) return { ok: true, value: text };
