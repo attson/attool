@@ -5,18 +5,31 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import { extractDouyinLinks } from '../../utils/douyinLink';
+import { useAria2Handoff } from '../../composables/useAria2Handoff';
+import type { DouyinVideoInfo } from '../../types/douyin';
+
+interface VideoState {
+  status: 'pending' | 'ok' | 'fail';
+  info: DouyinVideoInfo | null;
+  error: string | null;
+}
 
 interface Entry {
   short: string;
   status: 'pending' | 'ok' | 'fail';
   resolved: string | null;
   error: string | null;
+  video: VideoState;
 }
+
+const emit = defineEmits<{ (e: 'requestNavigate', tool: string): void }>();
 
 const raw = ref('');
 const entries = ref<Entry[]>([]);
 const copyState = ref<Record<string, 'idle' | 'ok' | 'fail'>>({});
+const videoCopyState = ref<Record<string, 'idle' | 'ok' | 'fail'>>({});
 const allCopyState = ref<'idle' | 'ok' | 'fail'>('idle');
+const handoff = useAria2Handoff();
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveRun = 0;
@@ -40,8 +53,10 @@ function rebuildEntries(links: string[]) {
     status: 'pending',
     resolved: null,
     error: null,
+    video: { status: 'pending', info: null, error: null },
   }));
   copyState.value = {};
+  videoCopyState.value = {};
 
   links.forEach((short) => {
     invoke<string>('resolve_douyin_url', { url: short })
@@ -49,21 +64,56 @@ function rebuildEntries(links: string[]) {
         if (runId !== resolveRun) return;
         const idx = entries.value.findIndex((e) => e.short === short);
         if (idx === -1) return;
-        entries.value[idx] = { short, status: 'ok', resolved, error: null };
+        entries.value[idx] = {
+          ...entries.value[idx],
+          status: 'ok',
+          resolved,
+          error: null,
+        };
+        kickOffVideo(runId, short, resolved);
       })
       .catch((err) => {
         if (runId !== resolveRun) return;
         const idx = entries.value.findIndex((e) => e.short === short);
         if (idx === -1) return;
-        entries.value[idx] = { short, status: 'fail', resolved: null, error: String(err) };
+        entries.value[idx] = {
+          ...entries.value[idx],
+          status: 'fail',
+          resolved: null,
+          error: String(err),
+          video: { status: 'fail', info: null, error: '短链未能解析' },
+        };
       });
   });
+}
+
+function kickOffVideo(runId: number, short: string, canonical: string) {
+  invoke<DouyinVideoInfo>('extract_douyin_video', { url: canonical })
+    .then((info) => {
+      if (runId !== resolveRun) return;
+      const idx = entries.value.findIndex((e) => e.short === short);
+      if (idx === -1) return;
+      entries.value[idx] = {
+        ...entries.value[idx],
+        video: { status: 'ok', info, error: null },
+      };
+    })
+    .catch((err) => {
+      if (runId !== resolveRun) return;
+      const idx = entries.value.findIndex((e) => e.short === short);
+      if (idx === -1) return;
+      entries.value[idx] = {
+        ...entries.value[idx],
+        video: { status: 'fail', info: null, error: String(err) },
+      };
+    });
 }
 
 function clearAll() {
   raw.value = '';
   entries.value = [];
   copyState.value = {};
+  videoCopyState.value = {};
   allCopyState.value = 'idle';
   resolveRun++;
 }
@@ -85,6 +135,20 @@ async function copyOne(entry: Entry) {
   }, 1500);
 }
 
+async function copyVideo(entry: Entry) {
+  if (!entry.video.info) return;
+  const key = entry.short;
+  try {
+    await writeText(entry.video.info.mp4Url);
+    videoCopyState.value = { ...videoCopyState.value, [key]: 'ok' };
+  } catch {
+    videoCopyState.value = { ...videoCopyState.value, [key]: 'fail' };
+  }
+  setTimeout(() => {
+    videoCopyState.value = { ...videoCopyState.value, [key]: 'idle' };
+  }, 1500);
+}
+
 async function copyAll() {
   const urls = entries.value.map((e) => effectiveUrl(e));
   try {
@@ -103,7 +167,7 @@ async function openLink(entry: Entry) {
     await invoke('open_external_url', { url });
     return;
   } catch {
-    // fallback: 写剪贴板
+    /* fallback below */
   }
   try {
     await writeText(url);
@@ -116,17 +180,30 @@ async function openLink(entry: Entry) {
   }
 }
 
+function downloadVideo(entry: Entry) {
+  if (!entry.video.info) return;
+  handoff.push(entry.video.info.mp4Url);
+  emit('requestNavigate', 'aria2');
+}
+
 function copyLabel(entry: Entry): string {
   const state = copyState.value[entry.short] ?? 'idle';
   if (state === 'ok') return '已复制';
   if (state === 'fail') return '复制失败';
-  return '复制';
+  return '复制页面';
+}
+
+function videoCopyLabel(entry: Entry): string {
+  const state = videoCopyState.value[entry.short] ?? 'idle';
+  if (state === 'ok') return '已复制';
+  if (state === 'fail') return '复制失败';
+  return '复制视频';
 }
 
 const allCopyLabel = computed(() => {
   if (allCopyState.value === 'ok') return '已全部复制';
   if (allCopyState.value === 'fail') return '复制失败';
-  return '全部复制';
+  return '全部复制页面';
 });
 
 const hasInput = computed(() => raw.value.trim().length > 0);
@@ -138,7 +215,7 @@ const allCopyDisabled = computed(() => hasPending.value);
   <div class="page">
     <header class="page-header">
       <h2>抖音链接提取</h2>
-      <p>从抖音 App 分享文案中提取 v.douyin.com 短链，并自动跟踪 302 转真实视频页地址。</p>
+      <p>从抖音 App 分享文案中提取 v.douyin.com 短链，跟踪 302 后再抓真实视频 mp4 直链，可一键送入 Aria2 下载。</p>
     </header>
 
     <Panel title="分享文案">
@@ -166,21 +243,43 @@ const allCopyDisabled = computed(() => hasPending.value);
         <div v-for="(entry, index) in entries" :key="entry.short" class="row">
           <span class="idx">{{ index + 1 }}</span>
           <div class="link-col">
-            <span class="primary" :class="{ pending: entry.status === 'pending' }">
-              <template v-if="entry.status === 'ok'">{{ entry.resolved }}</template>
-              <template v-else-if="entry.status === 'pending'">解析中... {{ entry.short }}</template>
-              <template v-else>{{ entry.short }}</template>
-            </span>
+            <div class="line-primary">
+              <span class="primary" :class="{ pending: entry.status === 'pending' }">
+                <template v-if="entry.status === 'ok'">{{ entry.resolved }}</template>
+                <template v-else-if="entry.status === 'pending'">解析中... {{ entry.short }}</template>
+                <template v-else>{{ entry.short }}</template>
+              </span>
+              <div class="line-actions">
+                <n-button size="tiny" secondary :disabled="entry.status === 'pending'" @click="copyOne(entry)">
+                  {{ copyLabel(entry) }}
+                </n-button>
+                <n-button size="tiny" secondary :disabled="entry.status === 'pending'" @click="openLink(entry)">
+                  打开
+                </n-button>
+              </div>
+            </div>
             <span v-if="entry.status === 'ok'" class="secondary">短链：{{ entry.short }}</span>
-            <span v-else-if="entry.status === 'fail'" class="secondary fail">解析失败：{{ entry.error }}（已保留短链）</span>
-          </div>
-          <div class="row-actions">
-            <n-button size="small" secondary :disabled="entry.status === 'pending'" @click="copyOne(entry)">
-              {{ copyLabel(entry) }}
-            </n-button>
-            <n-button size="small" secondary :disabled="entry.status === 'pending'" @click="openLink(entry)">
-              打开
-            </n-button>
+            <span v-else-if="entry.status === 'fail'" class="secondary fail">短链解析失败：{{ entry.error }}</span>
+
+            <template v-if="entry.status === 'ok'">
+              <div v-if="entry.video.status === 'pending'" class="line-video secondary">解析视频中...</div>
+              <div v-else-if="entry.video.status === 'fail'" class="line-video secondary fail">视频解析失败：{{ entry.video.error }}</div>
+              <div v-else class="line-video">
+                <span class="video-url" :class="{ 'has-wm': entry.video.info?.hasWatermark }">
+                  {{ entry.video.info?.mp4Url }}
+                </span>
+                <div class="video-meta">
+                  <span class="badge" :class="{ wm: entry.video.info?.hasWatermark }">
+                    {{ entry.video.info?.hasWatermark ? '含水印' : '无水印' }}
+                  </span>
+                  <span class="video-title" :title="entry.video.info?.title">{{ entry.video.info?.title }}</span>
+                </div>
+                <div class="line-actions">
+                  <n-button size="tiny" secondary @click="copyVideo(entry)">{{ videoCopyLabel(entry) }}</n-button>
+                  <n-button size="tiny" type="primary" @click="downloadVideo(entry)">下载</n-button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -215,10 +314,9 @@ const allCopyDisabled = computed(() => hasPending.value);
 .list { display: grid; gap: 6px; }
 .row {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: center;
+  grid-template-columns: 28px 1fr;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--bg-base);
@@ -228,13 +326,23 @@ const allCopyDisabled = computed(() => hasPending.value);
   font-size: var(--fs-xs);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  padding-top: 2px;
 }
-.link-col { display: grid; gap: 2px; min-width: 0; }
+.link-col { display: grid; gap: 6px; min-width: 0; }
+
+.line-primary {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
 .primary {
   color: var(--text);
   font-size: var(--fs-sm);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   word-break: break-all;
+  flex: 1;
+  min-width: 0;
 }
 .primary.pending { color: var(--text-muted); font-style: italic; }
 .secondary {
@@ -243,7 +351,49 @@ const allCopyDisabled = computed(() => hasPending.value);
   word-break: break-all;
 }
 .secondary.fail { color: var(--text-muted); }
-.row-actions { display: flex; gap: 6px; align-self: start; }
+
+.line-video {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+}
+.video-url {
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  word-break: break-all;
+  color: var(--text);
+}
+.video-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--fs-xxs);
+  color: var(--text-muted);
+}
+.badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+  line-height: 1.4;
+}
+.badge.wm { color: var(--text); border-color: var(--text-muted); }
+.video-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.line-actions {
+  display: flex;
+  gap: 6px;
+  align-self: start;
+  justify-content: flex-end;
+}
 
 .empty {
   padding: 40px 20px;

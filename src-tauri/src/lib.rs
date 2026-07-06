@@ -1,4 +1,5 @@
 mod clipboard;
+mod douyin;
 pub mod ecommerce;
 
 use ecommerce::EcommerceStore;
@@ -707,6 +708,49 @@ const DOUYIN_MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac
     AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
 
 #[tauri::command]
+async fn extract_douyin_video(url: String) -> Result<douyin::DouyinVideoInfo, String> {
+    let video_id = douyin::extract_video_id(&url)
+        .ok_or_else(|| "URL 中未找到 video id".to_string())?;
+
+    let share_url = format!("https://www.iesdouyin.com/share/video/{video_id}/");
+    let client = reqwest::Client::builder()
+        .user_agent(DOUYIN_MOBILE_UA)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|error| format!("构造 HTTP 客户端失败：{error}"))?;
+
+    let response = client
+        .get(&share_url)
+        .header("Accept-Language", "zh-CN,zh;q=0.9")
+        .send()
+        .await
+        .map_err(|error| format!("网络错误：{error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("网络错误：HTTP {}", response.status()));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取响应失败：{error}"))?;
+
+    let raw_json = douyin::extract_render_data_from_html(&body)?;
+    let root = douyin::parse_render_data(&raw_json)?;
+    let raw_mp4 =
+        douyin::find_mp4_url(&root).ok_or_else(|| "未在页面数据中找到视频 URL".to_string())?;
+    let title = douyin::find_title(&root, &video_id);
+    let (mp4_url, resolved_no_wm) = douyin::derive_watermark_removed_url(&raw_mp4);
+    Ok(douyin::DouyinVideoInfo {
+        mp4_url,
+        title,
+        has_watermark: !resolved_no_wm,
+    })
+}
+
+#[tauri::command]
 async fn resolve_douyin_url(url: String) -> Result<String, String> {
     if !(url.starts_with("https://v.douyin.com/") || url.starts_with("http://v.douyin.com/")) {
         return Err("仅支持 v.douyin.com 短链".to_string());
@@ -1265,6 +1309,7 @@ pub fn run() {
             open_download_folder,
             open_external_url,
             resolve_douyin_url,
+            extract_douyin_video,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,

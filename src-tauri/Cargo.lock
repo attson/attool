@@ -210,6 +210,7 @@ dependencies = [
  "fontdb",
  "image",
  "imageproc",
+ "percent-encoding",
  "regex",
  "reqwest",
  "rusqlite",

@@ -27,6 +27,7 @@ import TaskRow from './components/ui/TaskRow.vue';
 import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
 import { useTheme } from './composables/useTheme';
+import { useAria2Handoff } from './composables/useAria2Handoff';
 import UpdateBanner from './components/shell/UpdateBanner.vue';
 import SettingsModal from './components/shell/SettingsModal.vue';
 import { useUpdater } from './composables/useUpdater';
@@ -71,6 +72,7 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const aria2Handoff = useAria2Handoff();
 const { state: updaterState, check: updaterCheck, install: updaterInstall, relaunch: updaterRelaunch, dismiss: updaterDismiss } = useUpdater();
 const { autoCheck: updaterAutoCheck, setAutoCheck: updaterSetAutoCheck, skipVersion: updaterSkipVersion, shouldSkip: updaterShouldSkip } = useUpdaterPrefs();
 const settingsOpen = ref(false);
@@ -155,6 +157,11 @@ function selectTool(id: string) {
   if (!tool || tool.status !== 'ready') return;
   selectedToolId.value = id;
   rememberLastTool(id);
+  if (id === 'aria2') aria2Handoff.drainInto(url);
+}
+
+function handleDouyinNavigate(target: string) {
+  selectTool(target);
 }
 
 function goHome() {
@@ -415,7 +422,7 @@ async function openTaskFolder(id: string) {
         </template>
 
         <template v-else-if="selectedTool.id === 'douyin'">
-          <DouyinTool />
+          <DouyinTool @request-navigate="handleDouyinNavigate" />
         </template>
       </AppShell>
 
