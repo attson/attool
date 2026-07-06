@@ -703,6 +703,40 @@ fn find_download_dir(db_path: &Path, id: &str) -> Result<String, String> {
         .map_err(|error| format!("未找到任务保存目录：{error}"))
 }
 
+#[tauri::command]
+async fn open_external_url(url: String) -> Result<(), String> {
+    // 只允许 http/https，避免任意命令注入（例如 file://、传参、shell 元字符）
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("仅支持 http/https 协议".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(&url);
+        c
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/c", "start", "", &url]);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("打开链接失败：{error}"))
+}
+
 fn open_folder(folder: &str) -> Result<(), String> {
     let path = Path::new(folder);
     if !path.exists() {
@@ -1162,6 +1196,7 @@ pub fn run() {
             start_download,
             cancel_download,
             open_download_folder,
+            open_external_url,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { NButton, NInput } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import { extractDouyinLinks } from '../../utils/douyinLink';
 
@@ -54,8 +55,12 @@ async function copyAll() {
 }
 
 async function openLink(link: string) {
-  const handle = window.open(link, '_blank');
-  if (handle) return;
+  try {
+    await invoke('open_external_url', { url: link });
+    return;
+  } catch {
+    // 打开失败降级为复制到剪贴板
+  }
   try {
     await writeText(link);
     copyState.value = { ...copyState.value, [link]: 'ok' };
