@@ -35,12 +35,14 @@ import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from '.
 import type { Tool } from './types/tool';
 
 const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
+const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
   { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout' },
   { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard' },
   { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code' },
+  { id: 'douyin',    name: '抖音链接提取',   description: '从分享文案中提取 v.douyin.com 短链',   status: 'ready', icon: 'video' },
   { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon',  icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon',  icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64、URL Encode、Hash 摘要',      status: 'soon',  icon: 'hash' }
@@ -410,6 +412,10 @@ async function openTaskFolder(id: string) {
 
         <template v-else-if="selectedTool.id === 'json'">
           <JsonTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'douyin'">
+          <DouyinTool />
         </template>
       </AppShell>
 
