@@ -737,7 +737,7 @@ async fn extract_douyin_video(url: String) -> Result<douyin::DouyinVideoInfo, St
         .await
         .map_err(|error| format!("读取响应失败：{error}"))?;
 
-    let raw_json = douyin::extract_render_data_from_html(&body)?;
+    let raw_json = douyin::extract_payload_json(&body)?;
     let root = douyin::parse_render_data(&raw_json)?;
     let raw_mp4 =
         douyin::find_mp4_url(&root).ok_or_else(|| "未在页面数据中找到视频 URL".to_string())?;
