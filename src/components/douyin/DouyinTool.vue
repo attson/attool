@@ -6,47 +6,89 @@ import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import { extractDouyinLinks } from '../../utils/douyinLink';
 
+interface Entry {
+  short: string;
+  status: 'pending' | 'ok' | 'fail';
+  resolved: string | null;
+  error: string | null;
+}
+
 const raw = ref('');
-const results = ref<string[]>([]);
+const entries = ref<Entry[]>([]);
 const copyState = ref<Record<string, 'idle' | 'ok' | 'fail'>>({});
 const allCopyState = ref<'idle' | 'ok' | 'fail'>('idle');
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let resolveRun = 0;
 
 watch(raw, (value) => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    results.value = extractDouyinLinks(value);
+    rebuildEntries(extractDouyinLinks(value));
   }, 300);
 });
 
 function extractNow() {
   if (debounceTimer) clearTimeout(debounceTimer);
-  results.value = extractDouyinLinks(raw.value);
+  rebuildEntries(extractDouyinLinks(raw.value));
+}
+
+function rebuildEntries(links: string[]) {
+  const runId = ++resolveRun;
+  entries.value = links.map((short) => ({
+    short,
+    status: 'pending',
+    resolved: null,
+    error: null,
+  }));
+  copyState.value = {};
+
+  links.forEach((short) => {
+    invoke<string>('resolve_douyin_url', { url: short })
+      .then((resolved) => {
+        if (runId !== resolveRun) return;
+        const idx = entries.value.findIndex((e) => e.short === short);
+        if (idx === -1) return;
+        entries.value[idx] = { short, status: 'ok', resolved, error: null };
+      })
+      .catch((err) => {
+        if (runId !== resolveRun) return;
+        const idx = entries.value.findIndex((e) => e.short === short);
+        if (idx === -1) return;
+        entries.value[idx] = { short, status: 'fail', resolved: null, error: String(err) };
+      });
+  });
 }
 
 function clearAll() {
   raw.value = '';
-  results.value = [];
+  entries.value = [];
   copyState.value = {};
   allCopyState.value = 'idle';
+  resolveRun++;
 }
 
-async function copyOne(link: string) {
+function effectiveUrl(entry: Entry): string {
+  return entry.resolved ?? entry.short;
+}
+
+async function copyOne(entry: Entry) {
+  const key = entry.short;
   try {
-    await writeText(link);
-    copyState.value = { ...copyState.value, [link]: 'ok' };
+    await writeText(effectiveUrl(entry));
+    copyState.value = { ...copyState.value, [key]: 'ok' };
   } catch {
-    copyState.value = { ...copyState.value, [link]: 'fail' };
+    copyState.value = { ...copyState.value, [key]: 'fail' };
   }
   setTimeout(() => {
-    copyState.value = { ...copyState.value, [link]: 'idle' };
+    copyState.value = { ...copyState.value, [key]: 'idle' };
   }, 1500);
 }
 
 async function copyAll() {
+  const urls = entries.value.map((e) => effectiveUrl(e));
   try {
-    await writeText(results.value.join('\n'));
+    await writeText(urls.join('\n'));
     allCopyState.value = 'ok';
   } catch {
     allCopyState.value = 'fail';
@@ -54,26 +96,28 @@ async function copyAll() {
   setTimeout(() => { allCopyState.value = 'idle'; }, 1500);
 }
 
-async function openLink(link: string) {
+async function openLink(entry: Entry) {
+  const url = effectiveUrl(entry);
+  const key = entry.short;
   try {
-    await invoke('open_external_url', { url: link });
+    await invoke('open_external_url', { url });
     return;
   } catch {
-    // 打开失败降级为复制到剪贴板
+    // fallback: 写剪贴板
   }
   try {
-    await writeText(link);
-    copyState.value = { ...copyState.value, [link]: 'ok' };
+    await writeText(url);
+    copyState.value = { ...copyState.value, [key]: 'ok' };
     setTimeout(() => {
-      copyState.value = { ...copyState.value, [link]: 'idle' };
+      copyState.value = { ...copyState.value, [key]: 'idle' };
     }, 1500);
   } catch {
     /* noop */
   }
 }
 
-function copyLabel(link: string): string {
-  const state = copyState.value[link] ?? 'idle';
+function copyLabel(entry: Entry): string {
+  const state = copyState.value[entry.short] ?? 'idle';
   if (state === 'ok') return '已复制';
   if (state === 'fail') return '复制失败';
   return '复制';
@@ -86,13 +130,15 @@ const allCopyLabel = computed(() => {
 });
 
 const hasInput = computed(() => raw.value.trim().length > 0);
+const hasPending = computed(() => entries.value.some((e) => e.status === 'pending'));
+const allCopyDisabled = computed(() => hasPending.value);
 </script>
 
 <template>
   <div class="page">
     <header class="page-header">
       <h2>抖音链接提取</h2>
-      <p>从抖音 App 分享文案中提取所有 v.douyin.com 短链。</p>
+      <p>从抖音 App 分享文案中提取 v.douyin.com 短链，并自动跟踪 302 转真实视频页地址。</p>
     </header>
 
     <Panel title="分享文案">
@@ -110,17 +156,31 @@ const hasInput = computed(() => raw.value.trim().length > 0);
       </div>
     </Panel>
 
-    <Panel :title="`提取结果${results.length ? ' · 共 ' + results.length + ' 条' : ''}`">
-      <template v-if="results.length" #right>
-        <n-button size="small" secondary @click="copyAll">{{ allCopyLabel }}</n-button>
+    <Panel :title="`提取结果${entries.length ? ' · 共 ' + entries.length + ' 条' : ''}`">
+      <template v-if="entries.length" #right>
+        <n-button size="small" secondary :disabled="allCopyDisabled" @click="copyAll">
+          {{ allCopyDisabled ? '解析中...' : allCopyLabel }}
+        </n-button>
       </template>
-      <div v-if="results.length" class="list">
-        <div v-for="(link, index) in results" :key="link" class="row">
+      <div v-if="entries.length" class="list">
+        <div v-for="(entry, index) in entries" :key="entry.short" class="row">
           <span class="idx">{{ index + 1 }}</span>
-          <span class="link">{{ link }}</span>
+          <div class="link-col">
+            <span class="primary" :class="{ pending: entry.status === 'pending' }">
+              <template v-if="entry.status === 'ok'">{{ entry.resolved }}</template>
+              <template v-else-if="entry.status === 'pending'">解析中... {{ entry.short }}</template>
+              <template v-else>{{ entry.short }}</template>
+            </span>
+            <span v-if="entry.status === 'ok'" class="secondary">短链：{{ entry.short }}</span>
+            <span v-else-if="entry.status === 'fail'" class="secondary fail">解析失败：{{ entry.error }}（已保留短链）</span>
+          </div>
           <div class="row-actions">
-            <n-button size="small" secondary @click="copyOne(link)">{{ copyLabel(link) }}</n-button>
-            <n-button size="small" secondary @click="openLink(link)">打开</n-button>
+            <n-button size="small" secondary :disabled="entry.status === 'pending'" @click="copyOne(entry)">
+              {{ copyLabel(entry) }}
+            </n-button>
+            <n-button size="small" secondary :disabled="entry.status === 'pending'" @click="openLink(entry)">
+              打开
+            </n-button>
           </div>
         </div>
       </div>
@@ -169,13 +229,21 @@ const hasInput = computed(() => raw.value.trim().length > 0);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.link {
+.link-col { display: grid; gap: 2px; min-width: 0; }
+.primary {
   color: var(--text);
   font-size: var(--fs-sm);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   word-break: break-all;
 }
-.row-actions { display: flex; gap: 6px; }
+.primary.pending { color: var(--text-muted); font-style: italic; }
+.secondary {
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+  word-break: break-all;
+}
+.secondary.fail { color: var(--text-muted); }
+.row-actions { display: flex; gap: 6px; align-self: start; }
 
 .empty {
   padding: 40px 20px;

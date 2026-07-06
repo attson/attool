@@ -703,6 +703,73 @@ fn find_download_dir(db_path: &Path, id: &str) -> Result<String, String> {
         .map_err(|error| format!("未找到任务保存目录：{error}"))
 }
 
+const DOUYIN_MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) \
+    AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
+
+#[tauri::command]
+async fn resolve_douyin_url(url: String) -> Result<String, String> {
+    if !(url.starts_with("https://v.douyin.com/") || url.starts_with("http://v.douyin.com/")) {
+        return Err("仅支持 v.douyin.com 短链".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent(DOUYIN_MOBILE_UA)
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|error| format!("构造 HTTP 客户端失败：{error}"))?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|error| format!("请求失败：{error}"))?;
+
+    let final_url = response.url().to_string();
+    Ok(canonicalize_douyin_url(&final_url))
+}
+
+fn canonicalize_douyin_url(url: &str) -> String {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"/video/(\d+)").unwrap());
+    if let Some(cap) = re.captures(url) {
+        return format!("https://www.douyin.com/video/{}", &cap[1]);
+    }
+    url.to_string()
+}
+
+#[cfg(test)]
+mod douyin_tests {
+    use super::canonicalize_douyin_url;
+
+    #[test]
+    fn extracts_id_from_iesdouyin_share_url() {
+        assert_eq!(
+            canonicalize_douyin_url(
+                "https://www.iesdouyin.com/share/video/7650383172730932515/?region=CN&mid=xxx"
+            ),
+            "https://www.douyin.com/video/7650383172730932515"
+        );
+    }
+
+    #[test]
+    fn extracts_id_from_douyin_video_url() {
+        assert_eq!(
+            canonicalize_douyin_url("https://www.douyin.com/video/7650383172730932515"),
+            "https://www.douyin.com/video/7650383172730932515"
+        );
+    }
+
+    #[test]
+    fn returns_original_when_no_video_id_found() {
+        assert_eq!(
+            canonicalize_douyin_url("https://www.douyin.com/note/xxx"),
+            "https://www.douyin.com/note/xxx"
+        );
+    }
+}
+
 #[tauri::command]
 async fn open_external_url(url: String) -> Result<(), String> {
     // 只允许 http/https，避免任意命令注入（例如 file://、传参、shell 元字符）
@@ -1197,6 +1264,7 @@ pub fn run() {
             cancel_download,
             open_download_folder,
             open_external_url,
+            resolve_douyin_url,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,
