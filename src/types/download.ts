@@ -7,6 +7,9 @@ export type DownloadEventPayload = {
   speed?: string | null;
   eta?: string | null;
   message?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  localPath?: string | null;
 };
 
 export type DownloadTask = DownloadEventPayload & {

@@ -140,6 +140,9 @@ struct DownloadTaskRecord {
     eta: Option<String>,
     message: Option<String>,
     created_at: String,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    local_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -151,6 +154,9 @@ struct DownloadEventPayload {
     speed: Option<String>,
     eta: Option<String>,
     message: Option<String>,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    local_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -234,7 +240,7 @@ async fn start_download(
         format!("--min-split-size={min_split_size}"),
         "--summary-interval=1".to_string(),
         "--show-console-readout=true".to_string(),
-        "--console-log-level=warn".to_string(),
+        "--console-log-level=notice".to_string(),
         "--download-result=hide".to_string(),
     ];
 
@@ -280,6 +286,9 @@ async fn start_download(
                 speed: None,
                 eta: None,
                 message: Some(message.clone()),
+            started_at: None,
+            finished_at: None,
+            local_path: None,
             };
             persist_download_event(&state.db_path, &payload);
             message
@@ -299,12 +308,17 @@ async fn start_download(
             speed: None,
             eta: None,
             message: Some("aria2 任务已创建".to_string()),
+        started_at: None,
+        finished_at: None,
+        local_path: None,
         },
     );
 
     let task_state = state.inner().clone();
     let task_app = app.clone();
     let task_id = id.clone();
+    let fallback_dir = download_dir.to_string();
+    let fallback_name = file_name.clone();
 
     tauri::async_runtime::spawn(async move {
         let stdout_task = stdout.map(|stream| {
@@ -327,6 +341,14 @@ async fn start_download(
                     speed: None,
                     eta: None,
                     message: Some("下载完成".to_string()),
+                    started_at: None,
+                    finished_at: None,
+                    // 兜底：若用户显式指定过 file_name，用 `{dir}/{name}` 合成绝对路径。
+                    // 与 persist_download_event 的 `COALESCE(local_path, ?)` 配合：
+                    // stdout 的 NOTICE 行已经写入的路径优先，本兜底只在之前 NULL 时生效。
+                    local_path: fallback_name
+                        .as_deref()
+                        .map(|name| join_path(&fallback_dir, name)),
                 },
                 Ok(exit_status) => DownloadEventPayload {
                     id: task_id.clone(),
@@ -335,6 +357,9 @@ async fn start_download(
                     speed: None,
                     eta: None,
                     message: Some(format!("aria2c 退出码：{exit_status}")),
+                started_at: None,
+                finished_at: None,
+                local_path: None,
                 },
                 Err(error) => DownloadEventPayload {
                     id: task_id.clone(),
@@ -343,6 +368,9 @@ async fn start_download(
                     speed: None,
                     eta: None,
                     message: Some(format!("等待 aria2c 结束失败：{error}")),
+                started_at: None,
+                finished_at: None,
+                local_path: None,
                 },
             },
             _ = cancel_rx => {
@@ -354,6 +382,9 @@ async fn start_download(
                     speed: None,
                     eta: None,
                     message: Some("已取消下载任务".to_string()),
+                started_at: None,
+                finished_at: None,
+                local_path: None,
                 }
             }
         };
@@ -436,6 +467,21 @@ where
                 let line = String::from_utf8_lossy(&buffer);
                 if let Some(payload) = parse_progress_line(&id, &line) {
                     emit_download_event(&app, payload);
+                } else if let Some(path) = parse_complete_line(&line) {
+                    emit_download_event(
+                        &app,
+                        DownloadEventPayload {
+                            id: id.clone(),
+                            status: DownloadStatus::Running,
+                            progress: 0.0,
+                            speed: None,
+                            eta: None,
+                            message: None,
+                            started_at: None,
+                            finished_at: None,
+                            local_path: Some(path),
+                        },
+                    );
                 }
             }
             Err(error) => {
@@ -448,6 +494,9 @@ where
                         speed: None,
                         eta: None,
                         message: Some(format!("读取 aria2 输出失败：{error}")),
+                    started_at: None,
+                    finished_at: None,
+                    local_path: None,
                     },
                 );
                 break;
@@ -478,10 +527,69 @@ where
                     speed: None,
                     eta: None,
                     message: Some(message.to_string()),
+                started_at: None,
+                finished_at: None,
+                local_path: None,
                 },
             );
         }
         line.clear();
+    }
+}
+
+fn join_path(dir: &str, name: &str) -> String {
+    let mut trimmed = dir.trim_end_matches(['/', '\\']).to_string();
+    let sep = if trimmed.contains('\\') && !trimmed.contains('/') { '\\' } else { '/' };
+    trimmed.push(sep);
+    trimmed.push_str(name);
+    trimmed
+}
+
+fn complete_line_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\[NOTICE\][^\n\r]*Download complete:\s*(.+?)\s*$").expect("complete line regex")
+    })
+}
+
+fn parse_complete_line(line: &str) -> Option<String> {
+    // aria2 stdout 分片是按 '\r' 切的，尾部可能带 '\r' / '\n'
+    let trimmed = line.trim_end_matches(['\r', '\n']);
+    complete_line_re()
+        .captures(trimmed)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
+#[cfg(test)]
+mod parse_complete_line_tests {
+    use super::parse_complete_line;
+
+    #[test]
+    fn extracts_absolute_path_from_standard_notice() {
+        let line = "12/25 15:23:11 [NOTICE] Download complete: /tmp/foo.mp4";
+        assert_eq!(parse_complete_line(line), Some("/tmp/foo.mp4".into()));
+    }
+
+    #[test]
+    fn handles_path_with_spaces() {
+        let line = "[NOTICE] Download complete: /Users/attson/my folder/video 1.mp4\r";
+        assert_eq!(
+            parse_complete_line(line),
+            Some("/Users/attson/my folder/video 1.mp4".into())
+        );
+    }
+
+    #[test]
+    fn returns_none_for_progress_line() {
+        let line = "[#abc 12MiB/50MiB(24%) CN:16 DL:5.2MiB ETA:1m30s]";
+        assert!(parse_complete_line(line).is_none());
+    }
+
+    #[test]
+    fn returns_none_when_notice_is_not_download_complete() {
+        let line = "12/25 15:23:11 [NOTICE] IPv4 dht: listening on UDP port 6881";
+        assert!(parse_complete_line(line).is_none());
     }
 }
 
@@ -503,6 +611,9 @@ fn parse_progress_line(id: &str, line: &str) -> Option<DownloadEventPayload> {
         speed: extract_token(line, "DL:"),
         eta: extract_token(line, "ETA:"),
         message: None,
+    started_at: None,
+    finished_at: None,
+    local_path: None,
     })
 }
 
@@ -568,6 +679,27 @@ fn init_database(db_path: &Path) -> Result<(), String> {
 
             CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at
                 ON download_tasks(created_at DESC);
+            "#,
+        )
+        .map_err(|error| format!("初始化任务数据库失败：{error}"))?;
+
+    // 加 3 列（sqlite 无 IF NOT EXISTS，忽略"duplicate column"错误）
+    for stmt in [
+        "ALTER TABLE download_tasks ADD COLUMN started_at TEXT",
+        "ALTER TABLE download_tasks ADD COLUMN finished_at TEXT",
+        "ALTER TABLE download_tasks ADD COLUMN local_path TEXT",
+    ] {
+        if let Err(error) = connection.execute(stmt, []) {
+            let msg = error.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(format!("为下载任务表加列失败：{msg}"));
+            }
+        }
+    }
+
+    connection
+        .execute_batch(
+            r#"
 
             CREATE TABLE IF NOT EXISTS logo_presets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -597,6 +729,7 @@ fn mark_interrupted_tasks(db_path: &Path) -> Result<(), String> {
                 speed = NULL,
                 eta = NULL,
                 message = '应用已退出，任务未继续运行',
+                finished_at = COALESCE(finished_at, datetime('now', 'localtime')),
                 updated_at = datetime('now', 'localtime')
             WHERE status IN ('queued', 'running')
             "#,
@@ -659,7 +792,8 @@ fn load_download_tasks(db_path: &Path) -> Result<Vec<DownloadTaskRecord>, String
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, url, download_dir, file_name, status, progress, speed, eta, message, created_at
+            SELECT id, url, download_dir, file_name, status, progress, speed, eta, message,
+                   created_at, started_at, finished_at, local_path
             FROM download_tasks
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT 300
@@ -681,6 +815,9 @@ fn load_download_tasks(db_path: &Path) -> Result<Vec<DownloadTaskRecord>, String
                 eta: row.get(7)?,
                 message: row.get(8)?,
                 created_at: row.get(9)?,
+                started_at: row.get(10)?,
+                finished_at: row.get(11)?,
+                local_path: row.get(12)?,
             })
         })
         .map_err(|error| format!("读取任务记录失败：{error}"))?;
@@ -1195,6 +1332,15 @@ fn persist_download_event(db_path: &Path, payload: &DownloadEventPayload) {
                 WHEN ?6 IS NOT NULL THEN ?6
                 ELSE message
             END,
+            started_at = CASE
+                WHEN started_at IS NULL AND ?2 = 'running' THEN datetime('now', 'localtime')
+                ELSE started_at
+            END,
+            finished_at = CASE
+                WHEN finished_at IS NULL AND ?2 IN ('completed', 'failed', 'cancelled') THEN datetime('now', 'localtime')
+                ELSE finished_at
+            END,
+            local_path = COALESCE(local_path, ?7),
             updated_at = datetime('now', 'localtime')
         WHERE id = ?1
         "#,
@@ -1204,7 +1350,8 @@ fn persist_download_event(db_path: &Path, payload: &DownloadEventPayload) {
             payload.progress,
             payload.speed,
             payload.eta,
-            payload.message
+            payload.message,
+            payload.local_path
         ],
     );
 }

@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { DownloadStatus, DownloadTask } from '../../types/download';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import {
+  computeDurationSeconds,
+  formatClock,
+  formatDurationSeconds,
+} from '../../utils/downloadFormat';
 
 const STATUS_TEXT: Record<DownloadStatus, string> = {
   queued: '排队中',
@@ -27,6 +33,39 @@ const emit = defineEmits<{
 const cancellable = computed(() => props.task.status === 'queued' || props.task.status === 'running');
 const openable = computed(() => props.task.status === 'completed');
 const pct = computed(() => Math.round(Math.min(Math.max(props.task.progress, 0), 100)));
+
+const terminal = computed(
+  () =>
+    props.task.status === 'completed' ||
+    props.task.status === 'failed' ||
+    props.task.status === 'cancelled'
+);
+const startedClock = computed(() => formatClock(props.task.startedAt));
+const finishedClock = computed(() => formatClock(props.task.finishedAt));
+const durationLabel = computed(() =>
+  formatDurationSeconds(computeDurationSeconds(props.task.startedAt, props.task.finishedAt))
+);
+const showTimeMeta = computed(() => startedClock.value !== '' || terminal.value);
+const showPathMeta = computed(
+  () => props.task.status === 'completed' && !!props.task.localPath
+);
+
+const pathCopyState = ref<'idle' | 'ok' | 'fail'>('idle');
+const pathCopyLabel = computed(() => {
+  if (pathCopyState.value === 'ok') return '已复制';
+  if (pathCopyState.value === 'fail') return '复制失败';
+  return '复制路径';
+});
+async function copyPath() {
+  if (!props.task.localPath) return;
+  try {
+    await writeText(props.task.localPath);
+    pathCopyState.value = 'ok';
+  } catch {
+    pathCopyState.value = 'fail';
+  }
+  setTimeout(() => { pathCopyState.value = 'idle'; }, 1500);
+}
 </script>
 
 <template>
@@ -50,6 +89,18 @@ const pct = computed(() => Math.round(Math.min(Math.max(props.task.progress, 0),
     </div>
 
     <p v-if="task.message" class="message">{{ task.message }}</p>
+
+    <div v-if="showTimeMeta" class="time-meta tnum">
+      <template v-if="startedClock">开始 {{ startedClock }}</template>
+      <template v-if="startedClock && finishedClock"> · </template>
+      <template v-if="finishedClock">完成 {{ finishedClock }}</template>
+      <template v-if="durationLabel"> · 用时 {{ durationLabel }}</template>
+    </div>
+
+    <div v-if="showPathMeta" class="path-meta">
+      <span class="path" :title="task.localPath ?? ''">{{ task.localPath }}</span>
+      <button class="btn ghost" type="button" @click="copyPath">{{ pathCopyLabel }}</button>
+    </div>
 
     <footer v-if="cancellable || openable" class="actions">
       <button v-if="cancellable" class="btn ghost-warn" type="button" @click="emit('cancel', task.id)">
@@ -146,6 +197,28 @@ const pct = computed(() => Math.round(Math.min(Math.max(props.task.progress, 0),
   font-size: var(--fs-xs);
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.time-meta {
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+}
+
+.path-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.path-meta .path {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .actions { display: flex; gap: 8px; padding-top: 2px; }

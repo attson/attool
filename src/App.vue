@@ -258,7 +258,10 @@ async function startDownload() {
         speed: null,
         eta: null,
         message: '任务已提交给 aria2',
-        createdAt: new Date().toLocaleTimeString()
+        createdAt: new Date().toLocaleTimeString(),
+        startedAt: null,
+        finishedAt: null,
+        localPath: null
       });
     }
 
