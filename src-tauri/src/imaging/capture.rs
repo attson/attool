@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
@@ -224,7 +225,11 @@ pub fn close_capture_overlay(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Persist the composited (screenshot + annotations) PNG bytes to the captures dir and return its path.
+/// Persist the composited (screenshot + annotations) PNG to the captures dir AND write it to
+/// the system clipboard as an image. Returns the saved file path.
+///
+/// Doing the clipboard write server-side avoids the flaky JS `writeImage(Uint8Array)` path in
+/// tauri-plugin-clipboard-manager v2 (Image.fromBytes → RGBA on some macOS builds silently no-ops).
 pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathBuf, String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
@@ -243,13 +248,20 @@ pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathB
     let path = dir.join(format!("attool-capture-{ts}.png"));
     fs::write(&path, &bytes).map_err(|error| format!("写文件失败：{error}"))?;
 
+    // Decode PNG → RGBA and write as image to the clipboard.
+    let dyn_img = image::load_from_memory(&bytes).map_err(|error| format!("PNG 解码失败：{error}"))?;
+    let rgba = dyn_img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    let raw = rgba.into_raw();
+    let image = tauri::image::Image::new_owned(raw, w, h);
+    if let Err(error) = app.clipboard().write_image(&image) {
+        // Non-fatal: file was saved, just log
+        eprintln!("[capture] clipboard write_image failed: {error}");
+    }
+
     if let Some(overlay) = app.get_webview_window("capture-overlay") {
         let _ = overlay.hide();
     }
-
-    // NB: don't emit capture-completed here — the user already annotated in the overlay
-    // and just wants the image on the clipboard. Full-screen / window modes still emit
-    // and jump the main window to the annotate tab; overlay mode is terminal.
 
     Ok(path)
 }

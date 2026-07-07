@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
 
 interface InitPayload {
   imagePath: string;
@@ -508,19 +507,10 @@ async function confirm() {
   if (!canvas) return;
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
-
-  try {
-    const bytes = atob(base64)
-      .split('')
-      .map((c) => c.charCodeAt(0));
-    await writeImage(new Uint8Array(bytes));
-  } catch (err) {
-    console.warn('[capture] clipboard write failed', err);
-  }
+  // Rust side saves file AND writes clipboard image — one round trip, no flaky JS Image.fromBytes.
   await invoke('commit_capture_overlay', { request: { pngBase64: base64 } }).catch((err) => {
     console.warn('[capture] commit failed', err);
   });
-
   resetState();
 }
 
