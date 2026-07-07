@@ -25,7 +25,11 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 async function close() {
-  await currentWindow.close().catch(() => {});
+  try {
+    await currentWindow.close();
+  } catch (err) {
+    console.error('[pin] close failed', err);
+  }
 }
 
 function openMenu(event: MouseEvent) {
@@ -73,12 +77,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="pin-root" @contextmenu="openMenu" @dblclick="close">
+  <div
+    class="pin-root"
+    data-tauri-drag-region
+    @contextmenu.prevent="openMenu"
+    @dblclick="close"
+  >
     <img
       v-if="imageSrc"
       :src="imageSrc"
       draggable="false"
-      data-tauri-drag-region
       class="pin-image"
     />
 
@@ -113,6 +121,8 @@ onUnmounted(() => {
   -webkit-user-drag: none;
   border-radius: 4px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  /* Events fall through to .pin-root so data-tauri-drag-region + right-click work over the image */
+  pointer-events: none;
 }
 
 .pin-menu {
