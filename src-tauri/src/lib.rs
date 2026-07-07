@@ -1,6 +1,7 @@
 mod clipboard;
 mod douyin;
 pub mod ecommerce;
+pub mod imaging;
 
 use ecommerce::EcommerceStore;
 use regex::Regex;
@@ -1478,7 +1479,8 @@ pub fn run() {
             clipboard::commands::clear_clipboard_history,
             clipboard::commands::get_clipboard_settings,
             clipboard::commands::save_clipboard_settings,
-            clipboard::commands::restore_clipboard_item
+            clipboard::commands::restore_clipboard_item,
+            imaging::commands::compress_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
