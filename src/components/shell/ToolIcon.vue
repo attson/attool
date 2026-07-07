@@ -65,6 +65,11 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <polyline points="16 18 22 12 16 6" />
       <polyline points="8 6 2 12 8 18" />
     </template>
+
+    <!-- video -->
+    <template v-else-if="name === 'video'">
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </template>
   </svg>
 </template>
 

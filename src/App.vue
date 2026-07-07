@@ -27,6 +27,7 @@ import TaskRow from './components/ui/TaskRow.vue';
 import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
 import { useTheme } from './composables/useTheme';
+import { useAria2Handoff } from './composables/useAria2Handoff';
 import UpdateBanner from './components/shell/UpdateBanner.vue';
 import SettingsModal from './components/shell/SettingsModal.vue';
 import { useUpdater } from './composables/useUpdater';
@@ -35,12 +36,14 @@ import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from '.
 import type { Tool } from './types/tool';
 
 const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
+const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
   { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout' },
   { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard' },
   { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code' },
+  { id: 'douyin',    name: '抖音链接提取',   description: '从分享文案中提取 v.douyin.com 短链',   status: 'ready', icon: 'video' },
   { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon',  icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon',  icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64、URL Encode、Hash 摘要',      status: 'soon',  icon: 'hash' }
@@ -69,6 +72,7 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const aria2Handoff = useAria2Handoff();
 const { state: updaterState, check: updaterCheck, install: updaterInstall, relaunch: updaterRelaunch, dismiss: updaterDismiss } = useUpdater();
 const { autoCheck: updaterAutoCheck, setAutoCheck: updaterSetAutoCheck, skipVersion: updaterSkipVersion, shouldSkip: updaterShouldSkip } = useUpdaterPrefs();
 const settingsOpen = ref(false);
@@ -153,6 +157,11 @@ function selectTool(id: string) {
   if (!tool || tool.status !== 'ready') return;
   selectedToolId.value = id;
   rememberLastTool(id);
+  if (id === 'aria2') aria2Handoff.drainInto(url);
+}
+
+function handleDouyinNavigate(target: string) {
+  selectTool(target);
 }
 
 function goHome() {
@@ -249,7 +258,10 @@ async function startDownload() {
         speed: null,
         eta: null,
         message: '任务已提交给 aria2',
-        createdAt: new Date().toLocaleTimeString()
+        createdAt: new Date().toLocaleTimeString(),
+        startedAt: null,
+        finishedAt: null,
+        localPath: null
       });
     }
 
@@ -410,6 +422,10 @@ async function openTaskFolder(id: string) {
 
         <template v-else-if="selectedTool.id === 'json'">
           <JsonTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'douyin'">
+          <DouyinTool @request-navigate="handleDouyinNavigate" />
         </template>
       </AppShell>
 
