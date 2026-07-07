@@ -4,19 +4,20 @@ import { NButton, NInput } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
-import { extractDouyinLinks } from '../../utils/douyinLink';
+import { extractLinks, platformName, type VideoPlatform } from '../../utils/platformDetect';
 import { useAria2Handoff } from '../../composables/useAria2Handoff';
 import type { DouyinVideoInfo } from '../../types/douyin';
 
 interface VideoState {
-  status: 'pending' | 'ok' | 'fail';
+  status: 'pending' | 'ok' | 'fail' | 'unsupported';
   info: DouyinVideoInfo | null;
   error: string | null;
 }
 
 interface Entry {
   short: string;
-  status: 'pending' | 'ok' | 'fail';
+  platform: VideoPlatform;
+  status: 'pending' | 'ok' | 'fail' | 'unsupported';
   resolved: string | null;
   error: string | null;
   video: VideoState;
@@ -37,28 +38,35 @@ let resolveRun = 0;
 watch(raw, (value) => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    rebuildEntries(extractDouyinLinks(value));
+    rebuildEntries(extractLinks(value));
   }, 300);
 });
 
 function extractNow() {
   if (debounceTimer) clearTimeout(debounceTimer);
-  rebuildEntries(extractDouyinLinks(raw.value));
+  rebuildEntries(extractLinks(raw.value));
 }
 
-function rebuildEntries(links: string[]) {
+function rebuildEntries(links: { url: string; platform: VideoPlatform }[]) {
   const runId = ++resolveRun;
-  entries.value = links.map((short) => ({
-    short,
-    status: 'pending',
+  entries.value = links.map((link) => ({
+    short: link.url,
+    platform: link.platform,
+    status: link.platform === 'douyin' ? 'pending' : 'unsupported',
     resolved: null,
-    error: null,
-    video: { status: 'pending', info: null, error: null },
+    error: link.platform === 'douyin' ? null : `${platformName(link.platform)} 解析尚未实现`,
+    video: {
+      status: link.platform === 'douyin' ? 'pending' : 'unsupported',
+      info: null,
+      error: link.platform === 'douyin' ? null : `${platformName(link.platform)} 视频抓取尚未实现`
+    }
   }));
   copyState.value = {};
   videoCopyState.value = {};
 
-  links.forEach((short) => {
+  links.forEach((link) => {
+    if (link.platform !== 'douyin') return;
+    const short = link.url;
     invoke<string>('resolve_douyin_url', { url: short })
       .then((resolved) => {
         if (runId !== resolveRun) return;
@@ -248,6 +256,7 @@ const allCopyDisabled = computed(() => hasPending.value);
           <div class="link-col">
             <div class="line-primary">
               <span class="primary" :class="{ pending: entry.status === 'pending' }">
+                <span class="platform-badge">{{ platformName(entry.platform) }}</span>
                 <template v-if="entry.status === 'ok'">{{ entry.resolved }}</template>
                 <template v-else-if="entry.status === 'pending'">解析中... {{ entry.short }}</template>
                 <template v-else>{{ entry.short }}</template>
@@ -263,6 +272,7 @@ const allCopyDisabled = computed(() => hasPending.value);
             </div>
             <span v-if="entry.status === 'ok'" class="secondary">短链：{{ entry.short }}</span>
             <span v-else-if="entry.status === 'fail'" class="secondary fail">短链解析失败：{{ entry.error }}</span>
+            <span v-else-if="entry.status === 'unsupported'" class="secondary fail">{{ entry.error }}</span>
 
             <template v-if="entry.status === 'ok'">
               <div v-if="entry.video.status === 'pending'" class="line-video secondary">解析视频中...</div>
@@ -310,6 +320,17 @@ const allCopyDisabled = computed(() => hasPending.value);
   color: var(--text-muted);
   opacity: 0.7;
   margin-left: 4px;
+}
+.platform-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+  font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+  vertical-align: middle;
 }
 
 .form { display: grid; gap: 12px; }
