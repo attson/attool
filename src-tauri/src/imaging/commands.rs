@@ -1,6 +1,10 @@
 use super::compress::compress_image as run_compress;
+use super::convert::convert_image as run_convert;
+use super::exif::{read_exif as run_read_exif, strip_exif as run_strip_exif};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+// ---- compress ----
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,4 +72,119 @@ pub async fn compress_images(request: CompressRequest) -> Result<CompressRespons
     })
     .await
     .map_err(|error| format!("压缩任务异常：{error}"))?
+}
+
+// ---- convert ----
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertRequest {
+    pub input_paths: Vec<String>,
+    pub output_dir: String,
+    pub target_format: String,
+    pub quality: Option<u8>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertItemResult {
+    pub input_path: String,
+    pub output_path: String,
+    pub original_size: u64,
+    pub converted_size: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertResponse {
+    pub succeeded: Vec<ConvertItemResult>,
+    pub failed: Vec<CompressFailure>,
+}
+
+#[tauri::command]
+pub async fn convert_images(request: ConvertRequest) -> Result<ConvertResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let output_dir = PathBuf::from(request.output_dir.trim());
+        if output_dir.as_os_str().is_empty() {
+            return Err("请选择输出目录".to_string());
+        }
+        if request.input_paths.is_empty() {
+            return Err("请选择要转换的图片".to_string());
+        }
+        let quality = request.quality.unwrap_or(90).clamp(1, 100);
+
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
+        for path_str in &request.input_paths {
+            let input = PathBuf::from(path_str);
+            match run_convert(&input, &output_dir, &request.target_format, quality) {
+                Ok(res) => succeeded.push(ConvertItemResult {
+                    input_path: path_str.clone(),
+                    output_path: res.output_path.to_string_lossy().into_owned(),
+                    original_size: res.original_size,
+                    converted_size: res.converted_size,
+                }),
+                Err(err) => failed.push(CompressFailure {
+                    input_path: path_str.clone(),
+                    message: err,
+                }),
+            }
+        }
+        Ok(ConvertResponse { succeeded, failed })
+    })
+    .await
+    .map_err(|error| format!("转换任务异常：{error}"))?
+}
+
+// ---- exif ----
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExifField {
+    pub tag: String,
+    pub value: String,
+}
+
+#[tauri::command]
+pub async fn read_image_exif(path: String) -> Result<Vec<ExifField>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let fields = run_read_exif(&PathBuf::from(&path))?;
+        Ok(fields
+            .into_iter()
+            .map(|f| ExifField {
+                tag: f.tag,
+                value: f.value,
+            })
+            .collect())
+    })
+    .await
+    .map_err(|error| format!("读取 EXIF 异常：{error}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StripExifRequest {
+    pub input_path: String,
+    pub output_dir: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StripExifResponse {
+    pub output_path: String,
+}
+
+#[tauri::command]
+pub async fn strip_image_exif(request: StripExifRequest) -> Result<StripExifResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = run_strip_exif(
+            &PathBuf::from(&request.input_path),
+            &PathBuf::from(&request.output_dir),
+        )?;
+        Ok(StripExifResponse {
+            output_path: output.to_string_lossy().into_owned(),
+        })
+    })
+    .await
+    .map_err(|error| format!("清 EXIF 异常：{error}"))?
 }

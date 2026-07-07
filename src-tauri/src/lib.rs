@@ -1480,7 +1480,10 @@ pub fn run() {
             clipboard::commands::get_clipboard_settings,
             clipboard::commands::save_clipboard_settings,
             clipboard::commands::restore_clipboard_item,
-            imaging::commands::compress_images
+            imaging::commands::compress_images,
+            imaging::commands::convert_images,
+            imaging::commands::read_image_exif,
+            imaging::commands::strip_image_exif
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
