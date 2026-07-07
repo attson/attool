@@ -1,18 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { provide, ref } from 'vue';
 import { NTabs, NTabPane } from 'naive-ui';
+import CapturePane from './CapturePane.vue';
 import CompressPane from './CompressPane.vue';
 import ConvertPane from './ConvertPane.vue';
 import ExifPane from './ExifPane.vue';
 import AnnotatePane from './AnnotatePane.vue';
 import OcrPane from './OcrPane.vue';
 
-const tab = ref('compress');
+const tab = ref('capture');
+
+provide('image-tool:switchTab', (name: string) => {
+  tab.value = name;
+});
 </script>
 
 <template>
   <div class="image-tool">
     <n-tabs v-model:value="tab" type="line" animated>
+      <n-tab-pane name="capture" tab="截图">
+        <div class="pane-wrap"><CapturePane /></div>
+      </n-tab-pane>
+      <n-tab-pane name="annotate" tab="标注">
+        <div class="pane-wrap"><AnnotatePane /></div>
+      </n-tab-pane>
       <n-tab-pane name="compress" tab="压缩">
         <div class="pane-wrap"><CompressPane /></div>
       </n-tab-pane>
@@ -21,9 +32,6 @@ const tab = ref('compress');
       </n-tab-pane>
       <n-tab-pane name="exif" tab="EXIF">
         <div class="pane-wrap"><ExifPane /></div>
-      </n-tab-pane>
-      <n-tab-pane name="annotate" tab="标注">
-        <div class="pane-wrap"><AnnotatePane /></div>
       </n-tab-pane>
       <n-tab-pane name="ocr" tab="OCR">
         <div class="pane-wrap"><OcrPane /></div>

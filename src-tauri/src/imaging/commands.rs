@@ -1,3 +1,4 @@
+use super::capture::capture_screen as run_capture;
 use super::compress::compress_image as run_compress;
 use super::convert::convert_image as run_convert;
 use super::exif::{read_exif as run_read_exif, strip_exif as run_strip_exif};
@@ -221,6 +222,31 @@ pub async fn ocr_image(request: OcrRequest) -> Result<OcrResponse, String> {
     })
     .await
     .map_err(|error| format!("OCR 异常：{error}"))?
+}
+
+// ---- capture ----
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureRequest {
+    pub mode: String, // "region" | "window" | "full"
+    pub delay_seconds: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureResponse {
+    pub output_path: String,
+}
+
+#[tauri::command]
+pub async fn capture_screen(request: CaptureRequest) -> Result<CaptureResponse, String> {
+    // NB: don't offload to spawn_blocking — screencapture -i needs the front-most GUI focus
+    // and the user's input; running from an unblocking context is fine.
+    let path = run_capture(&request.mode, request.delay_seconds.unwrap_or(0).min(10))?;
+    Ok(CaptureResponse {
+        output_path: path.to_string_lossy().into_owned(),
+    })
 }
 
 // ---- write binary file (for canvas export) ----

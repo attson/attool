@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onMounted, ref, watch } from 'vue';
 import { NAlert, NButton, NColorPicker, NInput, NInputNumber, NSelect } from 'naive-ui';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Panel from '../ui/Panel.vue';
+import { usePendingAnnotateImage } from './imageBus';
 
 type Tool = 'rect' | 'arrow' | 'text';
 
@@ -70,9 +71,7 @@ async function loadImage(path: string) {
       notice.value = '加载图片失败';
       reject(new Error('load failed'));
     };
-    // convertFileSrc from tauri
-    const url = `${path.startsWith('/') ? 'file://' : ''}${path}`;
-    img.src = url;
+    img.src = convertFileSrc(path);
   });
 }
 
@@ -270,6 +269,17 @@ async function copyToClipboard() {
   }
 }
 
+const { pending, consume } = usePendingAnnotateImage();
+
+async function drainPending() {
+  if (!pending.value) return;
+  const path = consume();
+  if (path) {
+    inputPath.value = path;
+    await loadImage(path);
+  }
+}
+
 onMounted(() => {
   const canvas = canvasRef.value;
   if (canvas) {
@@ -285,7 +295,11 @@ onMounted(() => {
       ctx.fillText('拖入图片或点选择图片开始', canvas.width / 2, canvas.height / 2);
     }
   }
+  drainPending();
 });
+onActivated(drainPending);
+// Also pick up handoff when the pane is already mounted and pending is set later
+watch(pending, (val) => { if (val) drainPending(); });
 
 watch([color, lineWidth, textValue, tool], () => draw());
 </script>
