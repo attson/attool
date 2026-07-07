@@ -1,6 +1,7 @@
 use super::compress::compress_image as run_compress;
 use super::convert::convert_image as run_convert;
 use super::exif::{read_exif as run_read_exif, strip_exif as run_strip_exif};
+use super::ocr::run_tesseract;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -189,6 +190,37 @@ pub async fn strip_image_exif(request: StripExifRequest) -> Result<StripExifResp
     })
     .await
     .map_err(|error| format!("清 EXIF 异常：{error}"))?
+}
+
+// ---- ocr ----
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrRequest {
+    pub input_path: String,
+    pub langs: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrResponse {
+    pub text: String,
+}
+
+#[tauri::command]
+pub async fn ocr_image(request: OcrRequest) -> Result<OcrResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let langs = request
+            .langs
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .unwrap_or("eng+chi_sim");
+        let text = run_tesseract(&PathBuf::from(&request.input_path), langs)?;
+        Ok(OcrResponse { text })
+    })
+    .await
+    .map_err(|error| format!("OCR 异常：{error}"))?
 }
 
 // ---- write binary file (for canvas export) ----
