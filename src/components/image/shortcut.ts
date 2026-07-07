@@ -65,15 +65,46 @@ function normalizeKey(key: string, code: string): string | null {
     'Dead'
   ]);
   if (modKeys.has(key)) return null;
-  if (key === ' ' || key === 'Space' || code === 'Space') return 'Space';
-  if (key === 'Escape') return 'Escape';
-  if (key === 'Tab') return 'Tab';
-  if (key === 'Enter' || key === 'Return') return 'Enter';
-  if (key === 'Backspace') return 'Backspace';
-  if (key.startsWith('Arrow')) return key.replace('Arrow', ''); // Up/Down/Left/Right
-  // Function keys F1..F24
+
+  // Prefer `code` (physical key) for letters/digits/function keys.
+  // With Alt/Option held on macOS, `event.key` becomes a "special" char (⌥A → Å),
+  // which Tauri's registrar rejects. `event.code` stays "KeyA" regardless.
+  if (code) {
+    const letter = code.match(/^Key([A-Z])$/);
+    if (letter) return letter[1];
+    const digit = code.match(/^Digit([0-9])$/);
+    if (digit) return digit[1];
+    const numpad = code.match(/^Numpad([0-9])$/);
+    if (numpad) return `Num${numpad[1]}`;
+    const fn = code.match(/^F([1-9]|1[0-9]|2[0-4])$/);
+    if (fn) return `F${fn[1]}`;
+    if (code === 'Space') return 'Space';
+    if (code === 'Escape') return 'Escape';
+    if (code === 'Tab') return 'Tab';
+    if (code === 'Enter' || code === 'NumpadEnter') return 'Enter';
+    if (code === 'Backspace') return 'Backspace';
+    if (code === 'ArrowUp') return 'Up';
+    if (code === 'ArrowDown') return 'Down';
+    if (code === 'ArrowLeft') return 'Left';
+    if (code === 'ArrowRight') return 'Right';
+    if (code === 'Home' || code === 'End' || code === 'PageUp' || code === 'PageDown') return code;
+    if (code === 'Insert' || code === 'Delete') return code;
+    if (code === 'Minus') return '-';
+    if (code === 'Equal') return '=';
+    if (code === 'BracketLeft') return '[';
+    if (code === 'BracketRight') return ']';
+    if (code === 'Backslash') return '\\';
+    if (code === 'Semicolon') return ';';
+    if (code === 'Quote') return "'";
+    if (code === 'Comma') return ',';
+    if (code === 'Period') return '.';
+    if (code === 'Slash') return '/';
+    if (code === 'Backquote') return '`';
+  }
+
+  // Fallback to `key` when we don't recognize `code`
+  if (key === ' ') return 'Space';
   if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key;
-  // Single character keys: normalize to uppercase for Tauri
   if (key.length === 1) return key.toUpperCase();
-  return key; // Home/End/Insert/Delete etc — Tauri accepts these
+  return key;
 }
