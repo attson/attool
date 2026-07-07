@@ -142,3 +142,23 @@ attool 是 me-first 的个人桌面工具箱，不做品牌 / 落地页 / onboar
 - 每个新平台 resolver 单独一份 spec（M2.2 / M2.3 / M2.4）
 
 每份深度 spec 通过 `superpowers:brainstorming` → `superpowers:writing-plans` 流程产出后再动代码。
+
+## 实际交付状态（2026-07-07 更新）
+
+本 spec 写完后当天直接进入实现，未再拆独立 spec。已交付：
+
+- ✅ M1.1 图片 tool shell（5 tab 骨架）
+- ✅ M1.2 压缩 tab（JPEG 质量、PNG/WebP re-encode）
+- ✅ M1.3 格式转换 + EXIF（JPEG↔PNG↔WebP，EXIF 只支持 JPEG 清除）
+- ✅ M1.4 截图标注（rectangle / arrow / text，导出 PNG / 复制 data URL）
+- ✅ M1.5 OCR（**tesseract 单引擎**，macOS Vision framework Rust bridge 未实现，延后）
+- ✅ 0.4.0 版本 bump，M1 全量 push
+- ✅ M2.1 douyin → video-link 重构（sidebar id 迁移、`platformDetect` 抽象、legacy id 兼容、UI 显示 platform badge、非抖音链接标 "解析尚未实现"）
+
+未完成：
+
+- ❌ M2.2 小红书 resolver：xhslink.com 302 跟随 + __INITIAL_STATE__ JSON 解析
+- ❌ M2.3 B 站 resolver：b23.tv 跟随 + WBI 签名 API（moving target，需真实 URL 迭代）
+- ❌ M2.4 YouTube resolver：yt-dlp 依赖引入 + 代理设置字段
+
+未完成的原因：M2.2-M2.4 的抓取代码本质是逆向工程，写出来到底 work 不 work 取决于当前平台 HTML/API 的具体形状，需要拿真实 URL 边写边测。单人 AI 会话里没有平台 URL 样本可以试，写盲代码质量会很低。建议下一轮 session 时提供 3-5 条真实测试 URL，把这 3 个 resolver 逐个磨出来。
