@@ -514,6 +514,17 @@ async function confirm() {
   resetState();
 }
 
+async function pinIt() {
+  const canvas = await composeCanvas();
+  if (!canvas) return;
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  await invoke('pin_capture_overlay', { request: { pngBase64: base64 } }).catch((err) => {
+    console.warn('[capture] pin failed', err);
+  });
+  resetState();
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (textPending.value) return;
   if (event.key === 'Escape') {
@@ -630,6 +641,7 @@ onUnmounted(() => {
         <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">↻</button>
         <button @click="reselect" title="重选">◇</button>
         <button @click="saveToFile" title="保存到文件 ⌘S">⬇</button>
+        <button @click="pinIt" title="钉在桌面（浮窗置顶）">📌</button>
         <button class="cancel" @click="cancel" title="取消 Esc">✕</button>
         <button class="confirm" @click="confirm" title="完成 ⌘↩">✓</button>
       </div>

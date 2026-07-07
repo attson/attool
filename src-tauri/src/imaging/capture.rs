@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder,
+};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -263,6 +265,84 @@ pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathB
         let _ = overlay.hide();
     }
 
+    Ok(path)
+}
+
+/// Create a floating always-on-top window that shows the composited PNG as a "pin".
+/// Multiple pins can exist simultaneously; each gets a unique label based on ts.
+pub fn pin_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathBuf, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64.trim())
+        .map_err(|error| format!("Base64 解码失败：{error}"))?;
+
+    // Save file for the pin window to load
+    let cache_root = dirs::cache_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "无法确定缓存目录".to_string())?;
+    let dir = cache_root.join("attool").join("pins");
+    fs::create_dir_all(&dir).map_err(|error| format!("创建 pin 缓存目录失败：{error}"))?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("attool-pin-{ts}.png"));
+    fs::write(&path, &bytes).map_err(|error| format!("写 pin 文件失败：{error}"))?;
+
+    // Read PNG dimensions to size the window (assume PNG bytes contain valid dimensions in bytes 16..24)
+    let dyn_img = image::load_from_memory(&bytes).map_err(|error| format!("PNG 解码失败：{error}"))?;
+    let img_w = dyn_img.width() as f64;
+    let img_h = dyn_img.height() as f64;
+
+    let monitor = app
+        .primary_monitor()
+        .map_err(|error| format!("获取主显示器失败：{error}"))?
+        .ok_or_else(|| "未找到主显示器".to_string())?;
+    let scale = monitor.scale_factor();
+    let logical_w = img_w / scale;
+    let logical_h = img_h / scale;
+
+    // Cap the initial size to ~80% of screen so huge captures still fit
+    let screen_size = monitor.size();
+    let max_w = (screen_size.width as f64 * 0.8) / scale;
+    let max_h = (screen_size.height as f64 * 0.8) / scale;
+    let fit_scale = (max_w / logical_w).min(max_h / logical_h).min(1.0);
+    let win_w = logical_w * fit_scale;
+    let win_h = logical_h * fit_scale;
+
+    // Center on primary monitor
+    let screen_pos = monitor.position();
+    let cx = screen_pos.x as f64 / scale + (screen_size.width as f64 / scale - win_w) / 2.0;
+    let cy = screen_pos.y as f64 / scale + (screen_size.height as f64 / scale - win_h) / 2.0;
+
+    // URL query so App.vue routes to the pin component and reads the image path
+    let encoded_path = percent_encoding::utf8_percent_encode(
+        &path.to_string_lossy(),
+        percent_encoding::NON_ALPHANUMERIC,
+    )
+    .to_string();
+    let url = format!("index.html?pin={encoded_path}");
+
+    let label = format!("capture-pin-{ts}");
+    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("AT Tool Pin")
+        .inner_size(win_w, win_h)
+        .position(cx, cy)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .resizable(true)
+        .shadow(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()
+        .map_err(|error| format!("创建 pin 窗失败：{error}"))?;
+    let _ = win.show();
+    let _ = win.set_focus();
+
+    if let Some(overlay) = app.get_webview_window("capture-overlay") {
+        let _ = overlay.hide();
+    }
     Ok(path)
 }
 

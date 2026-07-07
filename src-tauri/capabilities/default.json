@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "clipboard-history",
-    "capture-overlay"
+    "capture-overlay",
+    "capture-pin-*"
   ],
   "permissions": [
     "core:default",

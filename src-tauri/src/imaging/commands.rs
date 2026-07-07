@@ -1,8 +1,8 @@
 use super::capture::{
     capture_screen as run_capture, close_capture_overlay as run_close_overlay,
     commit_capture_overlay as run_commit_overlay, current_shortcut as current_capture_shortcut,
-    open_capture_overlay as run_open_overlay, reregister_capture_shortcut,
-    DEFAULT_CAPTURE_SHORTCUT,
+    open_capture_overlay as run_open_overlay, pin_capture_overlay as run_pin_overlay,
+    reregister_capture_shortcut, DEFAULT_CAPTURE_SHORTCUT,
 };
 use tauri::AppHandle;
 use super::compress::compress_image as run_compress;
@@ -321,6 +321,46 @@ pub async fn commit_capture_overlay(
     Ok(CommitOverlayResponse {
         output_path: path.to_string_lossy().into_owned(),
     })
+}
+
+#[tauri::command]
+pub async fn pin_capture_overlay(
+    app: AppHandle,
+    request: CommitOverlayRequest,
+) -> Result<CommitOverlayResponse, String> {
+    let path = run_pin_overlay(&app, &request.png_base64)?;
+    Ok(CommitOverlayResponse {
+        output_path: path.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+pub async fn copy_pin_image(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = fs::read(&path).map_err(|error| format!("读文件失败：{error}"))?;
+        let img = image::load_from_memory(&bytes).map_err(|error| format!("PNG 解码失败：{error}"))?;
+        let rgba = img.to_rgba8();
+        let (w, h) = (rgba.width(), rgba.height());
+        let raw = rgba.into_raw();
+        let image = tauri::image::Image::new_owned(raw, w, h);
+        app.clipboard()
+            .write_image(&image)
+            .map_err(|error| format!("写剪贴板失败：{error}"))?;
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|error| format!("复制任务异常：{error}"))?
+}
+
+#[tauri::command]
+pub async fn copy_pin_to(source: String, target: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::copy(&source, &target).map_err(|error| format!("复制文件失败：{error}"))?;
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|error| format!("保存任务异常：{error}"))?
 }
 
 // ---- write binary file (for canvas export) ----
