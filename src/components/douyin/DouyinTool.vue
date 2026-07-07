@@ -8,16 +8,34 @@ import { extractLinks, platformName, type VideoPlatform } from '../../utils/plat
 import { useAria2Handoff } from '../../composables/useAria2Handoff';
 import type { DouyinVideoInfo } from '../../types/douyin';
 
+interface SubtitleTrack {
+  language: string;
+  name: string;
+  url: string;
+}
+
+interface MediaInfo {
+  title: string;
+  cover?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  imageUrls?: string[];
+  subtitles?: SubtitleTrack[];
+  hasWatermark?: boolean;
+  uploader?: string;
+  notes?: string;
+}
+
 interface VideoState {
-  status: 'pending' | 'ok' | 'fail' | 'unsupported';
-  info: DouyinVideoInfo | null;
+  status: 'pending' | 'ok' | 'fail';
+  info: MediaInfo | null;
   error: string | null;
 }
 
 interface Entry {
   short: string;
   platform: VideoPlatform;
-  status: 'pending' | 'ok' | 'fail' | 'unsupported';
+  status: 'pending' | 'ok' | 'fail';
   resolved: string | null;
   error: string | null;
   video: VideoState;
@@ -30,6 +48,7 @@ const entries = ref<Entry[]>([]);
 const copyState = ref<Record<string, 'idle' | 'ok' | 'fail'>>({});
 const videoCopyState = ref<Record<string, 'idle' | 'ok' | 'fail'>>({});
 const allCopyState = ref<'idle' | 'ok' | 'fail'>('idle');
+const youtubeProxy = ref('');
 const handoff = useAria2Handoff();
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,68 +71,185 @@ function rebuildEntries(links: { url: string; platform: VideoPlatform }[]) {
   entries.value = links.map((link) => ({
     short: link.url,
     platform: link.platform,
-    status: link.platform === 'douyin' ? 'pending' : 'unsupported',
+    status: 'pending',
     resolved: null,
-    error: link.platform === 'douyin' ? null : `${platformName(link.platform)} 解析尚未实现`,
-    video: {
-      status: link.platform === 'douyin' ? 'pending' : 'unsupported',
-      info: null,
-      error: link.platform === 'douyin' ? null : `${platformName(link.platform)} 视频抓取尚未实现`
-    }
+    error: null,
+    video: { status: 'pending', info: null, error: null }
   }));
   copyState.value = {};
   videoCopyState.value = {};
 
   links.forEach((link) => {
-    if (link.platform !== 'douyin') return;
     const short = link.url;
-    invoke<string>('resolve_douyin_url', { url: short })
-      .then((resolved) => {
-        if (runId !== resolveRun) return;
-        const idx = entries.value.findIndex((e) => e.short === short);
-        if (idx === -1) return;
-        entries.value[idx] = {
-          ...entries.value[idx],
-          status: 'ok',
-          resolved,
-          error: null,
-        };
-        kickOffVideo(runId, short, resolved);
-      })
-      .catch((err) => {
-        if (runId !== resolveRun) return;
-        const idx = entries.value.findIndex((e) => e.short === short);
-        if (idx === -1) return;
-        entries.value[idx] = {
-          ...entries.value[idx],
-          status: 'fail',
-          resolved: null,
-          error: String(err),
-          video: { status: 'fail', info: null, error: '短链未能解析' },
-        };
-      });
+    if (link.platform === 'douyin') {
+      resolveDouyin(runId, short);
+    } else if (link.platform === 'xhs') {
+      resolveXhs(runId, short);
+    } else if (link.platform === 'bilibili') {
+      resolveBilibili(runId, short);
+    } else if (link.platform === 'youtube') {
+      resolveYoutube(runId, short);
+    }
   });
 }
 
-function kickOffVideo(runId: number, short: string, canonical: string) {
-  invoke<DouyinVideoInfo>('extract_douyin_video', { url: canonical })
-    .then((info) => {
-      if (runId !== resolveRun) return;
-      const idx = entries.value.findIndex((e) => e.short === short);
-      if (idx === -1) return;
-      entries.value[idx] = {
-        ...entries.value[idx],
-        video: { status: 'ok', info, error: null },
-      };
+function updateEntry(runId: number, short: string, patch: Partial<Entry>) {
+  if (runId !== resolveRun) return;
+  const idx = entries.value.findIndex((e) => e.short === short);
+  if (idx === -1) return;
+  entries.value[idx] = { ...entries.value[idx], ...patch };
+}
+
+function resolveDouyin(runId: number, short: string) {
+  invoke<string>('resolve_douyin_url', { url: short })
+    .then((resolved) => {
+      updateEntry(runId, short, { status: 'ok', resolved, error: null });
+      invoke<DouyinVideoInfo>('extract_douyin_video', { url: resolved })
+        .then((info) => {
+          updateEntry(runId, short, {
+            video: {
+              status: 'ok',
+              info: {
+                title: info.title,
+                videoUrl: info.mp4Url,
+                hasWatermark: info.hasWatermark
+              },
+              error: null
+            }
+          });
+        })
+        .catch((err) => {
+          updateEntry(runId, short, {
+            video: { status: 'fail', info: null, error: String(err) }
+          });
+        });
     })
     .catch((err) => {
-      if (runId !== resolveRun) return;
-      const idx = entries.value.findIndex((e) => e.short === short);
-      if (idx === -1) return;
-      entries.value[idx] = {
-        ...entries.value[idx],
-        video: { status: 'fail', info: null, error: String(err) },
-      };
+      updateEntry(runId, short, {
+        status: 'fail',
+        resolved: null,
+        error: String(err),
+        video: { status: 'fail', info: null, error: '短链未能解析' }
+      });
+    });
+}
+
+interface XhsResult {
+  title: string;
+  noteType: string;
+  cover?: string;
+  videoUrl?: string;
+  imageUrls: string[];
+}
+
+function resolveXhs(runId: number, short: string) {
+  invoke<XhsResult>('extract_xhs_note', { url: short })
+    .then((info) => {
+      updateEntry(runId, short, {
+        status: 'ok',
+        resolved: short,
+        error: null,
+        video: {
+          status: 'ok',
+          info: {
+            title: info.title,
+            cover: info.cover,
+            videoUrl: info.videoUrl,
+            imageUrls: info.imageUrls,
+            notes: info.noteType === 'video' ? undefined : '图文帖：下载图片列表'
+          },
+          error: null
+        }
+      });
+    })
+    .catch((err) => {
+      updateEntry(runId, short, {
+        status: 'fail',
+        error: String(err),
+        video: { status: 'fail', info: null, error: String(err) }
+      });
+    });
+}
+
+interface BiliResult {
+  title: string;
+  cover?: string;
+  uploader?: string;
+  bvid: string;
+  duration?: number;
+  videoUrl?: string;
+  audioUrl?: string;
+  qualityNote?: string;
+}
+
+function resolveBilibili(runId: number, short: string) {
+  invoke<BiliResult>('extract_bilibili_video', { url: short })
+    .then((info) => {
+      updateEntry(runId, short, {
+        status: 'ok',
+        resolved: `https://www.bilibili.com/video/${info.bvid}`,
+        error: null,
+        video: {
+          status: 'ok',
+          info: {
+            title: info.title,
+            cover: info.cover,
+            uploader: info.uploader,
+            videoUrl: info.videoUrl,
+            audioUrl: info.audioUrl,
+            notes: info.qualityNote
+          },
+          error: null
+        }
+      });
+    })
+    .catch((err) => {
+      updateEntry(runId, short, {
+        status: 'fail',
+        error: String(err),
+        video: { status: 'fail', info: null, error: String(err) }
+      });
+    });
+}
+
+interface YoutubeResult {
+  title: string;
+  uploader?: string;
+  cover?: string;
+  duration?: number;
+  videoUrl?: string;
+  subtitleUrls: SubtitleTrack[];
+  notes?: string;
+}
+
+function resolveYoutube(runId: number, short: string) {
+  const proxy = youtubeProxy.value.trim() || null;
+  invoke<YoutubeResult>('extract_youtube_video', { url: short, proxy })
+    .then((info) => {
+      updateEntry(runId, short, {
+        status: 'ok',
+        resolved: short,
+        error: null,
+        video: {
+          status: 'ok',
+          info: {
+            title: info.title,
+            uploader: info.uploader,
+            cover: info.cover,
+            videoUrl: info.videoUrl,
+            subtitles: info.subtitleUrls,
+            notes: info.notes
+          },
+          error: null
+        }
+      });
+    })
+    .catch((err) => {
+      updateEntry(runId, short, {
+        status: 'fail',
+        error: String(err),
+        video: { status: 'fail', info: null, error: String(err) }
+      });
     });
 }
 
@@ -144,10 +280,10 @@ async function copyOne(entry: Entry) {
 }
 
 async function copyVideo(entry: Entry) {
-  if (!entry.video.info) return;
+  if (!entry.video.info?.videoUrl) return;
   const key = entry.short;
   try {
-    await writeText(entry.video.info.mp4Url);
+    await writeText(entry.video.info.videoUrl);
     videoCopyState.value = { ...videoCopyState.value, [key]: 'ok' };
   } catch {
     videoCopyState.value = { ...videoCopyState.value, [key]: 'fail' };
@@ -165,33 +301,37 @@ async function copyAll() {
   } catch {
     allCopyState.value = 'fail';
   }
-  setTimeout(() => { allCopyState.value = 'idle'; }, 1500);
+  setTimeout(() => {
+    allCopyState.value = 'idle';
+  }, 1500);
 }
 
 async function openLink(entry: Entry) {
   const url = effectiveUrl(entry);
-  const key = entry.short;
   try {
     await invoke('open_external_url', { url });
-    return;
   } catch {
-    /* fallback below */
-  }
-  try {
-    await writeText(url);
-    copyState.value = { ...copyState.value, [key]: 'ok' };
-    setTimeout(() => {
-      copyState.value = { ...copyState.value, [key]: 'idle' };
-    }, 1500);
-  } catch {
-    /* noop */
+    try {
+      await writeText(url);
+    } catch {
+      /* noop */
+    }
   }
 }
 
-function downloadVideo(entry: Entry) {
-  if (!entry.video.info) return;
-  handoff.push(entry.video.info.mp4Url);
+function downloadUrl(url: string) {
+  handoff.push(url);
   emit('requestNavigate', 'aria2');
+}
+
+function downloadVideo(entry: Entry) {
+  if (!entry.video.info?.videoUrl) return;
+  downloadUrl(entry.video.info.videoUrl);
+}
+
+function downloadAudio(entry: Entry) {
+  if (!entry.video.info?.audioUrl) return;
+  downloadUrl(entry.video.info.audioUrl);
 }
 
 function copyLabel(entry: Entry): string {
@@ -217,6 +357,7 @@ const allCopyLabel = computed(() => {
 const hasInput = computed(() => raw.value.trim().length > 0);
 const hasPending = computed(() => entries.value.some((e) => e.status === 'pending'));
 const allCopyDisabled = computed(() => hasPending.value);
+const hasYoutubeEntry = computed(() => entries.value.some((e) => e.platform === 'youtube'));
 </script>
 
 <template>
@@ -224,8 +365,7 @@ const allCopyDisabled = computed(() => hasPending.value);
     <header class="page-header">
       <h2>视频链接抽取</h2>
       <p>
-        从分享文案中识别多平台视频短链、跟踪 302 抓真实视频 mp4 直链，一键送入 Aria2 下载。
-        <span class="platform-status">目前支持 抖音。小红书 / B 站 / YouTube 建设中。</span>
+        识别抖音 / 小红书 / B 站 / YouTube 分享链接，抓取视频直链、封面、字幕，一键送入 Aria2 下载。
       </p>
     </header>
 
@@ -234,9 +374,18 @@ const allCopyDisabled = computed(() => hasPending.value);
         <n-input
           v-model:value="raw"
           type="textarea"
-          placeholder="粘贴抖音 App 分享出来的整段文案，例如：9.99 复制打开抖音，看看【标题】... https://v.douyin.com/xxxxx/ 复制此链接..."
-          :autosize="{ minRows: 8, maxRows: 14 }"
+          placeholder="粘贴多平台分享文案。抖音 v.douyin.com、小红书 xhslink.com、B 站 b23.tv、YouTube youtu.be/watch 都能识别。"
+          :autosize="{ minRows: 6, maxRows: 12 }"
         />
+        <div v-if="hasYoutubeEntry" class="proxy-row">
+          <span class="proxy-lbl">YouTube 代理（可选）：</span>
+          <n-input
+            v-model:value="youtubeProxy"
+            placeholder="socks5://127.0.0.1:1080 或 http://..."
+            size="small"
+            style="max-width: 320px"
+          />
+        </div>
         <div class="actions">
           <n-button secondary @click="clearAll">清空</n-button>
           <n-button type="primary" @click="extractNow">提取链接</n-button>
@@ -270,33 +419,89 @@ const allCopyDisabled = computed(() => hasPending.value);
                 </n-button>
               </div>
             </div>
-            <span v-if="entry.status === 'ok'" class="secondary">短链：{{ entry.short }}</span>
-            <span v-else-if="entry.status === 'fail'" class="secondary fail">短链解析失败：{{ entry.error }}</span>
-            <span v-else-if="entry.status === 'unsupported'" class="secondary fail">{{ entry.error }}</span>
+            <span v-if="entry.status === 'ok' && entry.short !== entry.resolved" class="secondary">
+              短链：{{ entry.short }}
+            </span>
+            <span v-else-if="entry.status === 'fail'" class="secondary fail">
+              解析失败：{{ entry.error }}
+            </span>
 
             <template v-if="entry.status === 'ok'">
-              <div v-if="entry.video.status === 'pending'" class="line-video secondary">解析视频中...</div>
-              <div v-else-if="entry.video.status === 'fail'" class="line-video secondary fail">视频解析失败：{{ entry.video.error }}</div>
+              <div v-if="entry.video.status === 'pending'" class="line-video secondary">
+                解析视频中...
+              </div>
+              <div v-else-if="entry.video.status === 'fail'" class="line-video secondary fail">
+                视频解析失败：{{ entry.video.error }}
+              </div>
               <div v-else class="line-video">
-                <span class="video-url" :class="{ 'has-wm': entry.video.info?.hasWatermark }">
-                  {{ entry.video.info?.mp4Url }}
-                </span>
-                <div class="video-meta">
-                  <span class="badge" :class="{ wm: entry.video.info?.hasWatermark }">
-                    {{ entry.video.info?.hasWatermark ? '含水印' : '无水印' }}
+                <div v-if="entry.video.info?.title" class="video-meta">
+                  <span class="video-title" :title="entry.video.info.title">
+                    {{ entry.video.info.title }}
                   </span>
-                  <span class="video-title" :title="entry.video.info?.title">{{ entry.video.info?.title }}</span>
+                  <span v-if="entry.video.info.uploader" class="uploader">
+                    @{{ entry.video.info.uploader }}
+                  </span>
+                  <span
+                    v-if="entry.platform === 'douyin' && typeof entry.video.info.hasWatermark === 'boolean'"
+                    class="badge"
+                    :class="{ wm: entry.video.info.hasWatermark }"
+                  >
+                    {{ entry.video.info.hasWatermark ? '含水印' : '无水印' }}
+                  </span>
                 </div>
-                <div class="line-actions">
-                  <n-button size="tiny" secondary @click="copyVideo(entry)">{{ videoCopyLabel(entry) }}</n-button>
-                  <n-button size="tiny" type="primary" @click="downloadVideo(entry)">下载</n-button>
+
+                <div v-if="entry.video.info?.videoUrl" class="media-row">
+                  <span class="video-url">{{ entry.video.info.videoUrl }}</span>
+                  <div class="line-actions">
+                    <n-button size="tiny" secondary @click="copyVideo(entry)">
+                      {{ videoCopyLabel(entry) }}
+                    </n-button>
+                    <n-button size="tiny" type="primary" @click="downloadVideo(entry)">
+                      下载视频
+                    </n-button>
+                  </div>
+                </div>
+
+                <div v-if="entry.video.info?.audioUrl" class="media-row secondary">
+                  <span class="video-url">🎵 {{ entry.video.info.audioUrl }}</span>
+                  <n-button size="tiny" secondary @click="downloadAudio(entry)">
+                    下载音频
+                  </n-button>
+                </div>
+
+                <div v-if="entry.video.info?.imageUrls?.length" class="media-row secondary">
+                  <span>图片 {{ entry.video.info.imageUrls.length }} 张</span>
+                  <n-button
+                    size="tiny"
+                    secondary
+                    @click="entry.video.info?.imageUrls?.forEach((u) => downloadUrl(u))"
+                  >
+                    下载全部
+                  </n-button>
+                </div>
+
+                <div v-if="entry.video.info?.subtitles?.length" class="media-row secondary">
+                  <span>字幕：</span>
+                  <n-button
+                    v-for="sub in entry.video.info.subtitles"
+                    :key="sub.url"
+                    size="tiny"
+                    secondary
+                    @click="downloadUrl(sub.url)"
+                  >
+                    {{ sub.name }}
+                  </n-button>
+                </div>
+
+                <div v-if="entry.video.info?.notes" class="notes">
+                  {{ entry.video.info.notes }}
                 </div>
               </div>
             </template>
           </div>
         </div>
       </div>
-      <div v-else-if="hasInput" class="empty">未检测到 v.douyin.com 短链</div>
+      <div v-else-if="hasInput" class="empty">未检测到已知平台的分享链接</div>
       <div v-else class="empty">粘贴分享文案后自动提取</div>
     </Panel>
   </div>
@@ -316,11 +521,6 @@ const allCopyDisabled = computed(() => hasPending.value);
   color: var(--text-muted);
   font-size: var(--fs-xs);
 }
-.platform-status {
-  color: var(--text-muted);
-  opacity: 0.7;
-  margin-left: 4px;
-}
 .platform-badge {
   display: inline-block;
   padding: 1px 6px;
@@ -334,6 +534,13 @@ const allCopyDisabled = computed(() => hasPending.value);
 }
 
 .form { display: grid; gap: 12px; }
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+.proxy-lbl { color: var(--text-muted); }
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -379,20 +586,14 @@ const allCopyDisabled = computed(() => hasPending.value);
   font-size: var(--fs-xxs);
   word-break: break-all;
 }
-.secondary.fail { color: var(--text-muted); }
+.secondary.fail { color: var(--danger, #f87171); }
 
 .line-video {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   padding: 8px 10px;
   border: 1px dashed var(--line);
   border-radius: var(--radius-sm);
-}
-.video-url {
-  font-size: var(--fs-xs);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  word-break: break-all;
-  color: var(--text);
 }
 .video-meta {
   display: flex;
@@ -400,7 +601,9 @@ const allCopyDisabled = computed(() => hasPending.value);
   align-items: center;
   font-size: var(--fs-xxs);
   color: var(--text-muted);
+  flex-wrap: wrap;
 }
+.uploader { color: var(--text-muted); font-size: var(--fs-xxs); }
 .badge {
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -416,12 +619,34 @@ const allCopyDisabled = computed(() => hasPending.value);
   white-space: nowrap;
   min-width: 0;
   flex: 1;
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.media-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.media-row.secondary { color: var(--text-muted); font-size: var(--fs-xxs); }
+.video-url {
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  word-break: break-all;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
 }
 .line-actions {
   display: flex;
   gap: 6px;
   align-self: start;
   justify-content: flex-end;
+}
+.notes {
+  font-size: var(--fs-xxs);
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .empty {

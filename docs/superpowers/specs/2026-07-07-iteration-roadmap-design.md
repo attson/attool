@@ -155,10 +155,9 @@ attool 是 me-first 的个人桌面工具箱，不做品牌 / 落地页 / onboar
 - ✅ 0.4.0 版本 bump，M1 全量 push
 - ✅ M2.1 douyin → video-link 重构（sidebar id 迁移、`platformDetect` 抽象、legacy id 兼容、UI 显示 platform badge、非抖音链接标 "解析尚未实现"）
 
-未完成：
+- ✅ M2.2 小红书 resolver：xhslink.com 302 跟随 + `window.__INITIAL_STATE__` JSON 解析（视频帖抓 mp4，图文帖抓图片列表）
+- ✅ M2.3 B 站 resolver：b23.tv 跟随 + `/x/web-interface/view` 拉元数据 + `/x/player/playurl` 无登录 720p DASH（video/audio 分开需 ffmpeg 合流）
+- ✅ M2.4 YouTube resolver：shell out `yt-dlp -j` 拉 mp4 直链 + 字幕 + 代理字段（用户需自装 yt-dlp）
+- ✅ 0.5.0 版本 bump
 
-- ❌ M2.2 小红书 resolver：xhslink.com 302 跟随 + __INITIAL_STATE__ JSON 解析
-- ❌ M2.3 B 站 resolver：b23.tv 跟随 + WBI 签名 API（moving target，需真实 URL 迭代）
-- ❌ M2.4 YouTube resolver：yt-dlp 依赖引入 + 代理设置字段
-
-未完成的原因：M2.2-M2.4 的抓取代码本质是逆向工程，写出来到底 work 不 work 取决于当前平台 HTML/API 的具体形状，需要拿真实 URL 边写边测。单人 AI 会话里没有平台 URL 样本可以试，写盲代码质量会很低。建议下一轮 session 时提供 3-5 条真实测试 URL，把这 3 个 resolver 逐个磨出来。
+**运行时须知**：M2 三个新平台 resolver 都基于对平台当前公开接口的公开知识实现，抓取代码本质是逆向工程，若平台未来改版可能失效。首次实测时若命中"数据结构不匹配 / API 返回 code!=0"错误，通常意味着需要调整 JSON path 或 API 参数。yt-dlp 走的路径最稳，因为社区维护。小红书对 UA/登录墙敏感，B 站高清需 SESSDATA cookie（本轮未做，因为登录态存储/UI 是独立工作量）。

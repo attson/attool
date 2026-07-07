@@ -1,7 +1,10 @@
+mod bilibili;
 mod clipboard;
 mod douyin;
 pub mod ecommerce;
 pub mod imaging;
+mod xhs;
+mod youtube;
 
 use ecommerce::EcommerceStore;
 use regex::Regex;
@@ -953,6 +956,24 @@ mod douyin_tests {
 }
 
 #[tauri::command]
+async fn extract_xhs_note(url: String) -> Result<xhs::XhsNoteInfo, String> {
+    xhs::extract_note(&url).await
+}
+
+#[tauri::command]
+async fn extract_bilibili_video(url: String) -> Result<bilibili::BiliVideoInfo, String> {
+    bilibili::extract_video(&url).await
+}
+
+#[tauri::command]
+async fn extract_youtube_video(
+    url: String,
+    proxy: Option<String>,
+) -> Result<youtube::YoutubeVideoInfo, String> {
+    youtube::extract_video(&url, proxy.as_deref()).await
+}
+
+#[tauri::command]
 async fn open_external_url(url: String) -> Result<(), String> {
     // 只允许 http/https，避免任意命令注入（例如 file://、传参、shell 元字符）
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -1458,6 +1479,9 @@ pub fn run() {
             open_external_url,
             resolve_douyin_url,
             extract_douyin_video,
+            extract_xhs_note,
+            extract_bilibili_video,
+            extract_youtube_video,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,
