@@ -1,7 +1,9 @@
 use super::compress::compress_image as run_compress;
 use super::convert::convert_image as run_convert;
 use super::exif::{read_exif as run_read_exif, strip_exif as run_strip_exif};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 
 // ---- compress ----
@@ -187,4 +189,23 @@ pub async fn strip_image_exif(request: StripExifRequest) -> Result<StripExifResp
     })
     .await
     .map_err(|error| format!("清 EXIF 异常：{error}"))?
+}
+
+// ---- write binary file (for canvas export) ----
+
+#[tauri::command]
+pub async fn write_binary_file(path: String, base64: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&base64)
+            .map_err(|error| format!("Base64 解码失败：{error}"))?;
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| format!("创建目录失败：{error}"))?;
+            }
+        }
+        fs::write(&path, bytes).map_err(|error| format!("写入文件失败：{error}"))
+    })
+    .await
+    .map_err(|error| format!("写入任务异常：{error}"))?
 }

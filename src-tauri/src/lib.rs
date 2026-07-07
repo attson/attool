@@ -1483,7 +1483,8 @@ pub fn run() {
             imaging::commands::compress_images,
             imaging::commands::convert_images,
             imaging::commands::read_image_exif,
-            imaging::commands::strip_image_exif
+            imaging::commands::strip_image_exif,
+            imaging::commands::write_binary_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
