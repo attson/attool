@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref } from 'vue';
+import { onMounted, provide, ref, watch } from 'vue';
 import { NTabs, NTabPane } from 'naive-ui';
 import CapturePane from './CapturePane.vue';
 import CompressPane from './CompressPane.vue';
@@ -7,12 +7,26 @@ import ConvertPane from './ConvertPane.vue';
 import ExifPane from './ExifPane.vue';
 import AnnotatePane from './AnnotatePane.vue';
 import OcrPane from './OcrPane.vue';
+import { useRequestedTab } from './imageBus';
 
 const tab = ref('capture');
 
-provide('image-tool:switchTab', (name: string) => {
+function switchTab(name: string) {
   tab.value = name;
-});
+}
+provide('image-tool:switchTab', switchTab);
+
+const { requested, consume } = useRequestedTab();
+
+function drainRequestedTab() {
+  if (requested.value) {
+    const target = consume();
+    if (target) tab.value = target;
+  }
+}
+
+onMounted(drainRequestedTab);
+watch(requested, (val) => { if (val) drainRequestedTab(); });
 </script>
 
 <template>

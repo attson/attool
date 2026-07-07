@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject, ref } from 'vue';
 import { NAlert, NButton, NInputNumber } from 'naive-ui';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import { setPendingAnnotateImage } from './imageBus';
 
@@ -10,10 +10,10 @@ type CaptureMode = 'region' | 'window' | 'full';
 const delay = ref(0);
 const capturing = ref(false);
 const notice = ref('');
-const lastPath = ref('');
-const previewSrc = ref('');
 
 const switchTab = inject<(name: string) => void>('image-tool:switchTab');
+
+const shortcutLabel = navigator.userAgent.includes('Mac') ? '⌘⇧A' : 'Ctrl+Shift+A';
 
 async function capture(mode: CaptureMode) {
   notice.value = '';
@@ -22,24 +22,14 @@ async function capture(mode: CaptureMode) {
     const response = await invoke<{ outputPath: string }>('capture_screen', {
       request: { mode, delaySeconds: delay.value }
     });
-    lastPath.value = response.outputPath;
-    previewSrc.value = `${convertFileSrc(response.outputPath)}?t=${Date.now()}`;
+    // Direct-to-annotation, WeChat-style
+    setPendingAnnotateImage(response.outputPath);
+    switchTab?.('annotate');
   } catch (err) {
     notice.value = String(err);
   } finally {
     capturing.value = false;
   }
-}
-
-function openInAnnotate() {
-  if (!lastPath.value) return;
-  setPendingAnnotateImage(lastPath.value);
-  switchTab?.('annotate');
-}
-
-function basename(path: string): string {
-  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  return idx >= 0 ? path.slice(idx + 1) : path;
 }
 </script>
 
@@ -48,7 +38,7 @@ function basename(path: string): string {
     <Panel title="截图">
       <div class="form">
         <div class="btn-row">
-          <n-button block secondary :loading="capturing" @click="capture('region')">
+          <n-button block type="primary" :loading="capturing" @click="capture('region')">
             选区截图
           </n-button>
           <n-button block secondary :loading="capturing" @click="capture('window')">
@@ -64,26 +54,20 @@ function basename(path: string): string {
           <n-input-number v-model:value="delay" :min="0" :max="10" style="width: 100%" />
         </label>
 
-        <p class="note">
-          目前仅 macOS：底层 <code>screencapture</code>，选区/窗口时按 <kbd>Esc</kbd> 取消。
-          图片临时存到系统 temp 目录，重启后会清。
-        </p>
+        <div class="tips">
+          <p>
+            <strong>全局快捷键 <kbd>{{ shortcutLabel }}</kbd></strong>：任何窗口下按都直接开始选区截图。
+          </p>
+          <p>
+            截图完成后自动跳到 <strong>标注 tab</strong> 打开图片（微信截图那种流程）。
+            选区模式按 <kbd>Space</kbd> 切窗口、<kbd>Esc</kbd> 取消。
+          </p>
+          <p class="muted">
+            底层 macOS <code>screencapture</code>，图片存 <code>~/Library/Caches/attool/captures/</code>。
+          </p>
+        </div>
 
         <n-alert v-if="notice" type="error" :bordered="false">{{ notice }}</n-alert>
-      </div>
-    </Panel>
-
-    <Panel v-if="previewSrc" title="预览">
-      <template #right>
-        <span class="mono">{{ basename(lastPath) }}</span>
-      </template>
-      <div class="preview-wrap">
-        <img :src="previewSrc" alt="capture preview" />
-      </div>
-      <div class="actions">
-        <n-button type="primary" :disabled="!lastPath" @click="openInAnnotate">
-          在标注 tab 中编辑
-        </n-button>
       </div>
     </Panel>
   </div>
@@ -97,7 +81,7 @@ function basename(path: string): string {
   height: 100%;
   overflow: auto;
 }
-.form { display: grid; gap: 12px; }
+.form { display: grid; gap: 14px; }
 .btn-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -108,35 +92,23 @@ function basename(path: string): string {
 }
 .field { display: grid; gap: 6px; max-width: 200px; }
 .lbl { font-size: var(--fs-xxs); color: var(--text-muted); }
-.note {
-  margin: 0;
-  color: var(--text-muted);
+.tips {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border-radius: var(--radius-md);
   font-size: var(--fs-xs);
   line-height: 1.6;
 }
-.note code, .note kbd {
+.tips p { margin: 0; color: var(--text); }
+.tips p.muted { color: var(--text-muted); font-size: var(--fs-xxs); }
+.tips code, .tips kbd {
   padding: 1px 6px;
-  background: var(--bg-elev);
+  background: var(--bg-base);
+  border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--font-mono, monospace);
+  font-size: var(--fs-xxs);
 }
-.preview-wrap {
-  display: grid;
-  place-items: center;
-  padding: 12px;
-  background: var(--bg-elev);
-  border-radius: var(--radius-md);
-  min-height: 200px;
-}
-.preview-wrap img {
-  max-width: 100%;
-  max-height: 500px;
-  border-radius: 4px;
-}
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-.mono { font-family: var(--font-mono, monospace); font-size: var(--fs-xs); }
 </style>

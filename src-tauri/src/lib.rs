@@ -1451,6 +1451,9 @@ pub fn run() {
             if let Err(error) = clipboard::watcher::register_clipboard_shortcut(app.handle()) {
                 eprintln!("{error}");
             }
+            if let Err(error) = imaging::capture::register_capture_shortcut(app.handle()) {
+                eprintln!("{error}");
+            }
             app.manage(clipboard_store);
 
             let show_item =

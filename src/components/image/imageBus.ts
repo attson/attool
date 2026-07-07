@@ -1,11 +1,16 @@
 import { ref } from 'vue';
 
 // Image path handed off between tabs — e.g. Capture → Annotate.
-// Producer sets it; consumer reads then calls `consume()`.
 const pendingAnnotate = ref<string | null>(null);
+// A tab that ImageTool should switch to when it mounts / receives the signal.
+const requestedTab = ref<string | null>(null);
 
 export function setPendingAnnotateImage(path: string) {
   pendingAnnotate.value = path;
+}
+
+export function requestImageTab(name: string) {
+  requestedTab.value = name;
 }
 
 export function usePendingAnnotateImage() {
@@ -14,6 +19,17 @@ export function usePendingAnnotateImage() {
     consume(): string | null {
       const v = pendingAnnotate.value;
       pendingAnnotate.value = null;
+      return v;
+    }
+  };
+}
+
+export function useRequestedTab() {
+  return {
+    requested: requestedTab,
+    consume(): string | null {
+      const v = requestedTab.value;
+      requestedTab.value = null;
       return v;
     }
   };

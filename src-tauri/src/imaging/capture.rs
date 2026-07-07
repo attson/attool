@@ -2,6 +2,56 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+pub const CAPTURE_SHORTCUT: &str = if cfg!(target_os = "macos") {
+    "cmd+shift+a"
+} else {
+    "ctrl+shift+a"
+};
+pub const CAPTURE_EVENT: &str = "capture-completed";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureEventPayload {
+    output_path: String,
+}
+
+pub fn register_capture_shortcut(app: &AppHandle) -> Result<(), String> {
+    let shortcut: Shortcut = CAPTURE_SHORTCUT
+        .parse()
+        .map_err(|error| format!("解析截图快捷键失败：{error}"))?;
+    let handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if event.state() != ShortcutState::Pressed {
+                return;
+            }
+            let inner = handle.clone();
+            // screencapture -i blocks until the user finishes selecting; run off-thread.
+            std::thread::spawn(move || match capture_screen("region", 0) {
+                Ok(path) => {
+                    if let Some(window) = inner.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    let _ = inner.emit(
+                        CAPTURE_EVENT,
+                        CaptureEventPayload {
+                            output_path: path.to_string_lossy().into_owned(),
+                        },
+                    );
+                }
+                Err(err) => {
+                    // 取消/超时/未找到都 emit 一个错误事件，前端决定要不要 toast
+                    let _ = inner.emit("capture-failed", err);
+                }
+            });
+        })
+        .map_err(|error| format!("注册截图快捷键失败：{error}"))
+}
 
 /// Capture the screen to a PNG file and return its absolute path.
 ///
