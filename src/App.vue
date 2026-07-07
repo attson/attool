@@ -54,6 +54,8 @@ const tools: Tool[] = [
 
 const currentWindow = getCurrentWindow();
 const isClipboardHistoryWindow = currentWindow.label === 'clipboard-history';
+const isCaptureOverlayWindow = currentWindow.label === 'capture-overlay';
+const CaptureOverlay = defineAsyncComponent(() => import('./components/image/CaptureOverlay.vue'));
 
 const minSplitOptions = [
   { label: '1M', value: '1M' },
@@ -94,7 +96,7 @@ let unlistenCapture: Promise<UnlistenFn> | undefined;
 let unlistenCaptureFail: Promise<UnlistenFn> | undefined;
 
 onMounted(() => {
-  if (isClipboardHistoryWindow) return;
+  if (isClipboardHistoryWindow || isCaptureOverlayWindow) return;
 
   invoke<string>('get_default_download_dir')
     .then((dir) => {
@@ -318,9 +320,10 @@ async function openTaskFolder(id: string) {
 <template>
   <n-config-provider :theme="naiveTheme" :theme-overrides="naiveOverrides">
     <n-message-provider>
-      <ClipboardHistoryWindow v-if="isClipboardHistoryWindow" />
+      <CaptureOverlay v-if="isCaptureOverlayWindow" />
+      <ClipboardHistoryWindow v-else-if="isClipboardHistoryWindow" />
       <AppShell
-        v-else
+        v-else-if="!isClipboardHistoryWindow"
         :tools="tools"
         :active-id="selectedToolId"
         :collapsed="sidebarCollapsed"

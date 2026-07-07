@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
@@ -119,26 +119,150 @@ fn install_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), String> {
                 return;
             }
             let inner = handle.clone();
-            std::thread::spawn(move || match capture_screen("region", 0) {
-                Ok(path) => {
-                    if let Some(window) = inner.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
-                    let _ = inner.emit(
-                        CAPTURE_EVENT,
-                        CaptureEventPayload {
-                            output_path: path.to_string_lossy().into_owned(),
-                        },
-                    );
-                }
-                Err(err) => {
+            std::thread::spawn(move || {
+                if let Err(err) = open_capture_overlay(&inner) {
                     let _ = inner.emit("capture-failed", err);
                 }
             });
         })
         .map_err(|error| format!("注册截图快捷键失败：{error}"))
+}
+
+// ---------- overlay ----------
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OverlayInitPayload {
+    image_path: String,
+    screen_width: f64,
+    screen_height: f64,
+    scale_factor: f64,
+}
+
+/// Take a silent full-desktop screenshot and hand it to the transparent overlay window,
+/// which then handles region select + on-canvas annotation.
+pub fn open_capture_overlay(app: &AppHandle) -> Result<(), String> {
+    let overlay = app
+        .get_webview_window("capture-overlay")
+        .ok_or_else(|| "找不到截图覆盖窗".to_string())?;
+
+    // Hide overlay if it's somehow visible, so it isn't captured. Also give the desktop a moment to repaint.
+    let _ = overlay.hide();
+    std::thread::sleep(std::time::Duration::from_millis(120));
+
+    // Snap the whole desktop silently, no cursor
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let cache_root = dirs::cache_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "无法确定缓存目录".to_string())?;
+    let dir = cache_root.join("attool").join("captures");
+    fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
+    let image_path = dir.join(format!("attool-desktop-{ts}.png"));
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("screencapture")
+            .arg("-x") // silent
+            .arg("-C") // no cursor
+            .arg("-t")
+            .arg("png")
+            .arg(&image_path)
+            .status()
+            .map_err(|error| format!("启动 screencapture 失败：{error}"))?;
+        if !status.success() || !image_path.is_file() {
+            return Err("桌面截图失败".to_string());
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err("目前仅 macOS 支持浮层截图（Windows / Linux 待接入）".to_string());
+    }
+
+    // Position overlay to cover primary monitor
+    let monitor = app
+        .primary_monitor()
+        .map_err(|error| format!("获取主显示器失败：{error}"))?
+        .ok_or_else(|| "未找到主显示器".to_string())?;
+    let scale = monitor.scale_factor();
+    let physical_size = monitor.size();
+    let physical_pos = monitor.position();
+    let logical_width = physical_size.width as f64 / scale;
+    let logical_height = physical_size.height as f64 / scale;
+    let logical_x = physical_pos.x as f64 / scale;
+    let logical_y = physical_pos.y as f64 / scale;
+
+    overlay
+        .set_position(LogicalPosition::new(logical_x, logical_y))
+        .map_err(|error| format!("移动覆盖窗失败：{error}"))?;
+    overlay
+        .set_size(LogicalSize::new(logical_width, logical_height))
+        .map_err(|error| format!("调整覆盖窗尺寸失败：{error}"))?;
+
+    let payload = OverlayInitPayload {
+        image_path: image_path.to_string_lossy().into_owned(),
+        screen_width: logical_width,
+        screen_height: logical_height,
+        scale_factor: scale,
+    };
+    let _ = overlay.emit("capture-overlay-init", payload.clone());
+
+    overlay
+        .show()
+        .map_err(|error| format!("显示覆盖窗失败：{error}"))?;
+    let _ = overlay.set_focus();
+    // Re-emit shortly after show so the webview has time to attach the listener on first launch
+    let overlay_clone = overlay.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        let _ = overlay_clone.emit("capture-overlay-init", payload);
+    });
+    Ok(())
+}
+
+pub fn close_capture_overlay(app: &AppHandle) -> Result<(), String> {
+    if let Some(overlay) = app.get_webview_window("capture-overlay") {
+        overlay
+            .hide()
+            .map_err(|error| format!("隐藏覆盖窗失败：{error}"))?;
+    }
+    Ok(())
+}
+
+/// Persist the composited (screenshot + annotations) PNG bytes to the captures dir and return its path.
+pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathBuf, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64.trim())
+        .map_err(|error| format!("Base64 解码失败：{error}"))?;
+
+    let cache_root = dirs::cache_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "无法确定缓存目录".to_string())?;
+    let dir = cache_root.join("attool").join("captures");
+    fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("attool-capture-{ts}.png"));
+    fs::write(&path, &bytes).map_err(|error| format!("写文件失败：{error}"))?;
+
+    if let Some(overlay) = app.get_webview_window("capture-overlay") {
+        let _ = overlay.hide();
+    }
+
+    // Notify main window (App.vue listens for capture-completed)
+    let _ = app.emit(
+        CAPTURE_EVENT,
+        CaptureEventPayload {
+            output_path: path.to_string_lossy().into_owned(),
+        },
+    );
+
+    Ok(path)
 }
 
 /// Capture the screen to a PNG file and return its absolute path.

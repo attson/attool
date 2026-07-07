@@ -34,6 +34,20 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "dragDropEnabled": false
+      },
+      {
+        "label": "capture-overlay",
+        "title": "AT Tool Capture",
+        "width": 800,
+        "height": 600,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "transparent": true,
+        "shadow": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

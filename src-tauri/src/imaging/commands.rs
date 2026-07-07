@@ -1,6 +1,8 @@
 use super::capture::{
-    capture_screen as run_capture, current_shortcut as current_capture_shortcut,
-    reregister_capture_shortcut, DEFAULT_CAPTURE_SHORTCUT,
+    capture_screen as run_capture, close_capture_overlay as run_close_overlay,
+    commit_capture_overlay as run_commit_overlay, current_shortcut as current_capture_shortcut,
+    open_capture_overlay as run_open_overlay, reregister_capture_shortcut,
+    DEFAULT_CAPTURE_SHORTCUT,
 };
 use tauri::AppHandle;
 use super::compress::compress_image as run_compress;
@@ -282,6 +284,42 @@ pub async fn set_capture_shortcut(
     Ok(CaptureShortcutInfo {
         shortcut,
         default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn open_capture_overlay(app: AppHandle) -> Result<(), String> {
+    // Off-thread so screencapture -x (blocking) doesn't stall the tauri event loop
+    tauri::async_runtime::spawn_blocking(move || run_open_overlay(&app))
+        .await
+        .map_err(|error| format!("覆盖窗启动异常：{error}"))?
+}
+
+#[tauri::command]
+pub async fn close_capture_overlay(app: AppHandle) -> Result<(), String> {
+    run_close_overlay(&app)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOverlayRequest {
+    pub png_base64: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOverlayResponse {
+    pub output_path: String,
+}
+
+#[tauri::command]
+pub async fn commit_capture_overlay(
+    app: AppHandle,
+    request: CommitOverlayRequest,
+) -> Result<CommitOverlayResponse, String> {
+    let path = run_commit_overlay(&app, &request.png_base64)?;
+    Ok(CommitOverlayResponse {
+        output_path: path.to_string_lossy().into_owned(),
     })
 }
 

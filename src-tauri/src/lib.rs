@@ -1515,7 +1515,10 @@ pub fn run() {
             imaging::commands::ocr_image,
             imaging::commands::capture_screen,
             imaging::commands::get_capture_shortcut,
-            imaging::commands::set_capture_shortcut
+            imaging::commands::set_capture_shortcut,
+            imaging::commands::open_capture_overlay,
+            imaging::commands::close_capture_overlay,
+            imaging::commands::commit_capture_overlay
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");

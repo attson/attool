@@ -52,6 +52,11 @@ async function capture(mode: CaptureMode) {
   notice.value = '';
   capturing.value = true;
   try {
+    if (mode === 'region') {
+      // Snipaste-style overlay: draw + annotate + confirm all inside a floating window
+      await invoke('open_capture_overlay');
+      return;
+    }
     const response = await invoke<{ outputPath: string }>('capture_screen', {
       request: { mode, delaySeconds: delay.value }
     });
@@ -142,11 +147,14 @@ onMounted(loadShortcut);
 
         <div class="tips">
           <p>
-            截图完成后自动跳到 <strong>标注 tab</strong> 打开图片（微信截图那种流程）。
-            选区模式按 <kbd>Space</kbd> 切窗口、<kbd>Esc</kbd> 取消。
+            <strong>选区截图</strong> 进入 Snipaste 式浮层：拖框 → 就地画矩形/箭头/文字 → <kbd>⌘↩</kbd> 完成、<kbd>Esc</kbd> 取消。
+            完成后自动复制到剪贴板 + 存文件 + 送标注 tab。
+          </p>
+          <p>
+            <strong>窗口 / 全屏截图</strong> 走 macOS 原生 <code>screencapture</code>，截完直接送标注 tab。
           </p>
           <p class="muted">
-            底层 macOS <code>screencapture</code>，图片存 <code>~/Library/Caches/attool/captures/</code>。
+            图片存 <code>~/Library/Caches/attool/captures/</code>。
           </p>
         </div>
 
