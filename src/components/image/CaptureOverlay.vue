@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -11,7 +12,7 @@ interface InitPayload {
   scaleFactor: number;
 }
 
-type Tool = 'rect' | 'arrow' | 'text';
+type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number';
 
 interface Shape {
   tool: Tool;
@@ -22,6 +23,8 @@ interface Shape {
   color: string;
   lineWidth: number;
   text?: string;
+  number?: number;
+  points?: { x: number; y: number }[]; // for pencil
 }
 
 interface Rect {
@@ -46,9 +49,12 @@ const color = ref('#ef4444');
 const lineWidth = ref(3);
 const textValue = ref('');
 const shapes = ref<Shape[]>([]);
+const undoneShapes = ref<Shape[]>([]);
 const drawing = ref(false);
 const drawStart = ref<{ x: number; y: number } | null>(null);
 const drawEnd = ref<{ x: number; y: number } | null>(null);
+const pencilPoints = ref<{ x: number; y: number }[]>([]);
+const nextNumber = ref(1);
 
 // Text input position — non-null while user is typing a new text label at that spot.
 // Coordinates are in canvas-pixel space (already scaled). We translate to viewport CSS coords for the input box.
@@ -75,7 +81,7 @@ const hasSelection = computed(() => selection.value !== null && selection.value.
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 340;
+  const toolbarW = 720;
   const toolbarH = 44;
   const margin = 8;
   let left = sel.x + sel.w - toolbarW;
@@ -157,8 +163,6 @@ function onCanvasMouseDown(event: MouseEvent) {
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
   if (tool.value === 'text') {
-    // Every click opens a fresh input at the click location. If one's already open,
-    // commit it first at its own spot before opening a new one.
     if (textPending.value && textValue.value.trim()) {
       commitPendingText();
     }
@@ -169,8 +173,27 @@ function onCanvasMouseDown(event: MouseEvent) {
       cssLeft: event.clientX,
       cssTop: event.clientY
     };
-    // Focus the input on the next tick
     requestAnimationFrame(() => textInputRef.value?.focus());
+    return;
+  }
+  if (tool.value === 'number') {
+    pushShape({
+      tool: 'number',
+      x1: p.x,
+      y1: p.y,
+      x2: p.x,
+      y2: p.y,
+      color: color.value,
+      lineWidth: lineWidth.value,
+      number: nextNumber.value
+    });
+    nextNumber.value += 1;
+    redraw();
+    return;
+  }
+  if (tool.value === 'pencil') {
+    drawing.value = true;
+    pencilPoints.value = [p];
     return;
   }
   drawing.value = true;
@@ -206,18 +229,45 @@ function cancelPendingText() {
 function onCanvasMouseMove(event: MouseEvent) {
   if (!drawing.value) return;
   event.stopPropagation();
-  drawEnd.value = canvasPosFromEvent(event);
+  const p = canvasPosFromEvent(event);
+  if (tool.value === 'pencil') {
+    pencilPoints.value.push(p);
+  } else {
+    drawEnd.value = p;
+  }
   redraw();
 }
 
 function onCanvasMouseUp(event: MouseEvent) {
-  if (!drawing.value || !drawStart.value) return;
+  if (!drawing.value) return;
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
+  if (tool.value === 'pencil') {
+    if (pencilPoints.value.length > 1) {
+      pushShape({
+        tool: 'pencil',
+        x1: pencilPoints.value[0].x,
+        y1: pencilPoints.value[0].y,
+        x2: p.x,
+        y2: p.y,
+        color: color.value,
+        lineWidth: lineWidth.value,
+        points: [...pencilPoints.value]
+      });
+    }
+    pencilPoints.value = [];
+    drawing.value = false;
+    redraw();
+    return;
+  }
+  if (!drawStart.value) {
+    drawing.value = false;
+    return;
+  }
   const dx = p.x - drawStart.value.x;
   const dy = p.y - drawStart.value.y;
   if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-    shapes.value.push({
+    pushShape({
       tool: tool.value,
       x1: drawStart.value.x,
       y1: drawStart.value.y,
@@ -233,6 +283,12 @@ function onCanvasMouseUp(event: MouseEvent) {
   redraw();
 }
 
+function pushShape(shape: Shape) {
+  shapes.value.push(shape);
+  // Any new drawing invalidates the redo stack (standard editor behavior)
+  undoneShapes.value = [];
+}
+
 function redraw() {
   const canvas = canvasRef.value;
   if (!canvas) return;
@@ -243,21 +299,38 @@ function redraw() {
   for (const shape of shapes.value) {
     drawShape(ctx, shape, s);
   }
-  if (drawing.value && drawStart.value && drawEnd.value) {
-    drawShape(
-      ctx,
-      {
-        tool: tool.value,
-        x1: drawStart.value.x,
-        y1: drawStart.value.y,
-        x2: drawEnd.value.x,
-        y2: drawEnd.value.y,
-        color: color.value,
-        lineWidth: lineWidth.value,
-        text: tool.value === 'text' ? textValue.value : undefined
-      },
-      s
-    );
+  // Live preview of in-progress shape
+  if (drawing.value) {
+    if (tool.value === 'pencil' && pencilPoints.value.length > 0) {
+      drawShape(
+        ctx,
+        {
+          tool: 'pencil',
+          x1: pencilPoints.value[0].x,
+          y1: pencilPoints.value[0].y,
+          x2: pencilPoints.value[pencilPoints.value.length - 1].x,
+          y2: pencilPoints.value[pencilPoints.value.length - 1].y,
+          color: color.value,
+          lineWidth: lineWidth.value,
+          points: pencilPoints.value
+        },
+        s
+      );
+    } else if (drawStart.value && drawEnd.value) {
+      drawShape(
+        ctx,
+        {
+          tool: tool.value,
+          x1: drawStart.value.x,
+          y1: drawStart.value.y,
+          x2: drawEnd.value.x,
+          y2: drawEnd.value.y,
+          color: color.value,
+          lineWidth: lineWidth.value
+        },
+        s
+      );
+    }
   }
 }
 
@@ -270,6 +343,19 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, s: number) {
 
   if (shape.tool === 'rect') {
     ctx.strokeRect(shape.x1, shape.y1, shape.x2 - shape.x1, shape.y2 - shape.y1);
+  } else if (shape.tool === 'ellipse') {
+    const cx = (shape.x1 + shape.x2) / 2;
+    const cy = (shape.y1 + shape.y2) / 2;
+    const rx = Math.abs(shape.x2 - shape.x1) / 2;
+    const ry = Math.abs(shape.y2 - shape.y1) / 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (shape.tool === 'line') {
+    ctx.beginPath();
+    ctx.moveTo(shape.x1, shape.y1);
+    ctx.lineTo(shape.x2, shape.y2);
+    ctx.stroke();
   } else if (shape.tool === 'arrow') {
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
@@ -291,6 +377,25 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, s: number) {
     );
     ctx.closePath();
     ctx.fill();
+  } else if (shape.tool === 'pencil' && shape.points && shape.points.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(shape.points[0].x, shape.points[0].y);
+    for (let i = 1; i < shape.points.length; i++) {
+      ctx.lineTo(shape.points[i].x, shape.points[i].y);
+    }
+    ctx.stroke();
+  } else if (shape.tool === 'number' && typeof shape.number === 'number') {
+    const r = Math.max(12, shape.lineWidth * 4) * s;
+    ctx.beginPath();
+    ctx.arc(shape.x1, shape.y1, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.round(r * 1.1)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(shape.number), shape.x1, shape.y1 + 1);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
   } else if (shape.tool === 'text' && shape.text) {
     const fontSize = Math.max(14, shape.lineWidth * 6) * s;
     ctx.font = `${fontSize}px -apple-system, "PingFang SC", "Segoe UI", sans-serif`;
@@ -300,41 +405,45 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, s: number) {
 }
 
 function undo() {
-  shapes.value.pop();
+  const popped = shapes.value.pop();
+  if (popped) {
+    undoneShapes.value.push(popped);
+    // keep number counter in sync if we just undid a number shape
+    if (popped.tool === 'number') {
+      nextNumber.value = Math.max(1, nextNumber.value - 1);
+    }
+  }
+  redraw();
+}
+
+function redo() {
+  const popped = undoneShapes.value.pop();
+  if (popped) {
+    shapes.value.push(popped);
+    if (popped.tool === 'number') {
+      nextNumber.value = Math.max(nextNumber.value, (popped.number ?? 0) + 1);
+    }
+  }
   redraw();
 }
 
 function reselect() {
   selection.value = null;
   shapes.value = [];
+  undoneShapes.value = [];
+  nextNumber.value = 1;
   dragStart.value = null;
   dragEnd.value = null;
 }
 
-async function cancel() {
-  await invoke('close_capture_overlay').catch(() => {});
-  resetState();
-}
-
-function resetState() {
-  selection.value = null;
-  shapes.value = [];
-  dragStart.value = null;
-  dragEnd.value = null;
-  textValue.value = '';
-  textPending.value = null;
-}
-
-async function confirm() {
-  if (!selection.value) return;
+async function composeCanvas(): Promise<HTMLCanvasElement | null> {
   const sel = selection.value;
-  // Compose: crop the region from the desktop image, then draw the annotations on top.
+  if (!sel) return null;
   const out = document.createElement('canvas');
   out.width = Math.round(sel.w * scale.value);
   out.height = Math.round(sel.h * scale.value);
   const ctx = out.getContext('2d');
-  if (!ctx) return;
-
+  if (!ctx) return null;
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise<void>((resolve, reject) => {
@@ -353,15 +462,53 @@ async function confirm() {
     out.width,
     out.height
   );
-  const s = scale.value;
   for (const shape of shapes.value) {
-    drawShape(ctx, shape, s);
+    drawShape(ctx, shape, scale.value);
   }
+  return out;
+}
 
-  const dataUrl = out.toDataURL('image/png');
+async function saveToFile() {
+  const canvas = await composeCanvas();
+  if (!canvas) return;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const target = await saveDialog({
+    defaultPath: `attool-${ts}.png`,
+    filters: [{ name: 'PNG', extensions: ['png'] }]
+  }).catch(() => null);
+  if (!target) return;
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  await invoke('write_binary_file', { path: target, base64 }).catch((err) => {
+    console.warn('[capture] save failed', err);
+  });
+  await invoke('close_capture_overlay').catch(() => {});
+  resetState();
+}
+
+async function cancel() {
+  await invoke('close_capture_overlay').catch(() => {});
+  resetState();
+}
+
+function resetState() {
+  selection.value = null;
+  shapes.value = [];
+  undoneShapes.value = [];
+  nextNumber.value = 1;
+  dragStart.value = null;
+  dragEnd.value = null;
+  textValue.value = '';
+  textPending.value = null;
+  pencilPoints.value = [];
+}
+
+async function confirm() {
+  const canvas = await composeCanvas();
+  if (!canvas) return;
+  const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
 
-  // Write to system clipboard as image
   try {
     const bytes = atob(base64)
       .split('')
@@ -370,8 +517,6 @@ async function confirm() {
   } catch (err) {
     console.warn('[capture] clipboard write failed', err);
   }
-
-  // Persist to file + emit capture-completed to main window
   await invoke('commit_capture_overlay', { request: { pngBase64: base64 } }).catch((err) => {
     console.warn('[capture] commit failed', err);
   });
@@ -380,7 +525,6 @@ async function confirm() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  // When the text input is active, its own handlers deal with Enter / Esc.
   if (textPending.value) return;
   if (event.key === 'Escape') {
     event.preventDefault();
@@ -388,9 +532,15 @@ function onKeydown(event: KeyboardEvent) {
   } else if ((event.metaKey || event.ctrlKey) && (event.key === 'Enter' || event.key === 'Return')) {
     event.preventDefault();
     if (hasSelection.value) confirm();
+  } else if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    redo();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     undo();
+  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    if (hasSelection.value) saveToFile();
   }
 }
 
@@ -463,8 +613,12 @@ onUnmounted(() => {
     <div v-if="selection" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <div class="tools">
         <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">▢</button>
+        <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">○</button>
+        <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">/</button>
         <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">↗</button>
+        <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">✎</button>
         <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">T</button>
+        <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">①</button>
       </div>
       <div class="palette">
         <button
@@ -483,7 +637,9 @@ onUnmounted(() => {
       </div>
       <div class="ops">
         <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">↺</button>
+        <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">↻</button>
         <button @click="reselect" title="重选">◇</button>
+        <button @click="saveToFile" title="保存到文件 ⌘S">⬇</button>
         <button class="cancel" @click="cancel" title="取消 Esc">✕</button>
         <button class="confirm" @click="confirm" title="完成 ⌘↩">✓</button>
       </div>
