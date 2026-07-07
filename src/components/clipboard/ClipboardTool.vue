@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { NButton, NInput, NInputNumber, NPopconfirm, NSelect, NSwitch } from 'naive-ui';
+import { NButton, NInput, NInputNumber, NPopconfirm, NSelect, NSwitch, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
@@ -9,6 +9,7 @@ import { DEFAULT_CLIPBOARD_SHORTCUT, formatShortcutLabel } from '../../utils/cli
 import type { ClipboardHistoryItem, ClipboardHistorySettings } from '../../types/clipboard';
 
 const history = useClipboardHistory();
+const message = useMessage();
 const shortcutLabel = formatShortcutLabel(DEFAULT_CLIPBOARD_SHORTCUT);
 const settings = ref<ClipboardHistorySettings>({
   captureEnabled: true,
@@ -17,7 +18,12 @@ const settings = ref<ClipboardHistorySettings>({
 });
 
 async function restore(item: ClipboardHistoryItem) {
-  await history.restoreItem(item.id);
+  try {
+    await history.restoreItem(item.id);
+    message.success('已复制到剪贴板');
+  } catch (error) {
+    message.error(`复制失败：${error}`);
+  }
 }
 
 async function loadSettings() {

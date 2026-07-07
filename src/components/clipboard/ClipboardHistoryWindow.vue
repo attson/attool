@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { NButton, NInput, NSelect } from 'naive-ui';
+import { NButton, NInput, NSelect, useMessage } from 'naive-ui';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
 import type { ClipboardHistoryItem } from '../../types/clipboard';
 
 const history = useClipboardHistory();
+const message = useMessage();
 const currentWindow = getCurrentWindow();
 
 async function restore(item: ClipboardHistoryItem) {
-  await history.restoreItem(item.id);
-  await closeWindow();
+  try {
+    await history.restoreItem(item.id);
+    message.success('已复制到剪贴板');
+    // 让 toast 有时间显示，再关闭快捷面板
+    setTimeout(closeWindow, 400);
+  } catch (error) {
+    message.error(`复制失败：${error}`);
+  }
 }
 
 async function closeWindow() {
