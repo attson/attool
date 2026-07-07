@@ -358,19 +358,18 @@ async function openTaskFolder(id: string) {
                     />
                   </label>
 
-                  <div class="row2">
-                    <label class="field">
-                      <span class="lbl">保存目录</span>
-                      <n-input-group>
-                        <n-input v-model:value="downloadDir" placeholder="/Users/you/Downloads" />
-                        <n-button secondary :loading="choosingDir" @click="chooseDownloadDir">选择文件夹</n-button>
-                      </n-input-group>
-                    </label>
-                    <label class="field">
-                      <span class="lbl">文件名（仅单个链接时生效）</span>
-                      <n-input v-model:value="fileName" placeholder="archive.zip" />
-                    </label>
-                  </div>
+                  <label class="field">
+                    <span class="lbl">保存目录</span>
+                    <n-input-group>
+                      <n-input v-model:value="downloadDir" placeholder="/Users/you/Downloads" />
+                      <n-button secondary :loading="choosingDir" @click="chooseDownloadDir">选择文件夹</n-button>
+                    </n-input-group>
+                  </label>
+
+                  <label class="field">
+                    <span class="lbl">文件名（仅单个链接时生效）</span>
+                    <n-input v-model:value="fileName" placeholder="archive.zip" />
+                  </label>
 
                   <div class="row3">
                     <label class="field">
@@ -478,7 +477,6 @@ async function openTaskFolder(id: string) {
   font-size: var(--fs-xxs);
   color: var(--text-muted);
 }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
 .notice-alert { margin-bottom: 4px; }
