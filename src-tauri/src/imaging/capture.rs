@@ -7,13 +7,6 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
-pub const CAPTURE_EVENT: &str = "capture-completed";
-
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CaptureEventPayload {
-    output_path: String,
-}
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -254,13 +247,9 @@ pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathB
         let _ = overlay.hide();
     }
 
-    // Notify main window (App.vue listens for capture-completed)
-    let _ = app.emit(
-        CAPTURE_EVENT,
-        CaptureEventPayload {
-            output_path: path.to_string_lossy().into_owned(),
-        },
-    );
+    // NB: don't emit capture-completed here — the user already annotated in the overlay
+    // and just wants the image on the clipboard. Full-screen / window modes still emit
+    // and jump the main window to the annotate tab; overlay mode is terminal.
 
     Ok(path)
 }

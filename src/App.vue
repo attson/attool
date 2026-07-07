@@ -19,7 +19,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import ClipboardHistoryWindow from './components/clipboard/ClipboardHistoryWindow.vue';
 import ClipboardTool from './components/clipboard/ClipboardTool.vue';
-import { setPendingAnnotateImage, requestImageTab } from './components/image/imageBus';
 import AppShell from './components/shell/AppShell.vue';
 import Dashboard from './components/shell/Dashboard.vue';
 import StatPill from './components/ui/StatPill.vue';
@@ -92,7 +91,6 @@ const initialToolId = (() => {
 const selectedToolId = ref<string | null>(initialToolId);
 
 let unlistenProgress: Promise<UnlistenFn> | undefined;
-let unlistenCapture: Promise<UnlistenFn> | undefined;
 let unlistenCaptureFail: Promise<UnlistenFn> | undefined;
 
 onMounted(() => {
@@ -128,13 +126,6 @@ onMounted(() => {
     );
   });
 
-  unlistenCapture = listen<{ outputPath: string }>('capture-completed', (event) => {
-    const path = event.payload.outputPath;
-    setPendingAnnotateImage(path);
-    requestImageTab('annotate');
-    selectedToolId.value = 'image';
-    rememberLastTool('image');
-  });
   unlistenCaptureFail = listen<string>('capture-failed', (event) => {
     // 用户按 Esc 取消不算错误，就直接静默；其它错误在控制台留个痕迹
     const msg = event.payload;
@@ -164,7 +155,6 @@ function handleHotkey(event: KeyboardEvent) {
 
 onUnmounted(() => {
   unlistenProgress?.then((dispose) => dispose()).catch(() => undefined);
-  unlistenCapture?.then((dispose) => dispose()).catch(() => undefined);
   unlistenCaptureFail?.then((dispose) => dispose()).catch(() => undefined);
   window.removeEventListener('keydown', handleHotkey);
 });
