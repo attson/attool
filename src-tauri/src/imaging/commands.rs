@@ -1,4 +1,8 @@
-use super::capture::capture_screen as run_capture;
+use super::capture::{
+    capture_screen as run_capture, current_shortcut as current_capture_shortcut,
+    reregister_capture_shortcut, DEFAULT_CAPTURE_SHORTCUT,
+};
+use tauri::AppHandle;
 use super::compress::compress_image as run_compress;
 use super::convert::convert_image as run_convert;
 use super::exif::{read_exif as run_read_exif, strip_exif as run_strip_exif};
@@ -246,6 +250,38 @@ pub async fn capture_screen(request: CaptureRequest) -> Result<CaptureResponse, 
     let path = run_capture(&request.mode, request.delay_seconds.unwrap_or(0).min(10))?;
     Ok(CaptureResponse {
         output_path: path.to_string_lossy().into_owned(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureShortcutInfo {
+    pub shortcut: String,
+    pub default_shortcut: String,
+}
+
+#[tauri::command]
+pub fn get_capture_shortcut() -> CaptureShortcutInfo {
+    let current = current_capture_shortcut();
+    CaptureShortcutInfo {
+        shortcut: if current.is_empty() {
+            DEFAULT_CAPTURE_SHORTCUT.to_string()
+        } else {
+            current
+        },
+        default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
+    }
+}
+
+#[tauri::command]
+pub async fn set_capture_shortcut(
+    app: AppHandle,
+    shortcut: String,
+) -> Result<CaptureShortcutInfo, String> {
+    reregister_capture_shortcut(&app, &shortcut)?;
+    Ok(CaptureShortcutInfo {
+        shortcut,
+        default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
     })
 }
 
