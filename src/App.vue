@@ -44,7 +44,7 @@ const tools: Tool[] = [
   { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout' },
   { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard' },
   { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code' },
-  { id: 'douyin',    name: '抖音链接提取',   description: '从分享文案中提取 v.douyin.com 短链',   status: 'ready', icon: 'video' },
+  { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video' },
   { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image' },
   { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon',  icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon',  icon: 'wifi' },
@@ -426,7 +426,7 @@ async function openTaskFolder(id: string) {
           <JsonTool />
         </template>
 
-        <template v-else-if="selectedTool.id === 'douyin'">
+        <template v-else-if="selectedTool.id === 'video-link'">
           <DouyinTool @request-navigate="handleDouyinNavigate" />
         </template>
 

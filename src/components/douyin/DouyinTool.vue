@@ -214,8 +214,11 @@ const allCopyDisabled = computed(() => hasPending.value);
 <template>
   <div class="page">
     <header class="page-header">
-      <h2>抖音链接提取</h2>
-      <p>从抖音 App 分享文案中提取 v.douyin.com 短链，跟踪 302 后再抓真实视频 mp4 直链，可一键送入 Aria2 下载。</p>
+      <h2>视频链接抽取</h2>
+      <p>
+        从分享文案中识别多平台视频短链、跟踪 302 抓真实视频 mp4 直链，一键送入 Aria2 下载。
+        <span class="platform-status">目前支持 抖音。小红书 / B 站 / YouTube 建设中。</span>
+      </p>
     </header>
 
     <Panel title="分享文案">
@@ -302,6 +305,11 @@ const allCopyDisabled = computed(() => hasPending.value);
   margin: 0;
   color: var(--text-muted);
   font-size: var(--fs-xs);
+}
+.platform-status {
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: 4px;
 }
 
 .form { display: grid; gap: 12px; }
