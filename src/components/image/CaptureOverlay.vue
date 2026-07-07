@@ -49,7 +49,11 @@ const shapes = ref<Shape[]>([]);
 const drawing = ref(false);
 const drawStart = ref<{ x: number; y: number } | null>(null);
 const drawEnd = ref<{ x: number; y: number } | null>(null);
-const showTextInput = ref(false);
+
+// Text input position — non-null while user is typing a new text label at that spot.
+// Coordinates are in canvas-pixel space (already scaled). We translate to viewport CSS coords for the input box.
+const textPending = ref<{ canvasX: number; canvasY: number; cssLeft: number; cssTop: number } | null>(null);
+const textInputRef = ref<HTMLInputElement | null>(null);
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
@@ -153,26 +157,50 @@ function onCanvasMouseDown(event: MouseEvent) {
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
   if (tool.value === 'text') {
-    if (!textValue.value.trim()) {
-      showTextInput.value = true;
-      return;
+    // Every click opens a fresh input at the click location. If one's already open,
+    // commit it first at its own spot before opening a new one.
+    if (textPending.value && textValue.value.trim()) {
+      commitPendingText();
     }
-    shapes.value.push({
-      tool: 'text',
-      x1: p.x,
-      y1: p.y,
-      x2: p.x,
-      y2: p.y,
-      color: color.value,
-      lineWidth: lineWidth.value,
-      text: textValue.value
-    });
-    redraw();
+    textValue.value = '';
+    textPending.value = {
+      canvasX: p.x,
+      canvasY: p.y,
+      cssLeft: event.clientX,
+      cssTop: event.clientY
+    };
+    // Focus the input on the next tick
+    requestAnimationFrame(() => textInputRef.value?.focus());
     return;
   }
   drawing.value = true;
   drawStart.value = p;
   drawEnd.value = p;
+}
+
+function commitPendingText() {
+  const pos = textPending.value;
+  const value = textValue.value.trim();
+  if (pos && value) {
+    shapes.value.push({
+      tool: 'text',
+      x1: pos.canvasX,
+      y1: pos.canvasY,
+      x2: pos.canvasX,
+      y2: pos.canvasY,
+      color: color.value,
+      lineWidth: lineWidth.value,
+      text: value
+    });
+    redraw();
+  }
+  textPending.value = null;
+  textValue.value = '';
+}
+
+function cancelPendingText() {
+  textPending.value = null;
+  textValue.value = '';
 }
 
 function onCanvasMouseMove(event: MouseEvent) {
@@ -294,7 +322,7 @@ function resetState() {
   dragStart.value = null;
   dragEnd.value = null;
   textValue.value = '';
-  showTextInput.value = false;
+  textPending.value = null;
 }
 
 async function confirm() {
@@ -352,6 +380,8 @@ async function confirm() {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  // When the text input is active, its own handlers deal with Enter / Esc.
+  if (textPending.value) return;
   if (event.key === 'Escape') {
     event.preventDefault();
     cancel();
@@ -362,10 +392,6 @@ function onKeydown(event: KeyboardEvent) {
     event.preventDefault();
     undo();
   }
-}
-
-function commitTextInput() {
-  showTextInput.value = false;
 }
 
 onMounted(async () => {
@@ -463,11 +489,24 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Text input mini-dialog for text tool -->
-    <div v-if="showTextInput && selection" class="text-modal" @mousedown.stop>
-      <input v-model="textValue" placeholder="输入文字，回车确定" @keydown.enter="commitTextInput" @keydown.esc="showTextInput = false" autofocus />
-      <button @click="commitTextInput">确定</button>
-    </div>
+    <!-- Floating text input anchored to the click point, always fresh per click -->
+    <input
+      v-if="textPending"
+      ref="textInputRef"
+      v-model="textValue"
+      class="text-input"
+      :style="{
+        left: textPending.cssLeft + 'px',
+        top: textPending.cssTop + 'px',
+        color: color,
+        fontSize: Math.max(14, lineWidth * 6) + 'px'
+      }"
+      placeholder="输入文字，回车下笔，Esc 取消"
+      @keydown.enter.stop="commitPendingText"
+      @keydown.esc.stop="cancelPendingText"
+      @mousedown.stop
+      @blur="commitPendingText"
+    />
 
     <!-- Instructions when nothing selected yet -->
     <div v-if="!selection && !isSelecting" class="hint-banner">
@@ -585,35 +624,17 @@ onUnmounted(() => {
   background: currentColor;
   border-radius: 50%;
 }
-.text-modal {
+.text-input {
   position: absolute;
-  left: 50%;
-  top: 40%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  gap: 6px;
-  padding: 12px;
-  background: rgba(30, 30, 30, 0.95);
-  border-radius: 6px;
-  z-index: 30;
-}
-.text-modal input {
-  min-width: 240px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  font-size: 14px;
+  min-width: 100px;
+  padding: 2px 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
   outline: none;
-}
-.text-modal button {
-  padding: 6px 14px;
-  border: none;
-  border-radius: 4px;
-  background: #3b82f6;
-  color: #fff;
-  cursor: pointer;
+  z-index: 25;
+  transform: translateY(-2px);
 }
 .hint-banner {
   position: absolute;
