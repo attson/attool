@@ -8,7 +8,8 @@ export type ToolIconId =
   | 'wifi'
   | 'hash'
   | 'code'
-  | 'video';
+  | 'video'
+  | 'image';
 
 export interface Tool {
   id: string;
