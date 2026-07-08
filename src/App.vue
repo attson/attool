@@ -43,6 +43,7 @@ const NetworkTool = defineAsyncComponent(() => import('./components/network/Netw
 const TextTool = defineAsyncComponent(() => import('./components/text/TextTool.vue'));
 const GeneratorTool = defineAsyncComponent(() => import('./components/generator/GeneratorTool.vue'));
 const TimeTool = defineAsyncComponent(() => import('./components/time/TimeTool.vue'));
+const HttpTool = defineAsyncComponent(() => import('./components/http/HttpTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
@@ -55,7 +56,8 @@ const tools: Tool[] = [
   { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' },
   { id: 'generator', name: '生成器',         description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',  status: 'ready', icon: 'dice' },
-  { id: 'time',      name: '时间工具',       description: '时间戳 / 时区 / Cron / Duration',      status: 'ready', icon: 'clock' }
+  { id: 'time',      name: '时间工具',       description: '时间戳 / 时区 / Cron / Duration',      status: 'ready', icon: 'clock' },
+  { id: 'http',      name: 'HTTP 请求',      description: 'GET/POST/... + headers / body / 响应',   status: 'ready', icon: 'send' }
 ];
 
 const currentWindow = getCurrentWindow();
@@ -571,6 +573,10 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'time'">
           <TimeTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'http'">
+          <HttpTool />
         </template>
       </AppShell>
 

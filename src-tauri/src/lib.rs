@@ -2,6 +2,7 @@ mod bilibili;
 mod clipboard;
 mod douyin;
 pub mod ecommerce;
+mod http;
 pub mod imaging;
 pub mod network;
 mod qrcode;
@@ -1005,6 +1006,11 @@ async fn extract_xhs_note(url: String) -> Result<xhs::XhsNoteInfo, String> {
 }
 
 #[tauri::command]
+async fn send_http(request: http::HttpRequestSpec) -> Result<http::HttpResponseInfo, String> {
+    http::send(request).await
+}
+
+#[tauri::command]
 async fn generate_qr_png(
     text: String,
     ec_level: Option<String>,
@@ -1550,6 +1556,7 @@ pub fn run() {
             extract_bilibili_video,
             extract_youtube_video,
             generate_qr_png,
+            send_http,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,
