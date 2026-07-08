@@ -4,11 +4,22 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
+interface WindowRect {
+  owner: string;
+  title: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  layer: number;
+}
+
 interface InitPayload {
   imagePath: string;
   screenWidth: number;
   screenHeight: number;
   scaleFactor: number;
+  windows: WindowRect[];
 }
 
 type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
@@ -50,6 +61,20 @@ const selection = ref<Rect | null>(null);
 const isSelecting = ref(false);
 const dragStart = ref<{ x: number; y: number } | null>(null);
 const dragEnd = ref<{ x: number; y: number } | null>(null);
+
+const windowList = ref<WindowRect[]>([]);
+const hoveredWindow = ref<WindowRect | null>(null);
+const cursor = ref<{ x: number; y: number } | null>(null);
+
+/** Front-most window (smallest index in the list) containing point (px, py). */
+function windowAt(px: number, py: number): WindowRect | null {
+  for (const w of windowList.value) {
+    if (px >= w.x && px <= w.x + w.w && py >= w.y && py <= w.y + w.h) {
+      return w;
+    }
+  }
+  return null;
+}
 
 const tool = ref<Tool>('rect');
 const color = ref('#ef4444');
@@ -179,15 +204,19 @@ function screenPos(event: MouseEvent) {
 }
 
 function onOverlayMouseDown(event: MouseEvent) {
-  if (selection.value) return; // Already have a selection; drawing is scoped to canvas layer
+  if (selection.value) return;
   isSelecting.value = true;
   dragStart.value = screenPos(event);
   dragEnd.value = dragStart.value;
 }
 
 function onOverlayMouseMove(event: MouseEvent) {
+  const p = screenPos(event);
+  cursor.value = p;
   if (isSelecting.value) {
-    dragEnd.value = screenPos(event);
+    dragEnd.value = p;
+  } else if (!selection.value) {
+    hoveredWindow.value = windowAt(p.x, p.y);
   }
 }
 
@@ -195,17 +224,29 @@ function onOverlayMouseUp(event: MouseEvent) {
   if (!isSelecting.value || !dragStart.value) return;
   isSelecting.value = false;
   dragEnd.value = screenPos(event);
+  const dx = Math.abs(dragEnd.value.x - dragStart.value.x);
+  const dy = Math.abs(dragEnd.value.y - dragStart.value.y);
+  // Treat a click (no meaningful drag) on a hovered window as "snap to window".
+  if (dx < 5 && dy < 5 && hoveredWindow.value) {
+    const win = hoveredWindow.value;
+    selection.value = { x: win.x, y: win.y, w: win.w, h: win.h };
+    dragStart.value = null;
+    dragEnd.value = null;
+    hoveredWindow.value = null;
+    requestAnimationFrame(setupCanvas);
+    return;
+  }
   const x = Math.min(dragStart.value.x, dragEnd.value.x);
   const y = Math.min(dragStart.value.y, dragEnd.value.y);
-  const w = Math.abs(dragEnd.value.x - dragStart.value.x);
-  const h = Math.abs(dragEnd.value.y - dragStart.value.y);
+  const w = dx;
+  const h = dy;
   if (w < 5 || h < 5) {
     dragStart.value = null;
     dragEnd.value = null;
     return;
   }
   selection.value = { x, y, w, h };
-  // Prepare drawing canvas sized to selection
+  hoveredWindow.value = null;
   requestAnimationFrame(setupCanvas);
 }
 
@@ -626,6 +667,7 @@ function resetState() {
   textValue.value = '';
   textPending.value = null;
   pencilPoints.value = [];
+  hoveredWindow.value = null;
 }
 
 async function confirm() {
@@ -679,7 +721,7 @@ onMounted(async () => {
     screenW.value = p.screenWidth;
     screenH.value = p.screenHeight;
     scale.value = p.scaleFactor;
-    // Reset for a fresh session
+    windowList.value = p.windows ?? [];
     resetState();
   });
 });
@@ -718,6 +760,27 @@ onUnmounted(() => {
     <!-- Size label on top-left of selection -->
     <div v-if="previewRect" class="size-label" :style="sizeLabelStyle">
       {{ Math.round(previewRect.w) }} × {{ Math.round(previewRect.h) }}
+    </div>
+
+    <!-- Window highlight (only before user starts dragging / makes a selection) -->
+    <div
+      v-if="hoveredWindow && !selection && !isSelecting"
+      class="window-hint"
+      :style="{
+        left: hoveredWindow.x + 'px',
+        top: hoveredWindow.y + 'px',
+        width: hoveredWindow.w + 'px',
+        height: hoveredWindow.h + 'px'
+      }"
+    />
+    <div
+      v-if="hoveredWindow && !selection && !isSelecting"
+      class="window-label"
+      :style="{ left: hoveredWindow.x + 'px', top: Math.max(6, hoveredWindow.y - 22) + 'px' }"
+    >
+      <span class="mono">{{ hoveredWindow.owner }}</span>
+      <span v-if="hoveredWindow.title" class="title">— {{ hoveredWindow.title }}</span>
+      <span class="hint-key">click 选中</span>
     </div>
 
     <!-- Drawing canvas: sized/positioned exactly over the selection -->
@@ -848,6 +911,40 @@ onUnmounted(() => {
   border-radius: 3px;
   pointer-events: none;
   z-index: 10;
+}
+.window-hint {
+  position: absolute;
+  border: 2px solid rgba(59, 130, 246, 0.9);
+  background: rgba(59, 130, 246, 0.12);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 3;
+  border-radius: 2px;
+}
+.window-label {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  background: rgba(59, 130, 246, 0.9);
+  color: #fff;
+  font-size: 11px;
+  font-family: -apple-system, "PingFang SC", sans-serif;
+  border-radius: 3px;
+  max-width: 60vw;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 11;
+}
+.window-label .title { opacity: 0.85; }
+.window-label .hint-key {
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  font-size: 10px;
 }
 .draw-canvas {
   position: absolute;

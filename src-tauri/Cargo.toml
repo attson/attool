@@ -38,3 +38,7 @@ percent-encoding = "2"
 url = "2"
 kamadak-exif = "0.5"
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+core-foundation = "0.10"

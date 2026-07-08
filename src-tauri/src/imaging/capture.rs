@@ -133,6 +133,7 @@ struct OverlayInitPayload {
     screen_width: f64,
     screen_height: f64,
     scale_factor: f64,
+    windows: Vec<super::windows::WindowRect>,
 }
 
 /// Take a silent full-desktop screenshot and hand it to the transparent overlay window,
@@ -202,6 +203,7 @@ pub fn open_capture_overlay(app: &AppHandle) -> Result<(), String> {
         screen_width: logical_width,
         screen_height: logical_height,
         scale_factor: scale,
+        windows: super::windows::list_visible_windows(scale),
     };
     let _ = overlay.emit("capture-overlay-init", payload.clone());
 

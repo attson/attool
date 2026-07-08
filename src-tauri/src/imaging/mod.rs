@@ -4,3 +4,4 @@ pub mod compress;
 pub mod convert;
 pub mod exif;
 pub mod ocr;
+pub mod windows;
