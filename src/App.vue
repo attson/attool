@@ -49,7 +49,7 @@ const tools: Tool[] = [
   { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code' },
   { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video' },
   { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image' },
-  { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取',   status: 'ready', icon: 'type' },
+  { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比', status: 'ready', icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' }
 ];

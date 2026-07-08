@@ -6,6 +6,7 @@ import SortPane from './SortPane.vue';
 import CasePane from './CasePane.vue';
 import SplitJoinPane from './SplitJoinPane.vue';
 import ExtractPane from './ExtractPane.vue';
+import DiffPane from './DiffPane.vue';
 
 const tab = ref('clean');
 </script>
@@ -27,6 +28,9 @@ const tab = ref('clean');
       </n-tab-pane>
       <n-tab-pane name="extract" tab="抽取">
         <div class="pane-wrap"><ExtractPane /></div>
+      </n-tab-pane>
+      <n-tab-pane name="diff" tab="对比">
+        <div class="pane-wrap"><DiffPane /></div>
       </n-tab-pane>
     </n-tabs>
   </div>

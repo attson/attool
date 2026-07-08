@@ -4,8 +4,10 @@ import {
   changeCase,
   cleanText,
   computeStats,
+  diffSummary,
   extractMatches,
   joinWith,
+  lineDiff,
   sortLines,
   splitBy
 } from './textTools';
@@ -103,6 +105,40 @@ describe('extractMatches', () => {
   it('extracts IPv4', () => {
     const ips = extractMatches('192.168.1.1 and 999.999.999.999 and 8.8.8.8', BUILTIN_PATTERNS.IPv4);
     expect(ips).toEqual(['192.168.1.1', '8.8.8.8']);
+  });
+});
+
+describe('lineDiff', () => {
+  it('reports identical text', () => {
+    const d = lineDiff('a\nb\nc', 'a\nb\nc');
+    expect(d.every((l) => l.type === 'equal')).toBe(true);
+    expect(diffSummary(d).identical).toBe(true);
+  });
+  it('reports pure addition', () => {
+    const d = lineDiff('a\nb', 'a\nb\nc');
+    const summary = diffSummary(d);
+    expect(summary.added).toBe(1);
+    expect(summary.removed).toBe(0);
+    expect(d[d.length - 1]).toEqual({ type: 'add', text: 'c', lineNumB: 3 });
+  });
+  it('reports pure removal', () => {
+    const d = lineDiff('a\nb\nc', 'a\nb');
+    const summary = diffSummary(d);
+    expect(summary.added).toBe(0);
+    expect(summary.removed).toBe(1);
+  });
+  it('reports substitution as remove+add', () => {
+    const d = lineDiff('a\nb\nc', 'a\nX\nc');
+    const s = diffSummary(d);
+    expect(s.added).toBe(1);
+    expect(s.removed).toBe(1);
+    expect(s.equal).toBe(2);
+  });
+  it('preserves line numbering', () => {
+    const d = lineDiff('a\nb\nc', 'a\nX\nc');
+    const cLine = d.find((l) => l.text === 'c');
+    expect(cLine?.lineNumA).toBe(3);
+    expect(cLine?.lineNumB).toBe(3);
   });
 });
 

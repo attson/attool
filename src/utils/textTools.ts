@@ -171,6 +171,73 @@ export interface TextStats {
   ascii: number;
 }
 
+// ---------- line diff (LCS backtrack) ----------
+
+export type DiffLineType = 'equal' | 'add' | 'remove';
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+  /** 1-based line number in the left (original) side, when applicable. */
+  lineNumA?: number;
+  /** 1-based line number in the right (new) side, when applicable. */
+  lineNumB?: number;
+}
+
+export function lineDiff(a: string, b: string): DiffLine[] {
+  const aLines = a.split(/\r?\n/);
+  const bLines = b.split(/\r?\n/);
+  const m = aLines.length;
+  const n = bLines.length;
+
+  // dp[i][j] = LCS length of aLines[0..i) and bLines[0..j)
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (aLines[i - 1] === bLines[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const result: DiffLine[] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && aLines[i - 1] === bLines[j - 1]) {
+      result.push({ type: 'equal', text: aLines[i - 1], lineNumA: i, lineNumB: j });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.push({ type: 'add', text: bLines[j - 1], lineNumB: j });
+      j--;
+    } else if (i > 0) {
+      result.push({ type: 'remove', text: aLines[i - 1], lineNumA: i });
+      i--;
+    }
+  }
+  result.reverse();
+  return result;
+}
+
+export interface DiffSummary {
+  added: number;
+  removed: number;
+  equal: number;
+  identical: boolean;
+}
+
+export function diffSummary(lines: DiffLine[]): DiffSummary {
+  let added = 0;
+  let removed = 0;
+  let equal = 0;
+  for (const l of lines) {
+    if (l.type === 'add') added++;
+    else if (l.type === 'remove') removed++;
+    else equal++;
+  }
+  return { added, removed, equal, identical: added === 0 && removed === 0 };
+}
+
 export function computeStats(input: string): TextStats {
   const bytes = new TextEncoder().encode(input).length;
   const lines = input === '' ? 0 : input.split(/\r?\n/).length;
