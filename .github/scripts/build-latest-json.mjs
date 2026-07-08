@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 // Generate Tauri updater latest.json from a flat dir of staged + renamed bundles.
 //
-// Usage: node build-latest-json.mjs <staging-dir> <tag> <repo>
+// Usage: node build-latest-json.mjs <staging-dir> <tag> <repo> [urlPrefix]
 //   staging-dir: directory holding renamed bundle files + their .sig siblings
 //   tag:         git tag (e.g. v0.2.0)
 //   repo:        owner/repo (e.g. attson/attool)
+//   urlPrefix:   optional prefix (e.g. https://ghfast.top/) — prepended to every
+//                artifact URL to route downloads through a mirror. Empty string
+//                (default) = plain github.com URLs.
 //
 // Looks for bundles by suffix and emits the JSON to stdout.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [, , staging, tag, repo] = process.argv;
+const [, , staging, tag, repo, urlPrefixArg] = process.argv;
 if (!staging || !tag || !repo) {
-  console.error('usage: build-latest-json.mjs <staging-dir> <tag> <repo>');
+  console.error('usage: build-latest-json.mjs <staging-dir> <tag> <repo> [urlPrefix]');
   process.exit(1);
 }
+const urlPrefix = urlPrefixArg ?? '';
 
 const version = tag.replace(/^v/, '');
 const files = readdirSync(staging).filter((f) =>
@@ -23,9 +27,10 @@ const files = readdirSync(staging).filter((f) =>
 );
 
 function urlFor(filename) {
-  return `https://github.com/${repo}/releases/download/${tag}/${encodeURIComponent(
+  const gh = `https://github.com/${repo}/releases/download/${tag}/${encodeURIComponent(
     filename
   )}`;
+  return urlPrefix ? `${urlPrefix}${gh}` : gh;
 }
 
 function findBundleWithSig(suffix) {

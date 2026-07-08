@@ -101,7 +101,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Generate latest.json
+      - name: Generate latest.json (direct GitHub URLs)
         run: |
           node .github/scripts/build-latest-json.mjs \
             "${{ runner.temp }}/all-bundles" \
@@ -110,6 +110,17 @@ jobs:
             > "${{ runner.temp }}/all-bundles/latest.json"
           echo '--- latest.json ---'
           cat "${{ runner.temp }}/all-bundles/latest.json"
+
+      - name: Generate latest-mirror.json (routed through ghfast.top)
+        run: |
+          node .github/scripts/build-latest-json.mjs \
+            "${{ runner.temp }}/all-bundles" \
+            "${{ github.ref_name }}" \
+            "${{ github.repository }}" \
+            "https://ghfast.top/" \
+            > "${{ runner.temp }}/all-bundles/latest-mirror.json"
+          echo '--- latest-mirror.json ---'
+          cat "${{ runner.temp }}/all-bundles/latest-mirror.json"
 
       - name: Drop .sig files (embedded in latest.json already)
         run: rm -f "${{ runner.temp }}/all-bundles/"*.sig

@@ -10,14 +10,14 @@ function write(path, contents = 'bundle') {
   writeFileSync(path, contents);
 }
 
-function buildLatest(files) {
+function buildLatest(files, urlPrefix = '') {
   const dir = mkdtempSync(join(tmpdir(), 'attool-latest-'));
   for (const [name, contents] of Object.entries(files)) {
     write(join(dir, name), contents);
   }
-  const result = spawnSync('node', [script, dir, 'v0.2.0', 'attson/attool'], {
-    encoding: 'utf8',
-  });
+  const args = [script, dir, 'v0.2.0', 'attson/attool'];
+  if (urlPrefix) args.push(urlPrefix);
+  const result = spawnSync('node', args, { encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(`${result.stdout}\n${result.stderr}`);
   }
@@ -48,5 +48,20 @@ describe('build-latest-json.mjs', () => {
     expect(latest.platforms['windows-x86_64'].url).toBe(
       'https://github.com/attson/attool/releases/download/v0.2.0/AT%20Tool_0.2.0_amd64.exe'
     );
+  });
+
+  it('prepends url prefix to every artifact URL when supplied (mirror mode)', () => {
+    const latest = buildLatest(
+      {
+        'AT Tool_arm64.app.tar.gz': 'mac arm',
+        'AT Tool_arm64.app.tar.gz.sig': 'mac arm sig\n',
+      },
+      'https://ghfast.top/'
+    );
+    expect(latest.platforms['darwin-aarch64'].url).toBe(
+      'https://ghfast.top/https://github.com/attson/attool/releases/download/v0.2.0/AT%20Tool_arm64.app.tar.gz'
+    );
+    // Signature is unchanged — mirror only affects URLs.
+    expect(latest.platforms['darwin-aarch64'].signature).toBe('mac arm sig');
   });
 });
