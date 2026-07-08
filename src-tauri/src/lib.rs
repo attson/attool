@@ -3,6 +3,7 @@ mod clipboard;
 mod douyin;
 pub mod ecommerce;
 pub mod imaging;
+pub mod network;
 mod xhs;
 mod youtube;
 
@@ -1521,7 +1522,10 @@ pub fn run() {
             imaging::commands::commit_capture_overlay,
             imaging::commands::pin_capture_overlay,
             imaging::commands::copy_pin_image,
-            imaging::commands::copy_pin_to
+            imaging::commands::copy_pin_to,
+            network::commands::ping_host,
+            network::commands::check_ports,
+            network::commands::resolve_dns
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");

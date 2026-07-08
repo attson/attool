@@ -39,6 +39,7 @@ const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.v
 const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 const ImageTool = defineAsyncComponent(() => import('./components/image/ImageTool.vue'));
 const CodecTool = defineAsyncComponent(() => import('./components/codec/CodecTool.vue'));
+const NetworkTool = defineAsyncComponent(() => import('./components/network/NetworkTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
@@ -48,7 +49,7 @@ const tools: Tool[] = [
   { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video' },
   { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image' },
   { id: 'text',      name: '文本工具',       description: '去重、排序、分割、大小写转换',       status: 'soon',  icon: 'type' },
-  { id: 'network',   name: '网络工具',       description: 'Ping、端口检查、URL 分析',           status: 'soon',  icon: 'wifi' },
+  { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi' },
   { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' }
 ];
 
@@ -451,6 +452,10 @@ async function openTaskFolder(id: string) {
 
         <template v-else-if="selectedTool.id === 'codec'">
           <CodecTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'network'">
+          <NetworkTool />
         </template>
       </AppShell>
 
