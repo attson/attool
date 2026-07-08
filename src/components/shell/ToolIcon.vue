@@ -87,6 +87,12 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <circle cx="8" cy="16" r="1" fill="currentColor" />
       <circle cx="16" cy="16" r="1" fill="currentColor" />
     </template>
+
+    <!-- clock -->
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 15" />
+    </template>
   </svg>
 </template>
 
