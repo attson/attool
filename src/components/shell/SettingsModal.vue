@@ -58,6 +58,10 @@ const showProxy = computed({
         <span class="key">最新版本</span>
         <span class="val">{{ latestText }}</span>
       </div>
+      <div v-if="state.status === 'error' && state.error" class="error-block">
+        <span class="err-label">错误详情</span>
+        <pre class="err-msg mono">{{ state.error }}</pre>
+      </div>
       <div class="actions">
         <n-button :loading="state.status === 'checking'" @click="emit('check')">立即检查更新</n-button>
         <n-button
@@ -121,4 +125,27 @@ const showProxy = computed({
   padding-top: 6px;
 }
 .toggle-row input { cursor: pointer; }
+
+.error-block {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--error, #ef4444) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error, #ef4444) 30%, var(--line));
+  border-radius: var(--radius-sm);
+}
+.err-label {
+  font-size: var(--fs-xxs);
+  color: var(--error, #ef4444);
+}
+.err-msg {
+  margin: 0;
+  font-size: var(--fs-xxs);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
+.mono { font-family: var(--font-mono, ui-monospace, monospace); }
 </style>
