@@ -28,10 +28,19 @@ const props = defineProps<{ task: DownloadTask }>();
 const emit = defineEmits<{
   cancel: [id: string];
   openFolder: [id: string];
+  retry: [task: DownloadTask];
+  delete: [id: string];
 }>();
 
 const cancellable = computed(() => props.task.status === 'queued' || props.task.status === 'running');
 const openable = computed(() => props.task.status === 'completed');
+const retryable = computed(() => props.task.status === 'failed' || props.task.status === 'cancelled');
+const removable = computed(
+  () =>
+    props.task.status === 'completed' ||
+    props.task.status === 'failed' ||
+    props.task.status === 'cancelled'
+);
 const pct = computed(() => Math.round(Math.min(Math.max(props.task.progress, 0), 100)));
 
 const terminal = computed(
@@ -102,12 +111,18 @@ async function copyPath() {
       <button class="btn ghost" type="button" @click="copyPath">{{ pathCopyLabel }}</button>
     </div>
 
-    <footer v-if="cancellable || openable" class="actions">
+    <footer v-if="cancellable || openable || retryable || removable" class="actions">
       <button v-if="cancellable" class="btn ghost-warn" type="button" @click="emit('cancel', task.id)">
         取消任务
       </button>
+      <button v-if="retryable" class="btn ghost" type="button" @click="emit('retry', task)">
+        重试
+      </button>
       <button v-if="openable" class="btn ghost" type="button" @click="emit('openFolder', task.id)">
         打开文件夹
+      </button>
+      <button v-if="removable" class="btn ghost-warn" type="button" @click="emit('delete', task.id)">
+        删除
       </button>
     </footer>
   </article>

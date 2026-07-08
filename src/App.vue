@@ -170,6 +170,19 @@ const activeCount = computed(
 const completedCount = computed(() => tasks.value.filter((task) => task.status === 'completed').length);
 const selectedTool = computed(() => tools.find((tool) => tool.id === selectedToolId.value) ?? null);
 
+const taskSearch = ref('');
+const filteredTasks = computed(() => {
+  const q = taskSearch.value.trim().toLocaleLowerCase();
+  if (!q) return tasks.value;
+  return tasks.value.filter((t) => {
+    const haystack = [t.url, t.fileName ?? '', t.message ?? '', t.localPath ?? '']
+      .join('\n')
+      .toLocaleLowerCase();
+    return haystack.includes(q);
+  });
+});
+const hasCompleted = computed(() => tasks.value.some((t) => t.status === 'completed'));
+
 function selectTool(id: string) {
   const tool = tools.find((t) => t.id === id);
   if (!tool || tool.status !== 'ready') return;
@@ -310,6 +323,66 @@ async function openTaskFolder(id: string) {
     notice.value = String(error);
   }
 }
+
+async function retryTask(task: DownloadTask) {
+  notice.value = '';
+  submitting.value = true;
+  try {
+    const request: StartDownloadRequest = {
+      url: task.url,
+      downloadDir: task.downloadDir,
+      fileName: task.fileName ?? undefined,
+      connections: connections.value,
+      split: split.value,
+      minSplitSize: minSplitSize.value
+    };
+    const response = await invoke<{ id: string }>('start_download', { request });
+    tasks.value = [
+      {
+        id: response.id,
+        url: request.url,
+        downloadDir: request.downloadDir,
+        fileName: request.fileName,
+        status: 'queued',
+        progress: 0,
+        speed: null,
+        eta: null,
+        message: '任务已重新提交给 aria2',
+        createdAt: new Date().toLocaleTimeString(),
+        startedAt: null,
+        finishedAt: null,
+        localPath: null
+      },
+      ...tasks.value
+    ];
+  } catch (error) {
+    notice.value = String(error);
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function deleteTask(id: string) {
+  notice.value = '';
+  try {
+    await invoke('delete_download_task', { id });
+    tasks.value = tasks.value.filter((t) => t.id !== id);
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+
+async function clearCompleted() {
+  notice.value = '';
+  try {
+    const count = await invoke<number>('clear_completed_downloads');
+    if (count > 0) {
+      tasks.value = tasks.value.filter((t) => t.status !== 'completed');
+    }
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
 </script>
 
 <template>
@@ -415,15 +488,40 @@ async function openTaskFolder(id: string) {
               </Panel>
 
               <Panel title="任务队列">
-                <template #right><span class="mono">实时</span></template>
+                <template #right>
+                  <div class="queue-header-right">
+                    <n-button
+                      v-if="hasCompleted"
+                      size="tiny"
+                      secondary
+                      @click="clearCompleted"
+                    >
+                      清理已完成
+                    </n-button>
+                    <span class="mono">实时</span>
+                  </div>
+                </template>
+
+                <div v-if="tasks.length > 0" class="queue-toolbar">
+                  <n-input
+                    v-model:value="taskSearch"
+                    placeholder="搜索 URL / 文件名 / 路径 / 备注"
+                    clearable
+                    size="small"
+                  />
+                </div>
+
                 <div v-if="tasks.length === 0" class="empty">还没有下载任务</div>
+                <div v-else-if="filteredTasks.length === 0" class="empty">没有匹配的任务</div>
                 <div v-else class="tasks">
                   <TaskRow
-                    v-for="task in tasks"
+                    v-for="task in filteredTasks"
                     :key="task.id"
                     :task="task"
                     @cancel="cancelTask"
                     @open-folder="openTaskFolder"
+                    @retry="retryTask"
+                    @delete="deleteTask"
                   />
                 </div>
               </Panel>
@@ -511,6 +609,8 @@ async function openTaskFolder(id: string) {
 
 .notice-alert { margin-bottom: 4px; }
 
+.queue-header-right { display: flex; align-items: center; gap: 10px; }
+.queue-toolbar { margin-bottom: 8px; }
 .tasks { display: grid; gap: 6px; }
 .empty {
   padding: 60px 20px;

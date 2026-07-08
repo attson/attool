@@ -430,6 +430,30 @@ async fn open_download_folder(id: String, state: State<'_, DownloadTasks>) -> Re
 }
 
 #[tauri::command]
+async fn clear_completed_downloads(state: State<'_, DownloadTasks>) -> Result<u64, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || delete_completed_tasks(&db_path))
+        .await
+        .map_err(|error| format!("清理任务失败：{error}"))?
+}
+
+#[tauri::command]
+async fn delete_download_task(
+    id: String,
+    state: State<'_, DownloadTasks>,
+) -> Result<(), String> {
+    // Refuse to delete a task that is still active — cancel first.
+    let running = state.tasks.lock().await.contains_key(&id);
+    if running {
+        return Err("任务仍在运行，请先取消".to_string());
+    }
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || delete_download_task_by_id(&db_path, &id))
+        .await
+        .map_err(|error| format!("删除任务失败：{error}"))?
+}
+
+#[tauri::command]
 async fn batch_add_logo(request: BatchLogoRequest) -> Result<BatchLogoResult, String> {
     tauri::async_runtime::spawn_blocking(move || process_batch_add_logo(request))
         .await
@@ -832,6 +856,24 @@ fn load_download_tasks(db_path: &Path) -> Result<Vec<DownloadTaskRecord>, String
         tasks.push(row.map_err(|error| format!("读取任务记录失败：{error}"))?);
     }
     Ok(tasks)
+}
+
+fn delete_completed_tasks(db_path: &Path) -> Result<u64, String> {
+    let connection =
+        Connection::open(db_path).map_err(|error| format!("打开任务数据库失败：{error}"))?;
+    let count = connection
+        .execute("DELETE FROM download_tasks WHERE status = 'completed'", [])
+        .map_err(|error| format!("清理已完成任务失败：{error}"))?;
+    Ok(count as u64)
+}
+
+fn delete_download_task_by_id(db_path: &Path, id: &str) -> Result<(), String> {
+    let connection =
+        Connection::open(db_path).map_err(|error| format!("打开任务数据库失败：{error}"))?;
+    connection
+        .execute("DELETE FROM download_tasks WHERE id = ?1", params![id])
+        .map_err(|error| format!("删除任务失败：{error}"))?;
+    Ok(())
 }
 
 fn find_download_dir(db_path: &Path, id: &str) -> Result<String, String> {
@@ -1479,6 +1521,8 @@ pub fn run() {
             list_download_tasks,
             start_download,
             cancel_download,
+            clear_completed_downloads,
+            delete_download_task,
             open_download_folder,
             open_external_url,
             resolve_douyin_url,
