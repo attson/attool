@@ -41,6 +41,7 @@ const ImageTool = defineAsyncComponent(() => import('./components/image/ImageToo
 const CodecTool = defineAsyncComponent(() => import('./components/codec/CodecTool.vue'));
 const NetworkTool = defineAsyncComponent(() => import('./components/network/NetworkTool.vue'));
 const TextTool = defineAsyncComponent(() => import('./components/text/TextTool.vue'));
+const GeneratorTool = defineAsyncComponent(() => import('./components/generator/GeneratorTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
@@ -51,7 +52,8 @@ const tools: Tool[] = [
   { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image' },
   { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比', status: 'ready', icon: 'type' },
   { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi' },
-  { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' }
+  { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' },
+  { id: 'generator', name: '生成器',         description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',  status: 'ready', icon: 'dice' }
 ];
 
 const currentWindow = getCurrentWindow();
@@ -559,6 +561,10 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'text'">
           <TextTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'generator'">
+          <GeneratorTool />
         </template>
       </AppShell>
 

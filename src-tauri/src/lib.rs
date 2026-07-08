@@ -4,6 +4,7 @@ mod douyin;
 pub mod ecommerce;
 pub mod imaging;
 pub mod network;
+mod qrcode;
 mod xhs;
 mod youtube;
 
@@ -1004,6 +1005,24 @@ async fn extract_xhs_note(url: String) -> Result<xhs::XhsNoteInfo, String> {
 }
 
 #[tauri::command]
+async fn generate_qr_png(
+    text: String,
+    ec_level: Option<String>,
+    module_pixels: Option<u32>,
+    quiet_zone: Option<u32>,
+) -> Result<String, String> {
+    use base64::Engine;
+    let ec = qrcode::ec_from_str(ec_level.as_deref().unwrap_or("M"));
+    let module = module_pixels.unwrap_or(8).clamp(1, 40);
+    let quiet = quiet_zone.unwrap_or(4).min(20);
+    let bytes =
+        tauri::async_runtime::spawn_blocking(move || qrcode::encode_png(&text, ec, module, quiet))
+            .await
+            .map_err(|error| format!("QR 编码异常：{error}"))??;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
 async fn extract_bilibili_video(url: String) -> Result<bilibili::BiliVideoInfo, String> {
     bilibili::extract_video(&url).await
 }
@@ -1530,6 +1549,7 @@ pub fn run() {
             extract_xhs_note,
             extract_bilibili_video,
             extract_youtube_video,
+            generate_qr_png,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,

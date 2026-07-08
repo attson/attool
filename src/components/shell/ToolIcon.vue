@@ -77,6 +77,16 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <circle cx="8.5" cy="9" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
     </template>
+
+    <!-- dice / generator -->
+    <template v-else-if="name === 'dice'">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" />
+      <circle cx="16" cy="8" r="1" fill="currentColor" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+      <circle cx="8" cy="16" r="1" fill="currentColor" />
+      <circle cx="16" cy="16" r="1" fill="currentColor" />
+    </template>
   </svg>
 </template>
 

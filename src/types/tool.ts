@@ -9,7 +9,8 @@ export type ToolIconId =
   | 'hash'
   | 'code'
   | 'video'
-  | 'image';
+  | 'image'
+  | 'dice';
 
 export interface Tool {
   id: string;
