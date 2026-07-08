@@ -11,7 +11,13 @@ interface InitPayload {
   scaleFactor: number;
 }
 
-type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number';
+type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
+
+interface MosaicBlock {
+  x: number; // canvas-pixel top-left of block
+  y: number;
+  color: string; // sampled once from source
+}
 
 interface Shape {
   tool: Tool;
@@ -24,6 +30,8 @@ interface Shape {
   text?: string;
   number?: number;
   points?: { x: number; y: number }[]; // for pencil
+  mosaicBlockSize?: number;
+  mosaicBlocks?: MosaicBlock[];
 }
 
 interface Rect {
@@ -54,6 +62,69 @@ const drawStart = ref<{ x: number; y: number } | null>(null);
 const drawEnd = ref<{ x: number; y: number } | null>(null);
 const pencilPoints = ref<{ x: number; y: number }[]>([]);
 const nextNumber = ref(1);
+// Mosaic brush block size in canvas pixels (scaled up already; tuned so it "reads" as pixelation)
+const mosaicBlockSize = ref(14);
+
+// Offscreen canvas holding the desktop screenshot at native resolution — used to sample
+// block colors for the mosaic tool. Populated on first mosaic stroke.
+let sourceCanvas: HTMLCanvasElement | null = null;
+let sourceCtx: CanvasRenderingContext2D | null = null;
+let currentMosaicShape: Shape | null = null;
+
+async function ensureSourceSampler(): Promise<CanvasRenderingContext2D | null> {
+  if (sourceCtx) return sourceCtx;
+  if (!bgSrc.value) return null;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  try {
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('source image load failed'));
+      img.src = bgSrc.value;
+    });
+  } catch (err) {
+    console.warn('[capture] source sampler load failed', err);
+    return null;
+  }
+  sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = img.naturalWidth;
+  sourceCanvas.height = img.naturalHeight;
+  const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  sourceCtx = ctx;
+  return ctx;
+}
+
+async function sampleMosaicBlock(canvasX: number, canvasY: number): Promise<MosaicBlock | null> {
+  const ctx = await ensureSourceSampler();
+  if (!ctx || !selection.value) return null;
+  const s = scale.value;
+  const size = mosaicBlockSize.value;
+  const sourceX = Math.round(selection.value.x * s + canvasX);
+  const sourceY = Math.round(selection.value.y * s + canvasY);
+  const w = size;
+  const h = size;
+  try {
+    const data = ctx.getImageData(sourceX, sourceY, Math.max(1, w), Math.max(1, h)).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      n++;
+    }
+    if (n === 0) return null;
+    return {
+      x: canvasX,
+      y: canvasY,
+      color: `rgb(${(r / n) | 0}, ${(g / n) | 0}, ${(b / n) | 0})`
+    };
+  } catch (err) {
+    console.warn('[capture] getImageData failed (CORS?)', err);
+    return null;
+  }
+}
 
 // Text input position — non-null while user is typing a new text label at that spot.
 // Coordinates are in canvas-pixel space (already scaled). We translate to viewport CSS coords for the input box.
@@ -80,7 +151,7 @@ const hasSelection = computed(() => selection.value !== null && selection.value.
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 720;
+  const toolbarW = 760;
   const toolbarH = 44;
   const margin = 8;
   let left = sel.x + sel.w - toolbarW;
@@ -195,9 +266,41 @@ function onCanvasMouseDown(event: MouseEvent) {
     pencilPoints.value = [p];
     return;
   }
+  if (tool.value === 'mosaic') {
+    drawing.value = true;
+    currentMosaicShape = {
+      tool: 'mosaic',
+      x1: p.x,
+      y1: p.y,
+      x2: p.x,
+      y2: p.y,
+      color: '#000',
+      lineWidth: 1,
+      mosaicBlockSize: mosaicBlockSize.value,
+      mosaicBlocks: []
+    };
+    shapes.value.push(currentMosaicShape);
+    addMosaicBlock(p);
+    return;
+  }
   drawing.value = true;
   drawStart.value = p;
   drawEnd.value = p;
+}
+
+async function addMosaicBlock(p: { x: number; y: number }) {
+  if (!currentMosaicShape) return;
+  const size = mosaicBlockSize.value;
+  const bx = Math.floor(p.x / size) * size;
+  const by = Math.floor(p.y / size) * size;
+  // Skip if this block is already in the current stroke
+  const blocks = currentMosaicShape.mosaicBlocks!;
+  if (blocks.some((b) => b.x === bx && b.y === by)) return;
+  const block = await sampleMosaicBlock(bx, by);
+  if (block) {
+    blocks.push(block);
+    redraw();
+  }
 }
 
 function commitPendingText() {
@@ -231,10 +334,14 @@ function onCanvasMouseMove(event: MouseEvent) {
   const p = canvasPosFromEvent(event);
   if (tool.value === 'pencil') {
     pencilPoints.value.push(p);
+    redraw();
+  } else if (tool.value === 'mosaic') {
+    addMosaicBlock(p);
+    // redraw is called inside addMosaicBlock once the block is sampled
   } else {
     drawEnd.value = p;
+    redraw();
   }
-  redraw();
 }
 
 function onCanvasMouseUp(event: MouseEvent) {
@@ -255,6 +362,19 @@ function onCanvasMouseUp(event: MouseEvent) {
       });
     }
     pencilPoints.value = [];
+    drawing.value = false;
+    redraw();
+    return;
+  }
+  if (tool.value === 'mosaic') {
+    if (currentMosaicShape && (currentMosaicShape.mosaicBlocks?.length ?? 0) === 0) {
+      // Empty stroke — drop it
+      shapes.value.pop();
+    } else if (currentMosaicShape) {
+      // Any new drawing clears the redo stack — mirror pushShape semantics
+      undoneShapes.value = [];
+    }
+    currentMosaicShape = null;
     drawing.value = false;
     redraw();
     return;
@@ -395,6 +515,12 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, s: number) {
     ctx.fillText(String(shape.number), shape.x1, shape.y1 + 1);
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
+  } else if (shape.tool === 'mosaic' && shape.mosaicBlocks && shape.mosaicBlockSize) {
+    const size = shape.mosaicBlockSize;
+    for (const b of shape.mosaicBlocks) {
+      ctx.fillStyle = b.color;
+      ctx.fillRect(b.x, b.y, size, size);
+    }
   } else if (shape.tool === 'text' && shape.text) {
     const fontSize = Math.max(14, shape.lineWidth * 6) * s;
     ctx.font = `${fontSize}px -apple-system, "PingFang SC", "Segoe UI", sans-serif`;
@@ -618,6 +744,7 @@ onUnmounted(() => {
         <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">/</button>
         <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">↗</button>
         <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">✎</button>
+        <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">▦</button>
         <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">T</button>
         <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">①</button>
       </div>
