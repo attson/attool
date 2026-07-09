@@ -136,5 +136,32 @@ pub fn list_visible_windows(_scale: f64) -> Vec<WindowRect> {
 
 #[cfg(not(target_os = "macos"))]
 pub fn list_visible_windows(_scale: f64) -> Vec<WindowRect> {
-    Vec::new()
+    use xcap::Window;
+    // Window::all() 在 Wayland 下可能失败 —— 降级为空列表，不破坏区域选择
+    let Ok(windows) = Window::all() else {
+        return Vec::new();
+    };
+    windows
+        .into_iter()
+        .filter(|w| !w.is_minimized().unwrap_or(true))
+        .filter_map(|w| {
+            let x = w.x().ok()? as f64;
+            let y = w.y().ok()? as f64;
+            let width = w.width().ok()? as f64;
+            let height = w.height().ok()? as f64;
+            // 与 macOS 实现一致：过滤掉过小窗口
+            if width < 40.0 || height < 40.0 {
+                return None;
+            }
+            Some(WindowRect {
+                owner: w.app_name().unwrap_or_default(),
+                title: w.title().unwrap_or_default(),
+                x,
+                y,
+                w: width,
+                h: height,
+                layer: 0,
+            })
+        })
+        .collect()
 }
