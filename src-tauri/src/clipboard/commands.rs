@@ -47,10 +47,16 @@ pub async fn get_clipboard_settings(
 
 #[tauri::command]
 pub async fn save_clipboard_settings(
+    app: AppHandle,
     settings: ClipboardHistorySettings,
     watcher: State<'_, ClipboardWatcherState>,
     store: State<'_, ClipboardStore>,
 ) -> Result<ClipboardHistorySettings, String> {
+    // 若快捷键有变化,先尝试重新注册(失败则整体报错,不落库,让前端提示用户换一个)
+    let previous = store.load_settings().map(|s| s.shortcut).unwrap_or_default();
+    if settings.shortcut.trim() != previous.trim() {
+        super::watcher::reregister_clipboard_shortcut(&app, &settings.shortcut)?;
+    }
     store.save_settings(&settings)?;
     watcher.set_enabled(settings.capture_enabled);
     Ok(settings)
