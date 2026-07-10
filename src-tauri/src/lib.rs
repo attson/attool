@@ -54,6 +54,29 @@ impl DownloadState {
     }
 }
 
+/// 启动时全局快捷键注册的结果。注册失败(如快捷键被系统/其它应用占用)时记录错误文案,
+/// 供前端启动后查询并提示用户。
+#[derive(Default)]
+struct ShortcutRegisterState {
+    clipboard: std::sync::Mutex<Option<String>>,
+    capture: std::sync::Mutex<Option<String>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutRegisterErrors {
+    clipboard: Option<String>,
+    capture: Option<String>,
+}
+
+#[tauri::command]
+fn get_shortcut_register_errors(state: State<'_, ShortcutRegisterState>) -> ShortcutRegisterErrors {
+    ShortcutRegisterErrors {
+        clipboard: state.clipboard.lock().ok().and_then(|g| g.clone()),
+        capture: state.capture.lock().ok().and_then(|g| g.clone()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartDownloadRequest {
@@ -1516,12 +1539,26 @@ pub fn run() {
                 clipboard_store_for_watcher,
                 clipboard_watcher_state,
             );
-            if let Err(error) = clipboard::watcher::register_clipboard_shortcut(app.handle()) {
+            let shortcut_errors = ShortcutRegisterState::default();
+            let clipboard_shortcut = clipboard_store
+                .load_settings()
+                .map(|s| s.shortcut)
+                .unwrap_or_default();
+            if let Err(error) =
+                clipboard::watcher::register_clipboard_shortcut(app.handle(), &clipboard_shortcut)
+            {
                 eprintln!("{error}");
+                if let Ok(mut slot) = shortcut_errors.clipboard.lock() {
+                    *slot = Some(error);
+                }
             }
             if let Err(error) = imaging::capture::register_capture_shortcut(app.handle()) {
                 eprintln!("{error}");
+                if let Ok(mut slot) = shortcut_errors.capture.lock() {
+                    *slot = Some(error);
+                }
             }
+            app.manage(shortcut_errors);
             app.manage(clipboard_store);
 
             let show_item =
@@ -1542,6 +1579,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_shortcut_register_errors,
             get_default_download_dir,
             list_download_tasks,
             start_download,

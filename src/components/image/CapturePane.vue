@@ -27,6 +27,7 @@ const shortcutInfo = ref<CaptureShortcutInfo>({
 const editing = ref(false);
 const recordingRaw = ref('');
 const recordError = ref('');
+const registerError = ref('');
 const recorderEl = ref<HTMLDivElement | null>(null);
 
 const shortcutLabel = computed(() => formatShortcutForDisplay(shortcutInfo.value.shortcut));
@@ -45,6 +46,12 @@ async function loadShortcut() {
     shortcutInfo.value = await invoke<CaptureShortcutInfo>('get_capture_shortcut');
   } catch (err) {
     console.warn('[capture] load shortcut failed', err);
+  }
+  try {
+    const errors = await invoke<{ capture: string | null }>('get_shortcut_register_errors');
+    registerError.value = errors.capture ?? '';
+  } catch {
+    registerError.value = '';
   }
 }
 
@@ -104,6 +111,7 @@ async function applyShortcut() {
     });
     editing.value = false;
     recordingRaw.value = '';
+    registerError.value = ''; // 切换成功即代表新快捷键注册成功
     message.success(`已切换到 ${shortcutLabel.value}`);
   } catch (err) {
     recordError.value = String(err);
@@ -115,6 +123,7 @@ async function restoreDefault() {
     shortcutInfo.value = await invoke<CaptureShortcutInfo>('set_capture_shortcut', {
       shortcut: shortcutInfo.value.defaultShortcut
     });
+    registerError.value = ''; // 恢复默认成功即代表注册成功
     message.success(`已恢复默认 ${shortcutLabel.value}`);
   } catch (err) {
     message.error(String(err));
@@ -166,6 +175,15 @@ onMounted(loadShortcut);
       <template #right>
         <span v-if="!editing" class="mono shortcut-display">{{ shortcutLabel || '未设置' }}</span>
       </template>
+
+      <n-alert
+        v-if="registerError"
+        type="error"
+        :bordered="false"
+        style="margin-bottom: 10px"
+      >
+        {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
+      </n-alert>
 
       <div v-if="!editing" class="shortcut-view">
         <p class="tips-inline">

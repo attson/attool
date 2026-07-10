@@ -20,6 +20,7 @@ import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import ClipboardHistoryWindow from './components/clipboard/ClipboardHistoryWindow.vue';
 import ClipboardTool from './components/clipboard/ClipboardTool.vue';
 import AppShell from './components/shell/AppShell.vue';
+import ShortcutErrorNotifier from './components/shell/ShortcutErrorNotifier.vue';
 import Dashboard from './components/shell/Dashboard.vue';
 import StatPill from './components/ui/StatPill.vue';
 import Panel from './components/ui/Panel.vue';
@@ -394,6 +395,9 @@ async function clearCompleted() {
 <template>
   <n-config-provider :theme="naiveTheme" :theme-overrides="naiveOverrides">
     <n-message-provider>
+      <ShortcutErrorNotifier
+        v-if="!isCaptureOverlayWindow && !isCapturePinWindow && !isClipboardHistoryWindow"
+      />
       <CaptureOverlay v-if="isCaptureOverlayWindow" />
       <CapturePinWindow v-else-if="isCapturePinWindow" />
       <ClipboardHistoryWindow v-else-if="isClipboardHistoryWindow" />
