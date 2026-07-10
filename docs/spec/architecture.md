@@ -5,29 +5,36 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Vue 3 SFC（src/）                                       │
-│  ├─ App.vue          主路由壳 + Aria2 工具页              │
-│  ├─ shell/*          AppShell + Sidebar + Topbar + ...   │
-│  ├─ ui/*             Panel / TaskRow / StatPill / Kbd    │
-│  ├─ ecommerce/*      模板编辑器 6 个 SFC                  │
-│  ├─ composables/*    useSidebarState / useLastTool /     │
-│  │                   useTheme（注入 storage / root 测试）  │
-│  ├─ theme/index.ts   Naive UI overrides（dark + light）   │
-│  ├─ styles/*.css     tokens + reset + template-editor    │
-│  ├─ types/*          Tool / DownloadTask / Template...   │
-│  └─ utils/*          ecommerceTemplate（图层增删改）      │
+│  ├─ App.vue          主路由壳 + theme + Aria2 工具页       │
+│  ├─ shell/*          AppShell / Sidebar / Topbar /        │
+│  │                   Dashboard / SettingsModal / ...       │
+│  ├─ ui/*             Panel / TaskRow / StatPill / Kbd     │
+│  ├─ <12 工具>/*      clipboard / image / json / codec /   │
+│  │                   generator / text / time / network /  │
+│  │                   http / douyin / ecommerce（懒加载）   │
+│  ├─ composables/*    useTheme / useSidebarState /         │
+│  │                   useUpdater / useClipboardHistory ...  │
+│  ├─ theme/index.ts   Naive UI overrides（dark + light）    │
+│  ├─ styles/*.css     tokens + reset + template-editor     │
+│  ├─ types/*          Tool / DownloadTask / Clipboard...   │
+│  └─ utils/*          ecommerceTemplate / clipboardHistory │
 │                                                          │
 │           ↕ invoke() / listen()                          │
 │                                                          │
 │  Rust（src-tauri/src/）                                  │
-│  ├─ lib.rs           run() + 下载相关 8 个命令           │
-│  └─ ecommerce/       commands / models / psd_bridge /   │
-│                      render / storage（rusqlite）         │
+│  ├─ lib.rs           run() + Aria2 下载 + command 注册    │
+│  ├─ clipboard/       历史存储 + 系统剪贴板监听（SQLite）   │
+│  ├─ imaging/         压缩/转换/EXIF/OCR/截图（xcap）       │
+│  ├─ ecommerce/       模板 render / storage / psd_bridge   │
+│  ├─ network/         ping / port / dns                    │
+│  └─ *.rs             http / qrcode / douyin·bili·xhs·yt   │
 │                                                          │
-│           ↕ Command::new                                 │
+│           ↕ Command::new / xcap / reqwest                │
 │                                                          │
-│  本机外部进程                                             │
+│  本机外部进程 / 系统能力                                   │
 │  ├─ aria2c           HTTP/FTP/BT 下载                    │
 │  ├─ python3 + psd-tools   PSD 解析                        │
+│  ├─ xcap / core-graphics  屏幕截图                        │
 │  └─ open / explorer / xdg-open    打开文件夹              │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -36,7 +43,7 @@
 
 - **请求-响应：** `invoke<T>('command_name', { arg })` （`@tauri-apps/api/core`）
 - **流式事件：** Rust `app_handle.emit("event-name", payload)` → 前端 `listen<T>('event-name', cb)`
-  - 当前唯一事件：`download-progress`，由 aria2 输出解析后推送
+  - `download-progress`（aria2 输出解析后推送）、`clipboard-history-updated`（剪贴板监听）、`capture-overlay-init` / `capture-failed`（截图浮层）等
 - **错误：** Rust 命令返回 `Result<T, String>`，前端 `try { await invoke(...) } catch (e)` 捕获
 
 ## 状态分层
@@ -45,7 +52,7 @@
 |---|---|---|
 | UI session | Vue ref | 当前选中工具、表单值、loading flags |
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
-| 应用持久 | rusqlite（Tauri data dir） | 模板项目、模板素材库、Logo 预设（遗留）、下载任务历史 |
+| 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库 |
 | 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`） |
 
 ## 软件更新
@@ -96,6 +103,23 @@ export function useTheme(
 - `BatchTaskPanel` —— 底部批量任务面板（按图层注入变体 → 1:1 笛卡尔展开）
 
 状态全部在 `TemplateTool.vue` 顶层 `project: ref<TemplateProject>`，下传不下推 —— 子组件只 emit 修改意图，由 `TemplateTool` 调用 `src/utils/ecommerceTemplate.ts` 中的纯函数返回新 project。
+
+### 后端模块概览
+
+`lib.rs` 承载主入口 `run()`、Aria2 下载全部逻辑与 command 注册；其余能力按模块拆分：
+
+| 模块 | 职责 | 关键 command |
+|---|---|---|
+| `lib.rs` | Aria2 下载（shell out `aria2c` + 进度事件）、command 注册 | `start_download` / `cancel_download` / `list_download_tasks` / `send_http` / `generate_qr_png` / `open_external_url` |
+| `clipboard/` | 剪贴板历史（SQLite 存储 + 系统剪贴板监听 + 快捷键面板） | `list_clipboard_items` / `restore_clipboard_item` / `clear_clipboard_history` / `get·save_clipboard_settings` |
+| `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
+| `ecommerce/` | 主图模板：PSD 导入 / 图层渲染 / 批量替换 | `import_psd_template` / `save·load·list·delete_ecommerce_template` / `run_batch_replace_tasks` |
+| `network/` | 网络诊断 | `ping_host` / `check_ports` / `resolve_dns` |
+| `http.rs` | HTTP 请求（Postman Lite 后端） | `send_http` |
+| `qrcode.rs` | 二维码生成 | `generate_qr_png` |
+| `douyin.rs` / `bilibili.rs` / `xhs.rs` / `youtube.rs` | 视频链接解析（reqwest + 正则） | `extract_douyin_video` / `extract_bilibili_video` / `extract_youtube_video` / `resolve_douyin_url` |
+
+**截图跨平台策略**（`imaging/capture.rs` + `windows.rs`）：macOS 走 `screencapture` + CoreGraphics 窗口枚举；Linux / Windows 走 `xcap`（`Monitor::capture_image` 截屏、`Window::all` 枚举）。浮层背景帧存为 BMP（无压缩，避免 PNG deflate 的秒级延迟）。Wayland 会话下 xcap 走 xdg-desktop-portal，可能弹权限 / 部分场景失败，窗口枚举降级为空列表（区域选择仍可用）。
 
 ### `src-tauri/src/ecommerce/`
 

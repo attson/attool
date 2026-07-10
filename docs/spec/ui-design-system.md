@@ -126,9 +126,18 @@
 
 少数复杂组件**不使用 Naive UI**（自写更可控）：sidebar / topbar / dashboard / panel / task-row / stat-pill / kbd / brand-mark / tool-icon / layer 系列。
 
+## 多工具通用 UI 模式
+
+12 个工具复用同一套外壳与原子组件，形成一致的页面骨架：
+
+- **工具页容器**：`Panel`（`title` + 右上 `#right` slot）分区；多子功能的工具（图片 / JSON / 编码 / 文本 / 时间 / 网络 / 生成器）用顶部 tab 切分 pane。
+- **快捷键录制**：图片截图页、剪贴板页提供"修改 / 恢复默认"按钮 + 键盘录制框（`keydown` 捕获组合键），注册失败时就地红色 alert 提示。
+- **预览弹窗**：剪贴板图片用 `NImage` 预览层（缩放 / 旋转 / 复制工具栏），文本用 `NModal` 全文弹窗；均以悬浮图标触发，不劫持卡片点击。
+- **多窗口**：截图浮层（`capture-overlay`，透明全屏，选区 + 标注）、截图钉图窗（`capture-pin-*`）、剪贴板历史独立浮窗（`clipboard-history`）都是独立 Tauri 窗口，共用同一套 token / 主题。
+
 ## 模板编辑器画布
 
-四列布局：
+主图模板是工具之一，其编辑器是本项目最复杂的 UI，四列布局：
 
 ```
 [rail 56px] [resource 220-280] [canvas 弹性] [props 240-320]
@@ -143,10 +152,21 @@
 
 ## 快捷键
 
+**应用内**（webview 焦点时）：
+
 | 键位 | 行为 |
 |---|---|
 | `⌘\` / `Ctrl\` | 切换 sidebar 折叠 |
 | `⌘K` / `CtrlK` | 命令面板入口（当前 alert 占位） |
+
+**全局**（任意窗口，`tauri-plugin-global-shortcut`，用户可在对应工具页改）：
+
+| 默认键位 | 行为 |
+|---|---|
+| `CommandOrControl+Shift+A` | 截图（触发选区浮层） |
+| `CommandOrControl+Alt+V` | 打开剪贴板历史面板 |
+
+全局快捷键在启动时注册；若被系统 / 输入法 / 远程桌面占用，注册失败信息记录在后端 `ShortcutRegisterState`，前端查询后以 toast + 工具页常驻 alert 提示用户更换（`ShortcutErrorNotifier.vue` + 各工具页录制 UI）。
 
 ## 不允许
 

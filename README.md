@@ -4,8 +4,22 @@
 
 ## 当前内置工具
 
-- **Aria2 多线程下载** —— shell out 到本机 `aria2c`，支持多连接 / 分片 / 批量 URL / 实时进度
-- **电商主图模板** —— PSD 导入（Python `psd-tools` 桥接）+ 字段占位 `{{key}}` + 笛卡尔展开批量导出 PNG
+| 工具 | 说明 |
+|---|---|
+| **Aria2 下载** | shell out 到本机 `aria2c`，多连接 / 分片 / 批量 URL / 实时进度 |
+| **主图模板** | PSD 导入（`psd-tools` 桥接）+ 字段占位 `{{key}}` + 笛卡尔展开批量导出 PNG |
+| **剪贴板** | 剪贴板历史记录，图片 / 文本预览，Paste 风格快速恢复，快捷键可自定义 |
+| **JSON** | 格式化、JSONPath 查询、对比、YAML/CSV/XML 转换（Monaco 编辑器） |
+| **视频链接抽取** | 抖音 / B站 / 小红书 / YouTube 视频链接与文案解析 |
+| **图片** | 压缩、格式转换、EXIF 读取/去除、跨平台截图、标注、OCR |
+| **文本** | 整理、排序、大小写、行拆合、正则抽取、对比 |
+| **网络** | URL 分解、Ping、端口检查、DNS 查询 |
+| **编码** | Base64 / URL / Unicode / Hex / Hash / JWT 解码 |
+| **生成器** | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 |
+| **时间** | Unix 时间戳、时区转换、Cron、时间差 |
+| **HTTP 请求** | GET/POST/PUT/DELETE/PATCH + Headers/Query/Body（Postman Lite） |
+
+截图支持全平台：macOS 用系统 `screencapture`，Linux / Windows 用 xcap。
 
 ## 下载安装
 

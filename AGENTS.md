@@ -1,16 +1,19 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置两个工具：Aria2 多线程下载、电商主图模板编辑器（PSD 导入 + 字段批量替换）。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求。
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
 | 桌面壳 | Tauri 2（Rust 2021 edition） |
-| 前端 | Vue 3 `<script setup>` + Naive UI 2.44 |
-| 构建 | Vite 8 |
+| 前端 | Vue 3.5 `<script setup>` + Naive UI 2.44 |
+| 构建 | Vite 8 + TypeScript 6 |
+| 包管理 | pnpm（`packageManager: pnpm@10.29.3` 锁版本，用 `corepack enable` 自动匹配） |
 | 测试 | Vitest 4（无 jsdom，纯逻辑） |
 | 本地存储 | rusqlite（bundled SQLite） |
+| 编辑器 | Monaco Editor（JSON 工具） |
+| 截图 | macOS core-graphics / Linux·Windows xcap 0.8 |
 | 外部命令 | `aria2c`（下载）、`python3 + psd-tools`（PSD 解析） |
 
 ## 常用命令
@@ -37,25 +40,40 @@ pnpm test           # vitest run
 
 ```
 src/
-├── App.vue                      # 顶层：theme switch + AppShell + 工具路由
+├── App.vue                      # 顶层：theme switch + AppShell + 工具路由 + Aria2 UI
 ├── main.ts                      # 仅引样式 + mount
-├── styles/
-│   ├── tokens.css               # 设计 token（dark + [data-theme=light] 覆写）
-│   ├── reset.css                # 全局 reset
-│   └── template-editor.css      # 模板编辑器全局样式（跨子组件共享）
+├── styles/                      # tokens.css（设计 token）/ reset.css / template-editor.css
 ├── theme/index.ts               # Naive UI darkOverrides + lightOverrides
-├── composables/                 # useSidebarState / useLastTool / useTheme（均带测试）
+├── composables/                 # useTheme / useSidebarState / useLastTool / useUpdater
+│                                #   / useClipboardHistory / useFileDrop / useAria2Handoff（带测试）
 ├── components/
-│   ├── shell/                   # AppShell / Sidebar / Topbar / Dashboard / BrandMark / ToolIcon
-│   ├── ui/                      # Panel / TaskRow / StatPill / Kbd
-│   └── ecommerce/               # 模板编辑器：TemplateTool + 5 个子组件
-├── types/                       # tool.ts / download.ts / ecommerceTemplate.ts
-└── utils/                       # ecommerceTemplate.ts（图层增删改 / 渲染样式）
+│   ├── shell/                   # 外壳：AppShell / Sidebar / Topbar / Dashboard / ToolIcon
+│   │                            #   / SettingsModal / UpdateBanner / ShortcutErrorNotifier
+│   ├── ui/                      # 通用原子：Panel / TaskRow / StatPill / Kbd
+│   ├── clipboard/               # 剪贴板：ClipboardTool + ClipboardHistoryWindow（独立窗口）+ ItemCard
+│   ├── ecommerce/               # 主图模板：TemplateTool + 5 子组件（图层树/属性/画布/资源/批量）
+│   ├── image/                   # 图片：ImageTool（tabs：压缩/转换/EXIF/标注/OCR/截图）
+│   │                            #   + CaptureOverlay（截图浮层）+ CapturePinWindow
+│   ├── json/                    # JSON：格式化/JSONPath 查询/对比/转换（Monaco）
+│   ├── codec/                   # 编码：Base64/URL/Unicode/Hex/Hash/JWT
+│   ├── generator/               # 生成器：密码/UUID·ULID/QR/Lorem/假数据/骰子
+│   ├── text/                    # 文本：整理/排序/大小写/拆合/正则抽取/对比
+│   ├── time/                    # 时间：时间戳/时区/Cron/Duration
+│   ├── network/                 # 网络：URL 分解/Ping/端口/DNS
+│   ├── douyin/                  # 视频链接抽取（抖音，后端另支持 B站/小红书/YouTube）
+│   └── http/                    # HTTP 请求（Postman Lite）
+├── types/                       # tool.ts / download.ts / ecommerceTemplate.ts / clipboard.ts
+└── utils/                       # ecommerceTemplate.ts / clipboardHistory.ts 等
 
 src-tauri/
-├── src/lib.rs                   # 下载相关 Tauri 命令 + run()
-├── src/ecommerce/               # 模板模块（commands / models / psd_bridge / render / storage）
-└── tauri.conf.json              # 打包配置
+├── src/lib.rs                   # 主入口 run() + Aria2 下载全部逻辑 + command 注册
+├── src/clipboard/              # 剪贴板：commands / storage(SQLite) / watcher / models
+├── src/imaging/                # 图片：commands / compress / convert / exif / ocr
+│                               #   / capture（截图）/ windows（xcap 窗口枚举）
+├── src/ecommerce/              # 主图模板：commands / models / render / storage / psd_bridge
+├── src/network/               # 网络诊断：commands / ping / port / dns
+├── src/{http,qrcode,douyin,bilibili,xhs,youtube}.rs  # 单文件模块
+└── tauri.conf.json             # 打包配置（5 个窗口 / 插件 / updater endpoint）
 
 .github/
 ├── workflows/build.yml          # CI 矩阵（mac arm/x64 + linux arm/x64 + win x64）+ release job
@@ -64,7 +82,7 @@ src-tauri/
     └── build-latest-json.mjs    # release job 汇总所有 staging 后生成 latest.json
 
 docs/spec/                       # 当前态规范（overview / ui-design-system / architecture）
-docs/superpowers/                # superpowers 流程产物（每任务 1 份 spec + plan）
+docs/superpowers/                # superpowers 流程产物（每任务 1 份 spec + plan，已 gitignore）
 ```
 
 ## UI 设计语言（一句话版）
