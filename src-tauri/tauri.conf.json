@@ -57,6 +57,7 @@
         "enable": true,
         "scope": [
           "$APPDATA/**",
+          "$CACHE/**",
           "$HOME/**"
         ]
       }
