@@ -33,7 +33,7 @@ tokio = { version = "1", features = ["io-util", "macros", "process", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "multipart", "stream"] }
 percent-encoding = "2"
 url = "2"
 kamadak-exif = "0.5"

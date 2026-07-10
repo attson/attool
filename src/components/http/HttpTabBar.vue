@@ -1,0 +1,107 @@
+<script setup lang="ts">
+import type { HttpTab } from './types';
+
+defineProps<{ tabs: HttpTab[]; activeId: string | null }>();
+const emit = defineEmits<{
+  (e: 'activate', id: string): void;
+  (e: 'close', id: string): void;
+  (e: 'new'): void;
+}>();
+
+function onMouseDown(id: string, ev: MouseEvent) {
+  if (ev.button === 1) {
+    ev.preventDefault();
+    emit('close', id);
+  } else if (ev.button === 0) {
+    emit('activate', id);
+  }
+}
+</script>
+
+<template>
+  <div class="tab-bar">
+    <div
+      v-for="tab in tabs"
+      :key="tab.id"
+      :class="['tab', { active: tab.id === activeId, sending: tab.sending }]"
+      @mousedown="onMouseDown(tab.id, $event)"
+      :title="tab.title"
+    >
+      <span class="method mono">{{ tab.spec.method }}</span>
+      <span class="title">{{ tab.title || '新请求' }}</span>
+      <button class="close" @click.stop="emit('close', tab.id)">✕</button>
+    </div>
+    <button class="new" @click="emit('new')" title="新 tab (⌘T)">+</button>
+  </div>
+</template>
+
+<style scoped>
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-base);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-right: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 200px;
+  user-select: none;
+  position: relative;
+}
+.tab:hover { background: var(--bg-elev); }
+.tab.active {
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 0 var(--accent, #10b981);
+}
+.tab.sending::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #10b981);
+  transform: translateY(-50%);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.3; } }
+.method { color: var(--accent, #10b981); font-weight: 600; }
+.title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-xxs);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.close:hover { background: var(--bg-base); color: #ef4444; }
+.new {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-md);
+  padding: 0 12px;
+}
+.new:hover { color: var(--text); }
+.mono { font-family: var(--font-mono, ui-monospace, monospace); }
+</style>

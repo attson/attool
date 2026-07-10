@@ -1029,11 +1029,6 @@ async fn extract_xhs_note(url: String) -> Result<xhs::XhsNoteInfo, String> {
 }
 
 #[tauri::command]
-async fn send_http(request: http::HttpRequestSpec) -> Result<http::HttpResponseInfo, String> {
-    http::send(request).await
-}
-
-#[tauri::command]
 async fn generate_qr_png(
     text: String,
     ec_level: Option<String>,
@@ -1561,6 +1556,20 @@ pub fn run() {
             app.manage(shortcut_errors);
             app.manage(clipboard_store);
 
+            let http_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("http");
+            let http_store = http::storage::HttpStore::new(http_dir)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            if let Err(error) = http_store.cleanup_history(now_ms) {
+                eprintln!("清理 http 历史失败：{error}");
+            }
+            app.manage(http_store);
+            app.manage(http::cancel::HttpCancelState::new());
+
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -1594,7 +1603,23 @@ pub fn run() {
             extract_bilibili_video,
             extract_youtube_video,
             generate_qr_png,
-            send_http,
+            http::commands::send_http,
+            http::commands::cancel_http,
+            http::commands::list_http_tabs,
+            http::commands::upsert_http_tab,
+            http::commands::delete_http_tab,
+            http::commands::set_active_http_tab,
+            http::commands::list_http_history,
+            http::commands::insert_http_history,
+            http::commands::delete_http_history,
+            http::commands::clear_http_history,
+            http::commands::list_http_envs,
+            http::commands::upsert_http_env,
+            http::commands::delete_http_env,
+            http::commands::set_active_http_env,
+            http::commands::list_http_env_vars,
+            http::commands::upsert_http_env_var,
+            http::commands::delete_http_env_var,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,
