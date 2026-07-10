@@ -51,6 +51,18 @@ npm run build       # tsc + vite build
 npm run tauri:build # 全量打包桌面应用
 ```
 
+### Linux 截图依赖
+
+浮层截图在 Linux 上通过 [xcap](https://github.com/nashaofu/xcap) 实现，编译时需要以下开发库：
+
+```bash
+sudo apt install libxcb1-dev libxrandr-dev libdbus-1-dev \
+                 libpipewire-0.3-dev libgbm-dev clang
+```
+
+- **X11 会话**：截图与窗口枚举全功能可用。
+- **Wayland 会话**：截图走 `xdg-desktop-portal`（每次会弹权限确认，且比 X11 慢），部分合成器/场景可能失败——失败时会提示改用 X11 会话；窗口枚举在 Wayland 下降级为不可用（区域选择仍正常）。
+
 更多上下文：
 
 - `AGENTS.md` —— 给 AI 看的工程地图（技术栈、约定、目录速览、加新工具最小路径、发布流程）
