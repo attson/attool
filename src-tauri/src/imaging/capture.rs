@@ -152,7 +152,9 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
     let _ = overlay.hide();
     std::thread::sleep(std::time::Duration::from_millis(120));
 
-    // Snap the whole desktop silently, no cursor
+    // Snap the whole desktop silently, no cursor.
+    // Use BMP (uncompressed) instead of PNG: this is a throwaway background frame,
+    // and PNG deflate on an 8MP frame takes ~2s while BMP is ~8ms.
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -162,7 +164,7 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "无法确定缓存目录".to_string())?;
     let dir = cache_root.join("attool").join("captures");
     fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
-    let image_path = dir.join(format!("attool-desktop-{ts}.png"));
+    let image_path = dir.join(format!("attool-desktop-{ts}.bmp"));
 
     capture_fullscreen_silent(&image_path)?;
     if !image_path.is_file() {
@@ -215,11 +217,12 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
 /// 其他平台用 xcap(X11/Windows 可用,Wayland 尽力而为)。
 #[cfg(target_os = "macos")]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
+    // 输出 BMP 与非 macOS 分支保持一致(path 扩展名为 .bmp),避免扩展名与内容不符
     let status = Command::new("screencapture")
         .arg("-x") // silent
         .arg("-C") // no cursor
         .arg("-t")
-        .arg("png")
+        .arg("bmp")
         .arg(path)
         .status()
         .map_err(|error| format!("启动 screencapture 失败：{error}"))?;
@@ -241,6 +244,7 @@ fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
     let image = monitor
         .capture_image()
         .map_err(|error| format!("截图失败（Wayland 会话可能受限，建议使用 X11 登录）：{error}"))?;
+    // save() 按扩展名选择编码器；path 用 .bmp 走无压缩,避免 PNG deflate 的秒级耗时
     image
         .save(path)
         .map_err(|error| format!("保存截图失败：{error}"))?;
