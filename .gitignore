@@ -24,3 +24,11 @@ src-tauri/gen/
 
 # Playwright MCP captures
 .playwright-mcp/
+# === AI 工作流临时产物(superpowers + ad-workflow)===
+.workflow-plan/
+docs/brainstorm/drafts/
+docs/brainstorm/notes/
+docs/superpowers/
+.claude/settings.local.json
+*.local
+*.local.*

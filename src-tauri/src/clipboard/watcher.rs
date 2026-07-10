@@ -3,7 +3,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::Duration,
@@ -17,6 +17,17 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use super::{models::DEFAULT_CLIPBOARD_SHORTCUT, storage::ClipboardStore};
 
 const CLIPBOARD_EVENT: &str = "clipboard-history-updated";
+
+/// 当前已注册的剪贴板快捷键字符串(Tauri 格式)。用于修改时先注销旧的。
+static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
+
+fn registered_slot() -> &'static Mutex<String> {
+    REGISTERED.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn current_clipboard_shortcut() -> String {
+    registered_slot().lock().map(|g| g.clone()).unwrap_or_default()
+}
 
 #[derive(Clone, Debug)]
 pub struct ClipboardWatcherState {
@@ -83,10 +94,57 @@ pub fn start_clipboard_watcher(
     });
 }
 
-pub fn register_clipboard_shortcut(app: &AppHandle) -> Result<(), String> {
-    let shortcut: Shortcut = DEFAULT_CLIPBOARD_SHORTCUT
+/// 按给定快捷键字符串注册剪贴板面板快捷键。空串回退到默认值。
+pub fn register_clipboard_shortcut(app: &AppHandle, shortcut_str: &str) -> Result<(), String> {
+    let shortcut_str = if shortcut_str.trim().is_empty() {
+        DEFAULT_CLIPBOARD_SHORTCUT
+    } else {
+        shortcut_str.trim()
+    };
+    let shortcut: Shortcut = shortcut_str
         .parse()
         .map_err(|error| format!("解析剪贴板快捷键失败：{error}"))?;
+    install_clipboard_handler(app, shortcut)?;
+    if let Ok(mut g) = registered_slot().lock() {
+        *g = shortcut_str.to_string();
+    }
+    Ok(())
+}
+
+/// 把剪贴板快捷键改为 next:先注销旧的,注册新的,失败则回滚到旧的。
+pub fn reregister_clipboard_shortcut(app: &AppHandle, next: &str) -> Result<(), String> {
+    let next = next.trim();
+    if next.is_empty() {
+        return Err("请填入有效的快捷键".to_string());
+    }
+    let parsed: Shortcut = next
+        .parse()
+        .map_err(|error| format!("快捷键格式非法：{error}"))?;
+
+    let previous = current_clipboard_shortcut();
+    if !previous.is_empty() {
+        if let Ok(prev_parsed) = previous.parse::<Shortcut>() {
+            let _ = app.global_shortcut().unregister(prev_parsed);
+        }
+    }
+
+    if let Err(error) = install_clipboard_handler(app, parsed) {
+        // 回滚:尽力恢复旧绑定,避免用户失去可用快捷键
+        if !previous.is_empty() {
+            if let Ok(prev_parsed) = previous.parse::<Shortcut>() {
+                let _ = install_clipboard_handler(app, prev_parsed);
+            }
+        }
+        return Err(error);
+    }
+
+    if let Ok(mut g) = registered_slot().lock() {
+        *g = next.to_string();
+    }
+    Ok(())
+}
+
+fn install_clipboard_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), String> {
     let handle = app.clone();
     app.global_shortcut()
         .on_shortcut(shortcut, move |_app, _shortcut, event| {

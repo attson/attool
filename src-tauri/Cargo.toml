@@ -1,6 +1,6 @@
 [package]
 name = "attool"
-version = "0.8.2"
+version = "0.8.3"
 description = "Personal desktop tools powered by Tauri"
 authors = ["attson"]
 edition = "2021"
@@ -42,3 +42,6 @@ qrcode = { version = "0.14", default-features = false, features = ["image"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.24"
 core-foundation = "0.10"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+xcap = "0.8"
