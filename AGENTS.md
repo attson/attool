@@ -16,11 +16,11 @@
 ## 常用命令
 
 ```bash
-npm run tauri:dev   # 开发：起 vite + 拉起桌面窗口
-npm run dev         # 仅前端调试（http://127.0.0.1:1420）
-npm run build       # tsc + vite build
-npm run tauri:build # 全量打包桌面应用
-npm test            # vitest run
+pnpm tauri:dev      # 开发：起 vite + 拉起桌面窗口
+pnpm dev            # 仅前端调试（http://127.0.0.1:1420）
+pnpm build          # tsc + vite build
+pnpm tauri:build    # 全量打包桌面应用
+pnpm test           # vitest run
 ```
 
 ## 工作约定
@@ -99,7 +99,7 @@ docs/superpowers/                # superpowers 流程产物（每任务 1 份 sp
    - `src-tauri/tauri.conf.json` `"version"`
    - `src-tauri/Cargo.toml` `version = "..."`
 
-   跑一次 `cargo check`（更新 Cargo.lock）和 `npm run build`（确认编译过），把这 4 个文件一起 commit：`chore: bump version to X.Y.Z`
+   跑一次 `cargo check`（更新 Cargo.lock）和 `pnpm build`（确认编译过），把这 4 个文件一起 commit：`chore: bump version to X.Y.Z`
 
 3. 打 annotated tag + 推：
 
@@ -111,7 +111,7 @@ docs/superpowers/                # superpowers 流程产物（每任务 1 份 sp
 
 4. tag push 触发 `.github/workflows/build.yml`：
 
-   - **build job（matrix × 5）**：每个 runner 跑 `npm run tauri build --target <triple>`，跑完用 `stage-bundles.sh` 把产物 copy 到 `runner.temp/stage` 并按 `amd64`/`arm64` 改名，上传成 artifact
+   - **build job（matrix × 5）**：每个 runner 跑 `pnpm tauri build --target <triple>`，跑完用 `stage-bundles.sh` 把产物 copy 到 `runner.temp/stage` 并按 `amd64`/`arm64` 改名，上传成 artifact
    - **release job（单 ubuntu）**：下载所有 artifact 到一个目录，跑 `build-latest-json.mjs` 生成 `latest.json`，`gh release create` 一次性创建正式 release + 把所有文件挂上去
 
 5. 全部跑完（约 5-10 分钟）后 GitHub Releases 会直接公开正式 release。文件名应该正好这 5 个 + macOS 的 2 个 `.app.tar.gz`（updater 内部用）+ 各自的 `.sig` + 一个 `latest.json`

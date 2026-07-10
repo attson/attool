@@ -120,14 +120,14 @@ export function useTheme(
 - **逻辑模块** —— Vitest，colocated `*.test.ts`：composable / theme / utils
 - **Vue SFC** —— 不写单元测试（不引 jsdom）；改动后人工目视回归
 - **后端 Rust** —— 模板模块下有 `tests/` 目录，跑业务测试
-- **集成** —— 当前无 e2e；依赖 `npm run tauri:dev` + 手动操作验收
+- **集成** —— 当前无 e2e；依赖 `pnpm tauri:dev` + 手动操作验收
 
 ## 构建与发布
 
 ### 本地
 
-- `npm run build` —— TS 类型检查 + Vite 生产构建（输出 `dist/`）
-- `npm run tauri:build` —— 上一步 + Rust 编译 + 打包
+- `pnpm build` —— TS 类型检查 + Vite 生产构建（输出 `dist/`）
+- `pnpm tauri:build` —— 上一步 + Rust 编译 + 打包
 
 `tauri.conf.json` 的 `bundle.targets` 限制为 `["dmg", "app", "deb", "nsis"]` —— macOS 出 dmg + app.tar.gz、Linux 出 deb、Windows 出 NSIS exe。其它平台对应字段静默忽略。
 
@@ -140,8 +140,8 @@ export function useTheme(
    每个 runner 跑：
    - `dtolnay/rust-toolchain@stable` 装 target
    - `swatinem/rust-cache@v2` 缓存 Cargo
-   - `actions/setup-node@v4` + `npm ci`
-   - `npm run tauri -- build --target <triple>` 编译 + 打包 + 签名（签名走 env：`TAURI_SIGNING_PRIVATE_KEY` 来自 environment `prod` 的 secret，密码空字符串）
+   - `pnpm/action-setup@v4` + `actions/setup-node@v4` + `pnpm install --frozen-lockfile`
+   - `pnpm tauri build --target <triple>` 编译 + 打包 + 签名（签名走 env：`TAURI_SIGNING_PRIVATE_KEY` 来自 environment `prod` 的 secret，密码空字符串）
    - `bash .github/scripts/stage-bundles.sh <target> <label> <stage-dir>` 把 bundle 输出 copy 到 `runner.temp/stage` 并改名（aarch64 → arm64、x86_64/x64 → amd64、NSIS 去掉 `-setup`）
    - `actions/upload-artifact@v4` 把 stage 全部上传，名 `bundle-<label>`
 

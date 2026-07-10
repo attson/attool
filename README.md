@@ -32,23 +32,25 @@
 
 ## 开发
 
+本项目使用 [pnpm](https://pnpm.io/)（`packageManager` 字段锁定版本，建议用 `corepack enable` 自动匹配）。
+
 ```bash
-npm install
-npm run tauri:dev   # 开发：起 vite + 拉起桌面窗口
+pnpm install
+pnpm tauri:dev      # 开发：起 vite + 拉起桌面窗口
 ```
 
 仅前端（浏览器调试）：
 
 ```bash
-npm run dev         # http://127.0.0.1:1420
+pnpm dev            # http://127.0.0.1:1420
 ```
 
 测试 + 构建：
 
 ```bash
-npm test            # vitest run
-npm run build       # tsc + vite build
-npm run tauri:build # 全量打包桌面应用
+pnpm test           # vitest run
+pnpm build          # tsc + vite build
+pnpm tauri:build    # 全量打包桌面应用
 ```
 
 ### Linux 截图依赖
