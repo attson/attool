@@ -42,7 +42,13 @@ jobs:
             libssl-dev \
             build-essential \
             file \
-            wget
+            wget \
+            libpipewire-0.3-dev \
+            libgbm-dev \
+            clang \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
