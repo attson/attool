@@ -52,7 +52,7 @@ const emit = defineEmits<{
 <style scoped>
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   background: var(--bg-base);
 }
 

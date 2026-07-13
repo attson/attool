@@ -49,33 +49,33 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
       <Kbd>⌘K</Kbd>
     </button>
 
-    <div class="group">已就绪</div>
-    <button
-      v-for="tool in ready"
-      :key="tool.id"
-      type="button"
-      class="item"
-      :class="{ active: tool.id === activeId }"
-      :title="tool.name"
-      @click="emit('select', tool.id)"
-    >
-      <ToolIcon :name="tool.icon" />
-      <span class="label">{{ tool.name }}</span>
-    </button>
+    <div class="nav">
+      <button
+        v-for="tool in ready"
+        :key="tool.id"
+        type="button"
+        class="item"
+        :class="{ active: tool.id === activeId }"
+        :title="tool.name"
+        @click="emit('select', tool.id)"
+      >
+        <ToolIcon :name="tool.icon" />
+        <span class="label">{{ tool.name }}</span>
+      </button>
 
-    <div class="group">规划中</div>
-    <button
-      v-for="tool in soon"
-      :key="tool.id"
-      type="button"
-      class="item dim"
-      disabled
-      :title="tool.name"
-    >
-      <ToolIcon :name="tool.icon" />
-      <span class="label">{{ tool.name }}</span>
-      <span class="pill">Soon</span>
-    </button>
+      <button
+        v-for="tool in soon"
+        :key="tool.id"
+        type="button"
+        class="item dim"
+        disabled
+        :title="tool.name"
+      >
+        <ToolIcon :name="tool.icon" />
+        <span class="label">{{ tool.name }}</span>
+        <span class="pill">Soon</span>
+      </button>
+    </div>
 
     <div class="foot">
       <span class="ver">{{ appVersion ? `v${appVersion}` : '' }}</span>
@@ -181,18 +181,11 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
 .search .label { flex: 1; text-align: left; }
 .sidebar.collapsed .search { display: none; }
 
-.group {
-  font-size: var(--fs-xxs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 12px 14px 4px;
-  font-weight: 600;
-}
-.sidebar.collapsed .group {
-  height: 12px;
-  color: transparent;
-  padding: 12px 0 0;
+.nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0;
 }
 
 .item {
