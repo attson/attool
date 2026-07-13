@@ -76,7 +76,24 @@ function highlightVars(input: string): string {
 const urlHtml = computed(() => highlightVars(props.spec.url));
 
 // ---- Params <-> URL 双向同步 ----
+// 用 flush: 'sync' 让守卫在同一批变更内生效，避免 Vue 默认异步 flush 让
+// syncing 在两个 watcher 之间被反复重置，触发 <HttpTool> 的递归更新告警。
+// 再叠加一层"输出等值则不 emit"防御，杜绝无意义的往返。
 let syncing = false;
+
+function kvListEqual(a: KV[], b: KV[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (x.key !== y.key || x.value !== y.value || x.enabled !== y.enabled) return false;
+  }
+  return true;
+}
+
+function encodeParamValue(v: string): string {
+  return encodeURIComponent(v).replace(/%7B%7B/g, '{{').replace(/%7D%7D/g, '}}');
+}
+
 watch(
   () => props.spec.url,
   () => {
@@ -92,11 +109,14 @@ watch(
       });
       // 保留原来 disabled 的手动条目
       const disabled = props.spec.queryParams.filter((p) => !p.enabled || !p.key);
-      spec.value = { ...props.spec, queryParams: [...nextParams, ...disabled] };
+      const merged = [...nextParams, ...disabled];
+      if (kvListEqual(merged, props.spec.queryParams)) return;
+      spec.value = { ...props.spec, queryParams: merged };
     } finally {
       syncing = false;
     }
-  }
+  },
+  { flush: 'sync' }
 );
 watch(
   () => props.spec.queryParams,
@@ -110,14 +130,16 @@ watch(
       for (const p of params) {
         if (!p.enabled || !p.key) continue;
         // 保留 {{var}} 字面
-        parts.push(`${encodeURIComponent(p.key)}=${encodeURIComponent(p.value).replace(/%7B%7B/g, '{{').replace(/%7D%7D/g, '}}')}`);
+        parts.push(`${encodeURIComponent(p.key)}=${encodeParamValue(p.value)}`);
       }
-      spec.value = { ...props.spec, url: parts.length ? `${base}?${parts.join('&')}` : base };
+      const nextUrl = parts.length ? `${base}?${parts.join('&')}` : base;
+      if (nextUrl === props.spec.url) return;
+      spec.value = { ...props.spec, url: nextUrl };
     } finally {
       syncing = false;
     }
   },
-  { deep: true }
+  { deep: true, flush: 'sync' }
 );
 
 // ---- KV 操作 ----
