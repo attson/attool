@@ -1,7 +1,7 @@
 {
   "name": "attool",
   "private": true,
-  "version": "0.8.4",
+  "version": "0.8.5",
   "type": "module",
   "packageManager": "pnpm@10.29.3",
   "scripts": {
@@ -19,8 +19,6 @@
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.10.1",
     "js-yaml": "^4.1.1",
     "jsondiffpatch": "^0.7.6",
     "jsonpath-plus": "^10.4.0",

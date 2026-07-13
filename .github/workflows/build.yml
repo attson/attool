@@ -24,8 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     environment: prod
     env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+      ATTOOL_UPDATE_VERIFY_PUBLIC_KEY: ${{ secrets.ATTOOL_UPDATE_VERIFY_PUBLIC_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -110,29 +109,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Generate latest.json (direct GitHub URLs)
+      - name: Generate SHA256SUMS
+        working-directory: ${{ runner.temp }}/all-bundles
         run: |
-          node .github/scripts/build-latest-json.mjs \
-            "${{ runner.temp }}/all-bundles" \
-            "${{ github.ref_name }}" \
-            "${{ github.repository }}" \
-            > "${{ runner.temp }}/all-bundles/latest.json"
-          echo '--- latest.json ---'
-          cat "${{ runner.temp }}/all-bundles/latest.json"
+          find . -maxdepth 1 -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.exe' \
+               -o -name '*.tar.gz' -o -name '*.zip' \) \
+            | sort | while read -r f; do
+              base=$(basename "$f")
+              sha=$(shasum -a 256 "$f" | awk '{print $1}')
+              printf '%s  %s\n' "$sha" "$base"
+            done > SHA256SUMS
+          echo '--- SHA256SUMS ---'
+          cat SHA256SUMS
 
-      - name: Generate latest-mirror.json (routed through ghfast.top)
-        run: |
-          node .github/scripts/build-latest-json.mjs \
-            "${{ runner.temp }}/all-bundles" \
-            "${{ github.ref_name }}" \
-            "${{ github.repository }}" \
-            "https://ghfast.top/" \
-            > "${{ runner.temp }}/all-bundles/latest-mirror.json"
-          echo '--- latest-mirror.json ---'
-          cat "${{ runner.temp }}/all-bundles/latest-mirror.json"
-
-      - name: Drop .sig files (embedded in latest.json already)
-        run: rm -f "${{ runner.temp }}/all-bundles/"*.sig
+      - name: Sign SHA256SUMS
+        env:
+          ATTOOL_UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.ATTOOL_UPDATE_SIGNING_PRIVATE_KEY }}
+        run: node .github/scripts/sign-checksums.mjs "${{ runner.temp }}/all-bundles/SHA256SUMS"
 
       - name: List release contents
         run: ls -la "${{ runner.temp }}/all-bundles/"

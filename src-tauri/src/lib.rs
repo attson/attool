@@ -1,5 +1,6 @@
 mod bilibili;
 mod clipboard;
+mod updater;
 mod douyin;
 pub mod ecommerce;
 mod http;
@@ -1489,8 +1490,6 @@ fn show_main_window(app: &AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .on_window_event(|window, event| {
@@ -1570,6 +1569,13 @@ pub fn run() {
             app.manage(http_store);
             app.manage(http::cancel::HttpCancelState::new());
 
+            let updater_stage_dir = app
+                .path()
+                .app_cache_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("updater");
+            app.manage(updater::state::UpdaterState::new(updater_stage_dir));
+
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -1620,6 +1626,11 @@ pub fn run() {
             http::commands::list_http_env_vars,
             http::commands::upsert_http_env_var,
             http::commands::delete_http_env_var,
+            updater::commands::updater_get_state,
+            updater::commands::updater_check,
+            updater::commands::updater_download,
+            updater::commands::updater_apply,
+            updater::commands::updater_cancel,
             batch_add_logo,
             list_logo_presets,
             save_logo_preset,
