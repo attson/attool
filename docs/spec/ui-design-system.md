@@ -134,6 +134,26 @@
 - **快捷键录制**：图片截图页、剪贴板页提供"修改 / 恢复默认"按钮 + 键盘录制框（`keydown` 捕获组合键），注册失败时就地红色 alert 提示。
 - **预览弹窗**：剪贴板图片用 `NImage` 预览层（缩放 / 旋转 / 复制工具栏），文本用 `NModal` 全文弹窗；均以悬浮图标触发，不劫持卡片点击。
 - **多窗口**：截图浮层（`capture-overlay`，透明全屏，选区 + 标注）、截图钉图窗（`capture-pin-*`）、剪贴板历史独立浮窗（`clipboard-history`）都是独立 Tauri 窗口，共用同一套 token / 主题。
+- **多 tab 工作区**（HTTP 工具的做法）：浏览器风格 tab 条 + 中键关闭 + 拖拽排序 + 每个 tab 自动持久化（无显式"保存"按钮，也无未保存状态）；配合左侧历史侧栏（时间倒序、搜索、右键回填/新 tab 打开），构成"三栏 + 顶栏环境切换"的开发者工具形态。
+- **变量高亮**：URL / KV 输入 里的 `{{var}}` 用 `<VarText>` / `<VarInput>` 组件在文本上方叠一层 span，命中的变量画 emerald `--accent-soft` 底纹，未定义画 `--error` 底纹（透明度 22%）；不引 Monaco，只靠 CSS + 一层 overlay 实现。
+
+## HTTP 工具三栏骨架
+
+```
+┌────────┬──────────────────────────────────────────────┐
+│ 历史    │ [☰] 环境: [prod ▾]           [{{}} 变量]     │  ← HttpTopBar
+│ 🔍      ├──────────────────────────────────────────────┤
+│ • GET  │ [GET ▾ /users] [POST /login] [+]             │  ← HttpTabBar
+│ • POST ├──────────────────────────────────────────────┤
+│ • ...  │ [GET ▾] https://{{baseUrl}}/…  [发送 ▾][⋯]  │  ← HttpRequestEditor
+│        │ Params│Auth│Headers│Body│Settings             │
+│        ├──────────────────────────────────────────────┤
+│        │ ● 200 OK · 342 ms · 1.2 KB                   │  ← HttpResponseView
+│        │ Body│Headers│Cookies  [Pretty|Raw|Preview]    │
+└────────┴──────────────────────────────────────────────┘
+```
+
+历史侧栏 240px（可折叠 32px），tab 条永远置顶，请求编辑器与响应视图上下分栏。全部走 token —— 状态色（`--accent` 2xx、`--info` 3xx、`--warning` 4xx、`--error` 5xx）、`--font-mono` 数字对齐。
 
 ## 模板编辑器画布
 
@@ -152,14 +172,24 @@
 
 ## 快捷键
 
-**应用内**（webview 焦点时）：
+**应用内 · 全局**（webview 焦点时）：
 
 | 键位 | 行为 |
 |---|---|
 | `⌘\` / `Ctrl\` | 切换 sidebar 折叠 |
 | `⌘K` / `CtrlK` | 命令面板入口（当前 alert 占位） |
 
-**全局**（任意窗口，`tauri-plugin-global-shortcut`，用户可在对应工具页改）：
+**应用内 · HTTP 工具聚焦时**（通过 `useHttpShortcuts` composable 挂 window keydown）：
+
+| 键位 | 行为 |
+|---|---|
+| `⌘Enter` | 发送当前 tab；发送中变"取消" |
+| `⌘T` | 新建 tab |
+| `⌘W` | 关闭当前 tab（最后一个关闭则新建空 tab） |
+| `⌘B` | 折叠 / 展开历史侧栏 |
+| `⌘E` | 打开环境弹窗（变量 tab） |
+
+**系统全局**（任意窗口，`tauri-plugin-global-shortcut`，用户可在对应工具页改）：
 
 | 默认键位 | 行为 |
 |---|---|
