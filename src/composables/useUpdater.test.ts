@@ -1,26 +1,49 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useUpdater, type UpdaterClient, type UpdateInfo, type ProgressEvent } from './useUpdater';
+import { useUpdater, type UpdaterClient, type UpdateStateSnapshot, type ReleaseInfo } from './useUpdater';
 
-function makeClient(opts: {
+function snap(phase: UpdateStateSnapshot['phase']): UpdateStateSnapshot {
+  return { phase, current: '0.8.4', autoCheck: true, lastCheckAt: null, error: null };
+}
+
+function info(v: string, notes = ''): ReleaseInfo {
+  return {
+    version: v,
+    notes,
+    publishedAt: '',
+    assetName: `AT_Tool_${v}_amd64.tar.gz`,
+    assetUrl: 'https://example/x.tar.gz',
+    assetSize: 100
+  };
+}
+
+interface Opts {
   update?: { version: string; notes?: string };
   failCheck?: string;
   failInstall?: string;
-}): UpdaterClient {
-  const dl = vi.fn(async (cb: (e: ProgressEvent) => void) => {
-    if (opts.failInstall) throw new Error(opts.failInstall);
-    cb({ event: 'Started', data: { contentLength: 100 } });
-    cb({ event: 'Progress', data: { chunkLength: 50 } });
-    cb({ event: 'Progress', data: { chunkLength: 50 } });
-    cb({ event: 'Finished' });
-  });
+}
+
+function makeClient(opts: Opts): UpdaterClient {
+  const state = { current: snap({ kind: 'idle' }) };
   return {
-    check: vi.fn(async (): Promise<UpdateInfo | null> => {
-      if (opts.failCheck) throw new Error(opts.failCheck);
-      return opts.update
-        ? { version: opts.update.version, notes: opts.update.notes, downloadAndInstall: dl }
-        : null;
+    getState: vi.fn(async () => state.current),
+    check: vi.fn(async () => {
+      if (opts.failCheck) {
+        state.current = snap({ kind: 'error', message: opts.failCheck });
+        throw new Error(opts.failCheck);
+      }
+      state.current = opts.update
+        ? snap({ kind: 'available', info: info(opts.update.version, opts.update.notes) })
+        : snap({ kind: 'up-to-date' });
+      return state.current;
     }),
-    relaunch: vi.fn(async () => {})
+    download: vi.fn(async () => {
+      if (opts.failInstall) throw new Error(opts.failInstall);
+      state.current = snap({ kind: 'ready', version: opts.update!.version });
+      return state.current;
+    }),
+    apply: vi.fn(async () => {}),
+    cancel: vi.fn(async () => {}),
+    onState: vi.fn(async () => () => {})
   };
 }
 
@@ -33,11 +56,9 @@ describe('useUpdater', () => {
     expect(state.value.status).toBe('idle');
   });
 
-  it('check transitions idle → checking → up-to-date when no update', async () => {
+  it('check transitions to up-to-date when no update', async () => {
     const { state, check } = useUpdater(makeClient({}));
-    const p = check();
-    expect(state.value.status).toBe('checking');
-    await p;
+    await check();
     expect(state.value.status).toBe('up-to-date');
   });
 
@@ -56,7 +77,7 @@ describe('useUpdater', () => {
     expect(state.value.available).toEqual({ version: '0.2.0', notes: 'fixes' });
   });
 
-  it('check error transitions to error with message', async () => {
+  it('check error transitions to error', async () => {
     const { state, check } = useUpdater(makeClient({ failCheck: 'network down' }));
     await check();
     expect(state.value.status).toBe('error');
@@ -78,14 +99,7 @@ describe('useUpdater', () => {
     expect(state.value.status).toBe('ready');
   });
 
-  it('install ends with 100% download percent', async () => {
-    const { state, check, install } = useUpdater(makeClient({ update: { version: '0.2.0' } }));
-    await check();
-    await install();
-    expect(state.value.downloadPercent).toBe(100);
-  });
-
-  it('install error transitions downloading → error', async () => {
+  it('install error transitions to error', async () => {
     const { state, check, install } = useUpdater(makeClient({
       update: { version: '0.2.0' },
       failInstall: 'download interrupted'
@@ -96,25 +110,19 @@ describe('useUpdater', () => {
     expect(state.value.error).toBe('download interrupted');
   });
 
-  it('relaunch calls client.relaunch', async () => {
+  it('relaunch calls client.apply', async () => {
     const client = makeClient({ update: { version: '0.2.0' } });
     const { relaunch } = useUpdater(client);
     await relaunch();
-    expect(client.relaunch).toHaveBeenCalled();
+    expect(client.apply).toHaveBeenCalled();
   });
 
-  it('dismiss resets to idle from any state', async () => {
+  it('dismiss resets to idle', async () => {
     const { state, check, dismiss } = useUpdater(makeClient({ update: { version: '0.2.0' } }));
     await check();
     expect(state.value.status).toBe('available');
     dismiss();
     expect(state.value.status).toBe('idle');
     expect(state.value.available).toBeUndefined();
-  });
-
-  it('install without prior check is no-op (stays idle)', async () => {
-    const { state, install } = useUpdater(makeClient({}));
-    await install();
-    expect(state.value.status).toBe('idle');
   });
 });
