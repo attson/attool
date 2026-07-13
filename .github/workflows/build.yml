@@ -29,6 +29,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync version from git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Syncing version to $VERSION"
+          # Cargo.toml：只替换 [package] 段第一处 version 行
+          perl -i -pe 'BEGIN{$c=0} if(/^version = /){ $c++; $_ = "version = \"'"$VERSION"'\"\n" if $c==1 }' src-tauri/Cargo.toml
+          # tauri.conf.json
+          node -e "const fs=require('fs'),f='src-tauri/tauri.conf.json',j=JSON.parse(fs.readFileSync(f,'utf8'));j.version='$VERSION';fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+          # package.json
+          node -e "const fs=require('fs'),f='package.json',j=JSON.parse(fs.readFileSync(f,'utf8'));j.version='$VERSION';fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+          echo "--- Cargo.toml ---"
+          head -5 src-tauri/Cargo.toml
+          echo "--- tauri.conf.json version ---"
+          node -e "console.log(require('./src-tauri/tauri.conf.json').version)"
+          echo "--- package.json version ---"
+          node -e "console.log(require('./package.json').version)"
+
       - name: Install Linux dependencies
         if: startsWith(matrix.os, 'ubuntu')
         run: |

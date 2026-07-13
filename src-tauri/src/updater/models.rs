@@ -66,10 +66,13 @@ impl Default for Snapshot {
 #[derive(Debug, Deserialize)]
 pub struct GithubRelease {
     pub tag_name: String,
+    // GitHub 有时会把 body / published_at 序列化成 null（release 未写描述、
+    // 或 draft 未 publish 时），此时 String + #[serde(default)] 会解析失败。
+    // 用 Option<String> 兼容缺失和 null 两种情况。
     #[serde(default)]
-    pub body: String,
+    pub body: Option<String>,
     #[serde(default)]
-    pub published_at: String,
+    pub published_at: Option<String>,
     pub assets: Vec<GithubAsset>,
 }
 

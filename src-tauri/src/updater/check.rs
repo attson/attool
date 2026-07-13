@@ -59,8 +59,8 @@ pub fn build_release_info(release: &GithubRelease) -> Result<ReleaseInfo, String
         .ok_or_else(|| format!("release 中缺少 {asset_name} 资源"))?;
     Ok(ReleaseInfo {
         version,
-        notes: release.body.clone(),
-        published_at: release.published_at.clone(),
+        notes: release.body.clone().unwrap_or_default(),
+        published_at: release.published_at.clone().unwrap_or_default(),
         asset_name: asset.name.clone(),
         asset_url: asset.browser_download_url.clone(),
         asset_size: asset.size,
@@ -88,5 +88,21 @@ mod tests {
     fn invalid_returns_false() {
         assert!(!newer_than_current("foo", "0.8.5"));
         assert!(!newer_than_current("0.8.5", "bar"));
+    }
+
+    #[test]
+    fn parses_release_with_null_body_and_published_at() {
+        // GitHub 在 release 未填描述 / 未 publish 时会把这两个字段序列化成 null。
+        let json = r#"{
+            "tag_name": "v0.9.0",
+            "body": null,
+            "published_at": null,
+            "assets": []
+        }"#;
+        let release: GithubRelease =
+            serde_json::from_str(json).expect("null body/published_at should decode");
+        assert_eq!(release.tag_name, "v0.9.0");
+        assert!(release.body.is_none());
+        assert!(release.published_at.is_none());
     }
 }
