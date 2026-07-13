@@ -1,6 +1,6 @@
 # AT Tool
 
-个人桌面工具集合，基于 Tauri 2 + Vue 3 + Naive UI。Mono Dark / Light 双主题，集成 in-app 自动更新。
+个人桌面工具集合，基于 Tauri 2 + Vue 3 + Naive UI。Mono Dark / Light 双主题，全平台 in-app 自动更新（含 Linux `.deb`）。
 
 ## 当前内置工具
 
@@ -17,7 +17,7 @@
 | **编码** | Base64 / URL / Unicode / Hex / Hash / JWT 解码 |
 | **生成器** | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 |
 | **时间** | Unix 时间戳、时区转换、Cron、时间差 |
-| **HTTP 请求** | GET/POST/PUT/DELETE/PATCH + Headers/Query/Body（Postman Lite） |
+| **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E） |
 
 截图支持全平台：macOS 用系统 `screencapture`，Linux / Windows 用 xcap。
 
@@ -27,15 +27,17 @@
 
 | 文件 | 适用平台 |
 |---|---|
-| `AT Tool_<version>_arm64.dmg` | macOS Apple Silicon (M1/M2/M3/M4) |
-| `AT Tool_<version>_amd64.dmg` | macOS Intel |
-| `AT Tool_<version>_amd64.exe` | Windows 64-bit |
-| `AT Tool_<version>_amd64.deb` | Linux x86_64（Debian / Ubuntu） |
-| `AT Tool_<version>_arm64.deb` | Linux ARM64 |
+| `AT.Tool_<version>_arm64.dmg` | macOS Apple Silicon (M1/M2/M3/M4) |
+| `AT.Tool_<version>_amd64.dmg` | macOS Intel |
+| `AT.Tool_<version>_amd64.exe` | Windows 64-bit |
+| `AT.Tool_<version>_amd64.deb` | Linux x86_64（Debian / Ubuntu） |
+| `AT.Tool_<version>_arm64.deb` | Linux ARM64 |
 
 未做代码签名，首次打开 macOS / Windows 会有 Gatekeeper / SmartScreen 警告，按系统说明放行即可。
 
-应用启动后会自动检查更新（可在设置里关闭）；macOS / Windows 走 in-app 一键更新，Linux 仍需重新下载 `.deb` 安装。
+应用启动后会自动检查更新（可在设置里关闭）。**全平台**（含 Linux `.deb`）都走 in-app 一键升级 —— 客户端拉取 GitHub Releases 的 `SHA256SUMS` + Ed25519 签名，校验通过后自动替换本地二进制并重启。Linux 上覆盖 `/usr/bin/attool` 会走 `pkexec` 提权（无 pkexec 环境提示手动 `sudo`）。
+
+> v0.8.4 及以前的用户无法自动升到 v0.8.5 及以后（老 updater 查的 `latest.json` 已下线），需手动下载一次新版本装包。
 
 ## 运行时依赖
 
@@ -43,6 +45,7 @@
 |---|---|---|
 | `aria2c` | 下载工具调用 | `brew install aria2` / `apt install aria2` / `choco install aria2` |
 | `python3` + `psd-tools` | PSD 模板解析 | `python3 -m pip install --user psd-tools` |
+| `pkexec` | Linux in-app 升级提权（一般随桌面环境自带） | `apt install policykit-1` |
 
 ## 开发
 
@@ -67,6 +70,8 @@ pnpm build          # tsc + vite build
 pnpm tauri:build    # 全量打包桌面应用
 ```
 
+**dev build 里 updater 自动禁用**（`build.rs` 找不到 `ATTOOL_UPDATE_VERIFY_PUBLIC_KEY` 环境变量，公钥文件为空，客户端不会误拉线上升级）。
+
 ### Linux 截图依赖
 
 浮层截图在 Linux 上通过 [xcap](https://github.com/nashaofu/xcap) 实现，编译时需要以下开发库：
@@ -83,4 +88,4 @@ sudo apt install libxcb1-dev libxrandr-dev libdbus-1-dev \
 
 - `AGENTS.md` —— 给 AI 看的工程地图（技术栈、约定、目录速览、加新工具最小路径、发布流程）
 - `docs/spec/` —— 当前态规范（overview / ui-design-system / architecture）
-- `docs/superpowers/` —— 每个任务的设计文档 + 实施计划
+- `docs/superpowers/` —— 每个任务的设计文档 + 实施计划（gitignored）
