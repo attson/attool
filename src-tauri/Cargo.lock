@@ -355,6 +355,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek",
  "fontdb",
+ "futures-util",
  "hex",
  "image",
  "imageproc",

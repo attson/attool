@@ -3,7 +3,7 @@ mod clipboard;
 mod updater;
 mod douyin;
 pub mod ecommerce;
-mod http;
+pub mod http;
 pub mod imaging;
 pub mod network;
 mod qrcode;
