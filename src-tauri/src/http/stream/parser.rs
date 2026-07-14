@@ -1,5 +1,19 @@
 pub const MAX_DATA_BYTES: usize = 1024 * 1024;
 
+/// Returns the largest byte offset ≤ `n` that falls on a UTF-8 char boundary in `s`.
+fn floor_char_boundary(s: &str, n: usize) -> usize {
+    if n >= s.len() {
+        return s.len();
+    }
+    let bytes = s.as_bytes();
+    let mut i = n;
+    // Walk backwards past any UTF-8 continuation bytes (0b10xxxxxx).
+    while i > 0 && (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+        i -= 1;
+    }
+    i
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SseFrame {
     pub event: String,
@@ -83,9 +97,16 @@ impl SseParser {
                     if !self.cur_data.is_empty() {
                         self.cur_data.push('\n');
                     }
+                    // MAX_DATA_BYTES bounds the total joined string returned in
+                    // SseFrame.data, including any '\n' line separators between
+                    // multi-line data fields.
                     if self.cur_data.len() + value.len() > MAX_DATA_BYTES {
                         let room = MAX_DATA_BYTES.saturating_sub(self.cur_data.len());
-                        self.cur_data.push_str(&value[..room.min(value.len())]);
+                        // Truncate at the last valid UTF-8 char boundary at or
+                        // before `room` to avoid a panic on multi-byte codepoints
+                        // (e.g. Chinese text or emoji in AI SSE streams).
+                        let safe_end = floor_char_boundary(&value, room);
+                        self.cur_data.push_str(&value[..safe_end]);
                         self.cur_truncated = true;
                     } else {
                         self.cur_data.push_str(&value);
@@ -201,12 +222,28 @@ mod tests {
 
     #[test]
     fn oversized_data_gets_truncated() {
+        // ASCII input: truncation must produce exactly MAX_DATA_BYTES chars.
         let big = "x".repeat(MAX_DATA_BYTES + 100);
         let payload = format!("data: {}\n\n", big);
         let mut p = SseParser::new();
         let out = p.feed(payload.as_bytes());
         assert_eq!(out.len(), 1);
         assert!(out[0].truncated);
+        assert_eq!(out[0].data.len(), MAX_DATA_BYTES);
+    }
+
+    #[test]
+    fn oversized_multibyte_data_truncates_at_char_boundary() {
+        // "中" is 3 bytes in UTF-8; feed well over MAX_DATA_BYTES worth.
+        let big = "中".repeat(MAX_DATA_BYTES); // >> MAX_DATA_BYTES bytes
+        let payload = format!("data: {}\n\n", big);
+        let mut p = SseParser::new();
+        let out = p.feed(payload.as_bytes());
+        assert_eq!(out.len(), 1);
+        // Must not panic, must set truncated, and length must respect boundary.
+        assert!(out[0].truncated);
         assert!(out[0].data.len() <= MAX_DATA_BYTES);
+        // All bytes must align on 3-byte "中" boundaries.
+        assert_eq!(out[0].data.len() % 3, 0);
     }
 }
