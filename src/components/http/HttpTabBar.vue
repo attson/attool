@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { HttpTab, HttpRequestSpec } from './types';
+import type { HttpTab, HttpRequestSpec, TabKind } from './types';
+import { NDropdown } from 'naive-ui';
 
 defineProps<{ tabs: HttpTab[]; activeId: string | null }>();
 const emit = defineEmits<{
   (e: 'activate', id: string): void;
   (e: 'close', id: string): void;
-  (e: 'new'): void;
+  (e: 'new', kind: TabKind): void;
 }>();
 
 function onMouseDown(id: string, ev: MouseEvent) {
@@ -15,6 +16,16 @@ function onMouseDown(id: string, ev: MouseEvent) {
   } else if (ev.button === 0) {
     emit('activate', id);
   }
+}
+
+const newOptions = [
+  { label: '新 HTTP 请求', key: 'http' },
+  { label: '新 SSE 会话', key: 'sse' },
+  { label: '新 WebSocket 会话', key: 'ws' },
+];
+
+function onNewSelect(key: 'http' | 'sse' | 'ws') {
+  emit('new', key);
 }
 </script>
 
@@ -27,11 +38,15 @@ function onMouseDown(id: string, ev: MouseEvent) {
       @mousedown="onMouseDown(tab.id, $event)"
       :title="tab.title"
     >
-      <span class="method mono">{{ tab.kind === 'http' ? (tab.spec as HttpRequestSpec).method : tab.kind.toUpperCase() }}</span>
+      <span class="method mono" v-if="tab.kind === 'http'">{{ (tab.spec as HttpRequestSpec).method }}</span>
+      <span class="method mono kind-sse" v-else-if="tab.kind === 'sse'">SSE</span>
+      <span class="method mono kind-ws" v-else-if="tab.kind === 'ws'">WS</span>
       <span class="title">{{ tab.title || '新请求' }}</span>
       <button class="close" @click.stop="emit('close', tab.id)">✕</button>
     </div>
-    <button class="new" @click="emit('new')" title="新 tab (⌘T)">+</button>
+    <n-dropdown :options="newOptions" trigger="click" @select="onNewSelect">
+      <button class="new" title="新 tab (⌘T)">+</button>
+    </n-dropdown>
   </div>
 </template>
 
@@ -78,6 +93,8 @@ function onMouseDown(id: string, ev: MouseEvent) {
 }
 @keyframes pulse { 50% { opacity: 0.3; } }
 .method { color: var(--accent, #10b981); font-weight: 600; }
+.kind-sse { color: #8b5cf6; }
+.kind-ws { color: #06b6d4; }
 .title {
   flex: 1;
   overflow: hidden;

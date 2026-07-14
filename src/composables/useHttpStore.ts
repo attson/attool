@@ -264,6 +264,13 @@ function createStore(api: FullApi) {
     state.activeTabId = id;
     for (const t of state.tabs) t.isActive = t.id === id;
     await api.setActiveTab(id).catch(() => {});
+    const tab = state.tabs.find((t) => t.id === id);
+    if (tab && (tab.kind === 'sse' || tab.kind === 'ws') && (tab.messages?.length ?? 0) === 0) {
+      // 静默失败：session 不存在则返回空数组
+      await api.listStreamMessages(id).then((msgs) => {
+        if (msgs.length > 0) tab.messages = msgs;
+      }).catch(() => {});
+    }
   }
 
   async function reorderTabs(orderedIds: string[]) {

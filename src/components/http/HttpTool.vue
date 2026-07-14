@@ -3,13 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NButton, NSelect } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useHttpStore } from '../../composables/useHttpStore';
-import type { HttpEnvVar, HttpRequestSpec } from './types';
+import type { HttpEnvVar, HttpRequestSpec, TabKind } from './types';
 import { toCurl } from './curl';
 import HttpSidebar from './HttpSidebar.vue';
 import HttpTabBar from './HttpTabBar.vue';
 import HttpRequestEditor from './HttpRequestEditor.vue';
 import HttpResponseView from './HttpResponseView.vue';
 import HttpEnvModal from './HttpEnvModal.vue';
+import SseTool from './SseTool.vue';
+import WsTool from './WsTool.vue';
 
 const store = useHttpStore();
 const collapsed = ref(false);
@@ -55,8 +57,9 @@ function updateSpec(next: HttpRequestSpec) {
 }
 
 async function copyCurrentCurl(template: boolean) {
-  if (!store.activeTab.value) return;
-  const text = toCurl(store.activeTab.value.spec as HttpRequestSpec, template ? null : store.varContext.value);
+  const active = store.activeTab.value;
+  if (!active || active.kind !== 'http') return;
+  const text = toCurl(active.spec as HttpRequestSpec, template ? null : store.varContext.value);
   try { await writeText(text); } catch {}
 }
 
@@ -131,25 +134,29 @@ onBeforeUnmount(() => {
         :active-id="store.state.activeTabId"
         @activate="(id: string) => store.setActiveTab(id)"
         @close="(id: string) => store.closeTab(id)"
-        @new="() => store.newTab()"
+        @new="(kind: TabKind) => store.newTab(undefined, undefined, kind)"
       />
 
       <template v-if="store.activeTab.value">
-        <HttpRequestEditor
-          :spec="(store.activeTab.value.spec as HttpRequestSpec)"
-          :sending="store.activeTab.value.sending"
-          :var-context="store.varContext.value"
-          @update:spec="updateSpec"
-          @send="() => store.send()"
-          @cancel="() => store.cancel()"
-          @copy-curl="copyCurrentCurl"
-          @apply-spec="(s: HttpRequestSpec) => store.loadIntoTab(s, 'active')"
-        />
-        <HttpResponseView
-          :response="store.activeTab.value.lastResponse"
-          :error="store.activeTab.value.lastError"
-          :sending="store.activeTab.value.sending"
-        />
+        <template v-if="store.activeTab.value.kind === 'http'">
+          <HttpRequestEditor
+            :spec="store.activeTab.value.spec as any"
+            :sending="store.activeTab.value.sending"
+            :var-context="store.varContext.value"
+            @update:spec="updateSpec"
+            @send="() => store.send()"
+            @cancel="() => store.cancel()"
+            @copy-curl="copyCurrentCurl"
+            @apply-spec="(s: HttpRequestSpec) => store.loadIntoTab(s, 'active')"
+          />
+          <HttpResponseView
+            :response="store.activeTab.value.lastResponse"
+            :error="store.activeTab.value.lastError"
+            :sending="store.activeTab.value.sending"
+          />
+        </template>
+        <SseTool v-else-if="store.activeTab.value.kind === 'sse'" :tab="store.activeTab.value" />
+        <WsTool v-else-if="store.activeTab.value.kind === 'ws'" :tab="store.activeTab.value" />
       </template>
     </div>
 
