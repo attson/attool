@@ -76,6 +76,7 @@ pub async fn run_ws<R: tauri::Runtime>(
     cancel_rx: oneshot::Receiver<()>,
     mut send_rx: mpsc::UnboundedReceiver<String>,
     buffer: Arc<Mutex<SessionBuffer>>,
+    generation: u64,
 ) {
     let sid = session_id.clone();
 
@@ -102,7 +103,7 @@ pub async fn run_ws<R: tauri::Runtime>(
                     reason: "invalid url".into(),
                 },
             );
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -126,7 +127,7 @@ pub async fn run_ws<R: tauri::Runtime>(
                 reason: "bad scheme".into(),
             },
         );
-        state.remove(&sid);
+        state.remove_if_generation(&sid, generation);
         return;
     }
     for p in &spec.query_params {
@@ -158,7 +159,7 @@ pub async fn run_ws<R: tauri::Runtime>(
                     reason: "bad request".into(),
                 },
             );
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -211,7 +212,7 @@ pub async fn run_ws<R: tauri::Runtime>(
                 push_and_emit(&buffer, &app, &sid, StreamMessage::Closed {
                     at_ms: now_ms(), code: None, reason: err.to_string(),
                 });
-                state.remove(&sid);
+                state.remove_if_generation(&sid, generation);
                 return;
             }
         },
@@ -219,7 +220,7 @@ pub async fn run_ws<R: tauri::Runtime>(
             push_and_emit(&buffer, &app, &sid, StreamMessage::Closed {
                 at_ms: now_ms(), code: Some(1000), reason: "client".into(),
             });
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -334,7 +335,7 @@ pub async fn run_ws<R: tauri::Runtime>(
         }
     }
 
-    state.remove(&sid);
+    state.remove_if_generation(&sid, generation);
 }
 
 #[cfg(test)]

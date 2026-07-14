@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{mpsc, oneshot};
@@ -10,11 +11,13 @@ pub struct SessionHandle {
     pub cancel_tx: oneshot::Sender<()>,
     pub send_tx: Option<mpsc::UnboundedSender<String>>,
     pub buffer: Arc<Mutex<SessionBuffer>>,
+    pub generation: u64,
 }
 
 #[derive(Default)]
 pub struct HttpStreamState {
     inner: Mutex<HashMap<String, SessionHandle>>,
+    next_generation: AtomicU64,
 }
 
 impl HttpStreamState {
@@ -22,10 +25,29 @@ impl HttpStreamState {
         Self::default()
     }
 
+    /// Returns a new monotonically-increasing generation id.
+    pub fn next_generation(&self) -> u64 {
+        self.next_generation.fetch_add(1, Ordering::SeqCst)
+    }
+
     pub fn insert(&self, id: String, handle: SessionHandle) {
         if let Ok(mut map) = self.inner.lock() {
             map.insert(id, handle);
         }
+    }
+
+    /// Removes the session only if its stored generation matches `generation`.
+    /// Returns true when the entry was removed, false when it was absent or owned by a newer session.
+    pub fn remove_if_generation(&self, id: &str, generation: u64) -> bool {
+        if let Ok(mut m) = self.inner.lock() {
+            if let Some(h) = m.get(id) {
+                if h.generation == generation {
+                    m.remove(id);
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// 幂等：不存在返 false。存在则触发 cancel_tx 并把 handle 从表里移除。
@@ -85,12 +107,17 @@ mod tests {
     use crate::http::models::Direction;
 
     fn make_handle() -> (SessionHandle, oneshot::Receiver<()>, mpsc::UnboundedReceiver<String>) {
+        make_handle_with_gen(0)
+    }
+
+    fn make_handle_with_gen(generation: u64) -> (SessionHandle, oneshot::Receiver<()>, mpsc::UnboundedReceiver<String>) {
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let (send_tx, send_rx) = mpsc::unbounded_channel();
         let handle = SessionHandle {
             cancel_tx,
             send_tx: Some(send_tx),
             buffer: Arc::new(Mutex::new(SessionBuffer::new())),
+            generation,
         };
         (handle, cancel_rx, send_rx)
     }
@@ -143,5 +170,20 @@ mod tests {
         state.insert("s".into(), h);
         let snap = state.snapshot("s");
         assert_eq!(snap.len(), 1);
+    }
+
+    #[test]
+    fn remove_if_generation_only_removes_own_generation() {
+        let state = HttpStreamState::new();
+        let (h, _c, _s) = make_handle_with_gen(1);
+        state.insert("s".into(), h);
+
+        // Wrong generation — session stays.
+        assert!(!state.remove_if_generation("s", 999));
+        assert!(state.buffer_for("s").is_some(), "session should still be present");
+
+        // Correct generation — session removed.
+        assert!(state.remove_if_generation("s", 1));
+        assert!(state.buffer_for("s").is_none(), "session should be gone");
     }
 }

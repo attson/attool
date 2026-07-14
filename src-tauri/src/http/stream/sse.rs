@@ -47,6 +47,7 @@ pub async fn run_sse<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     cancel_rx: oneshot::Receiver<()>,
     buffer: Arc<Mutex<SessionBuffer>>,
+    generation: u64,
 ) {
     let sid = session_id.clone();
 
@@ -73,7 +74,7 @@ pub async fn run_sse<R: tauri::Runtime>(
                     reason: "invalid url".into(),
                 },
             );
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -153,7 +154,7 @@ pub async fn run_sse<R: tauri::Runtime>(
                     reason: "client build failed".into(),
                 },
             );
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -168,7 +169,7 @@ pub async fn run_sse<R: tauri::Runtime>(
             push_and_emit(&buffer, &app, &sid, StreamMessage::Closed {
                 at_ms: now_ms(), code: Some(1000), reason: "client".into(),
             });
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -195,7 +196,7 @@ pub async fn run_sse<R: tauri::Runtime>(
                     reason: err.to_string(),
                 },
             );
-            state.remove(&sid);
+            state.remove_if_generation(&sid, generation);
             return;
         }
     };
@@ -236,7 +237,7 @@ pub async fn run_sse<R: tauri::Runtime>(
                 reason: format!("HTTP {}", status.as_u16()),
             },
         );
-        state.remove(&sid);
+        state.remove_if_generation(&sid, generation);
         return;
     }
 
@@ -286,5 +287,5 @@ pub async fn run_sse<R: tauri::Runtime>(
         }
     }
 
-    state.remove(&sid);
+    state.remove_if_generation(&sid, generation);
 }

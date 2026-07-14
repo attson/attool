@@ -20,6 +20,7 @@ pub async fn open_stream(
     // 已有 session -> 先内部 cancel
     let _ = state.cancel(&session_id);
 
+    let generation = state.next_generation();
     let buffer = Arc::new(Mutex::new(SessionBuffer::new()));
     let (cancel_tx, cancel_rx) = oneshot::channel();
 
@@ -33,13 +34,14 @@ pub async fn open_stream(
                     cancel_tx,
                     send_tx: None,
                     buffer: Arc::clone(&buffer),
+                    generation,
                 },
             );
             let state_inner = state.inner().clone();
             let app_inner = app.clone();
             let sid = session_id.clone();
             tokio::spawn(async move {
-                run_sse(sid, spec, state_inner, app_inner, cancel_rx, buffer).await;
+                run_sse(sid, spec, state_inner, app_inner, cancel_rx, buffer, generation).await;
             });
             Ok(())
         }
@@ -53,13 +55,14 @@ pub async fn open_stream(
                     cancel_tx,
                     send_tx: Some(send_tx),
                     buffer: Arc::clone(&buffer),
+                    generation,
                 },
             );
             let state_inner = state.inner().clone();
             let app_inner = app.clone();
             let sid = session_id.clone();
             tokio::spawn(async move {
-                run_ws(sid, spec, state_inner, app_inner, cancel_rx, send_rx, buffer).await;
+                run_ws(sid, spec, state_inner, app_inner, cancel_rx, send_rx, buffer, generation).await;
             });
             Ok(())
         }

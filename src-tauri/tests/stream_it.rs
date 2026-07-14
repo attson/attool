@@ -78,6 +78,7 @@ async fn sse_receives_events_and_closes() {
         mock_app(),
         cancel_rx,
         Arc::clone(&buffer),
+        0,
     ));
 
     tokio::time::timeout(Duration::from_secs(5), task)
@@ -119,6 +120,7 @@ async fn sse_401_becomes_error_and_closed() {
         mock_app(),
         cancel_rx,
         Arc::clone(&buffer),
+        0,
     ));
 
     tokio::time::timeout(Duration::from_secs(5), task)
@@ -187,6 +189,7 @@ async fn ws_echoes_text_and_closes_on_client_close() {
         cancel_rx,
         send_rx,
         Arc::clone(&buffer),
+        0,
     ));
 
     // Wait for Open
