@@ -1568,6 +1568,7 @@ pub fn run() {
             }
             app.manage(http_store);
             app.manage(http::cancel::HttpCancelState::new());
+            app.manage(std::sync::Arc::new(http::stream::session::HttpStreamState::new()));
 
             let updater_stage_dir = app
                 .path()
@@ -1626,6 +1627,10 @@ pub fn run() {
             http::commands::list_http_env_vars,
             http::commands::upsert_http_env_var,
             http::commands::delete_http_env_var,
+            http::stream::commands::open_stream,
+            http::stream::commands::close_stream,
+            http::stream::commands::send_ws_message,
+            http::stream::commands::list_stream_messages,
             updater::commands::updater_get_state,
             updater::commands::updater_check,
             updater::commands::updater_download,
