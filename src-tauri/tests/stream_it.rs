@@ -133,3 +133,90 @@ async fn sse_401_becomes_error_and_closed() {
     assert!(has_error, "expected 401 in error, got {:?}", snap);
     assert!(matches!(snap.last(), Some(StreamMessage::Closed { .. })));
 }
+
+use attool_lib::http::stream::ws::run_ws;
+use attool_lib::http::models::{Direction, WsSpec};
+use tokio::sync::mpsc;
+
+fn make_ws_spec(url: String) -> WsSpec {
+    WsSpec {
+        url,
+        headers: vec![],
+        query_params: vec![],
+        auth: empty_auth(),
+        verify_ssl: true,
+        subprotocols: vec![],
+        ping_interval_seconds: None,
+        templates: vec![],
+    }
+}
+
+async fn echo_ws_once() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (sock, _) = listener.accept().await.unwrap();
+        let ws = tokio_tungstenite::accept_async(sock).await.unwrap();
+        let (mut tx, mut rx) = ws.split();
+        use futures_util::{SinkExt, StreamExt};
+        while let Some(Ok(msg)) = rx.next().await {
+            if msg.is_text() {
+                tx.send(msg).await.unwrap();
+            } else if msg.is_close() {
+                break;
+            }
+        }
+    });
+    format!("ws://{}", addr)
+}
+
+#[tokio::test]
+async fn ws_echoes_text_and_closes_on_client_close() {
+    let base = echo_ws_once().await;
+
+    let state = Arc::new(HttpStreamState::new());
+    let buffer = Arc::new(StdMutex::new(SessionBuffer::new()));
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let (send_tx, send_rx) = mpsc::unbounded_channel();
+
+    let task = tokio::spawn(run_ws(
+        "w1".to_string(),
+        make_ws_spec(base),
+        Arc::clone(&state),
+        mock_app(),
+        cancel_rx,
+        send_rx,
+        Arc::clone(&buffer),
+    ));
+
+    // Wait for Open
+    for _ in 0..50 {
+        if buffer.lock().unwrap().snapshot().iter().any(|m| matches!(m, StreamMessage::Open { .. })) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    send_tx.send("hi".to_string()).unwrap();
+
+    // Wait for echo to come back
+    for _ in 0..50 {
+        let snap = buffer.lock().unwrap().snapshot();
+        let has_in = snap.iter().any(|m| matches!(
+            m, StreamMessage::WsText { direction: Direction::In, text, .. } if text == "hi"
+        ));
+        if has_in {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Client closes
+    let _ = cancel_tx.send(());
+    tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+
+    let snap = buffer.lock().unwrap().snapshot();
+    let has_in = snap.iter().any(|m| matches!(m, StreamMessage::WsText { direction: Direction::In, .. }));
+    let has_out = snap.iter().any(|m| matches!(m, StreamMessage::WsText { direction: Direction::Out, .. }));
+    assert!(has_in && has_out, "in/out missing: {:?}", snap);
+    assert!(matches!(snap.last(), Some(StreamMessage::Closed { .. })));
+}
