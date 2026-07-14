@@ -5,7 +5,8 @@ import type {
   HttpHistoryItem,
   HttpRequestSpec,
   HttpResponseInfo,
-  HttpTab
+  HttpTab,
+  TabKind
 } from './types';
 
 interface HttpTabRow {
@@ -13,6 +14,7 @@ interface HttpTabRow {
   title: string;
   orderIndex: number;
   isActive: boolean;
+  kind: string;
   specJson: string;
   updatedAt: number;
 }
@@ -53,8 +55,8 @@ function tabFromRow(row: HttpTabRow): HttpTab {
     title: row.title,
     orderIndex: row.orderIndex,
     isActive: row.isActive,
-    kind: 'http',
-    spec: JSON.parse(row.specJson) as HttpRequestSpec,
+    kind: (row.kind as TabKind) ?? 'http',
+    spec: JSON.parse(row.specJson),
     lastResponse: null,
     lastError: null,
     sending: false
@@ -67,6 +69,7 @@ function tabToRow(tab: HttpTab): HttpTabRow {
     title: tab.title,
     orderIndex: tab.orderIndex,
     isActive: tab.isActive,
+    kind: tab.kind,
     specJson: JSON.stringify(tab.spec),
     updatedAt: Date.now()
   };
