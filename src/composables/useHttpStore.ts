@@ -98,6 +98,7 @@ function createStore(api: HttpApi) {
       title: '新请求',
       orderIndex: 0,
       isActive: true,
+      kind: 'http',
       spec: makeEmptySpec(),
       lastResponse: null,
       lastError: null,
@@ -153,6 +154,7 @@ function createStore(api: HttpApi) {
       title: title ?? '新请求',
       orderIndex: state.tabs.length,
       isActive: false,
+      kind: 'http',
       spec: spec ?? makeEmptySpec(),
       lastResponse: null,
       lastError: null,
@@ -221,10 +223,11 @@ function createStore(api: HttpApi) {
 
   async function send(tabId?: string): Promise<void> {
     const tab = tabId ? state.tabs.find((t) => t.id === tabId) : activeTab.value;
-    if (!tab) return;
+    if (!tab || tab.kind !== 'http') return;
+    const httpSpec = tab.spec as HttpRequestSpec;
     tab.lastError = null;
     tab.sending = true;
-    const spec = applyVarsToSpec(tab.spec, varContext.value);
+    const spec = applyVarsToSpec(httpSpec, varContext.value);
     const cancelId = ulid();
     tab.cancelTokenId = cancelId;
     await flushDirtyNow();
@@ -232,15 +235,15 @@ function createStore(api: HttpApi) {
     try {
       const resp = await api.sendHttp(spec, cancelId);
       tab.lastResponse = resp;
-      if (tab.spec.saveToHistory) {
+      if (httpSpec.saveToHistory) {
         const item: HttpHistoryItem = {
           id: ulid(),
-          method: tab.spec.method,
+          method: httpSpec.method,
           url: spec.url,
           status: resp.status,
           elapsedMs: resp.elapsedMs,
           bodyBytes: resp.bodyBytes,
-          spec: JSON.parse(JSON.stringify(tab.spec)),
+          spec: JSON.parse(JSON.stringify(httpSpec)),
           respSummary: resp.body.slice(0, RESP_SUMMARY_MAX),
           createdAt: Date.now()
         };
@@ -252,15 +255,15 @@ function createStore(api: HttpApi) {
       const msg = String((err as Error).message ?? err);
       tab.lastError = msg;
       tab.lastResponse = null;
-      if (tab.spec.saveToHistory && !/取消/.test(msg)) {
+      if (httpSpec.saveToHistory && !/取消/.test(msg)) {
         const item: HttpHistoryItem = {
           id: ulid(),
-          method: tab.spec.method,
+          method: httpSpec.method,
           url: spec.url,
           status: null,
           elapsedMs: Date.now() - start,
           bodyBytes: null,
-          spec: JSON.parse(JSON.stringify(tab.spec)),
+          spec: JSON.parse(JSON.stringify(httpSpec)),
           respSummary: msg.slice(0, RESP_SUMMARY_MAX),
           createdAt: Date.now()
         };

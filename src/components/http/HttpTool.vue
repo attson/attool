@@ -39,23 +39,24 @@ function openVarsModal() {
 }
 
 function updateSpec(next: HttpRequestSpec) {
-  if (!store.activeTab.value) return;
-  store.activeTab.value.spec = next;
+  const active = store.activeTab.value;
+  if (!active || active.kind !== 'http') return;
+  active.spec = next;
   const url = next.url;
   if (url) {
     try {
       const u = new URL(url);
       const p = u.pathname.length > 1 ? u.pathname : u.host;
-      store.activeTab.value.title = `${next.method} ${p}`.slice(0, 40);
+      active.title = `${next.method} ${p}`.slice(0, 40);
     } catch {
-      store.activeTab.value.title = `${next.method} ${url || '新请求'}`.slice(0, 40);
+      active.title = `${next.method} ${url || '新请求'}`.slice(0, 40);
     }
   }
 }
 
 async function copyCurrentCurl(template: boolean) {
   if (!store.activeTab.value) return;
-  const text = toCurl(store.activeTab.value.spec, template ? null : store.varContext.value);
+  const text = toCurl(store.activeTab.value.spec as HttpRequestSpec, template ? null : store.varContext.value);
   try { await writeText(text); } catch {}
 }
 
@@ -135,7 +136,7 @@ onBeforeUnmount(() => {
 
       <template v-if="store.activeTab.value">
         <HttpRequestEditor
-          :spec="store.activeTab.value.spec"
+          :spec="(store.activeTab.value.spec as HttpRequestSpec)"
           :sending="store.activeTab.value.sending"
           :var-context="store.varContext.value"
           @update:spec="updateSpec"

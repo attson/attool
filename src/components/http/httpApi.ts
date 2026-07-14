@@ -53,6 +53,7 @@ function tabFromRow(row: HttpTabRow): HttpTab {
     title: row.title,
     orderIndex: row.orderIndex,
     isActive: row.isActive,
+    kind: 'http',
     spec: JSON.parse(row.specJson) as HttpRequestSpec,
     lastResponse: null,
     lastError: null,

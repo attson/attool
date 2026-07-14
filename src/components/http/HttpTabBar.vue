@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { HttpTab } from './types';
+import type { HttpTab, HttpRequestSpec } from './types';
 
 defineProps<{ tabs: HttpTab[]; activeId: string | null }>();
 const emit = defineEmits<{
@@ -27,7 +27,7 @@ function onMouseDown(id: string, ev: MouseEvent) {
       @mousedown="onMouseDown(tab.id, $event)"
       :title="tab.title"
     >
-      <span class="method mono">{{ tab.spec.method }}</span>
+      <span class="method mono">{{ tab.kind === 'http' ? (tab.spec as HttpRequestSpec).method : tab.kind.toUpperCase() }}</span>
       <span class="title">{{ tab.title || '新请求' }}</span>
       <button class="close" @click.stop="emit('close', tab.id)">✕</button>
     </div>
