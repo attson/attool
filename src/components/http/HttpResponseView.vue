@@ -197,30 +197,36 @@ function parseCookie(raw: string): CookieInfo {
 
         <n-tab-pane name="headers" :tab="`Headers (${response.headers.length})`">
           <table class="headers">
-            <tr v-for="([k, v]) in response.headers" :key="k">
-              <td class="k mono">{{ k }}</td>
-              <td class="v mono">{{ v }}</td>
-            </tr>
+            <tbody>
+              <tr v-for="([k, v]) in response.headers" :key="k">
+                <td class="k mono">{{ k }}</td>
+                <td class="v mono">{{ v }}</td>
+              </tr>
+            </tbody>
           </table>
         </n-tab-pane>
 
         <n-tab-pane name="cookies" :tab="`Cookies (${cookies.length})`">
           <div v-if="cookies.length === 0" class="empty">无 Set-Cookie</div>
           <table v-else class="cookies">
-            <tr>
-              <th>Name</th>
-              <th>Value</th>
-              <th>Attributes</th>
-            </tr>
-            <tr v-for="(c, i) in cookies" :key="i">
-              <td class="mono">{{ c.name }}</td>
-              <td class="mono">{{ c.value }}</td>
-              <td class="mono attrs">
-                <span v-for="(v, k) in c.attributes" :key="k">
-                  {{ k }}<template v-if="v !== true">={{ v }}</template>
-                </span>
-              </td>
-            </tr>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Value</th>
+                <th>Attributes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(c, i) in cookies" :key="i">
+                <td class="mono">{{ c.name }}</td>
+                <td class="mono">{{ c.value }}</td>
+                <td class="mono attrs">
+                  <span v-for="(v, k) in c.attributes" :key="k">
+                    {{ k }}<template v-if="v !== true">={{ v }}</template>
+                  </span>
+                </td>
+              </tr>
+            </tbody>
           </table>
         </n-tab-pane>
       </n-tabs>
