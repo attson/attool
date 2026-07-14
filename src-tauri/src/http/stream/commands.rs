@@ -28,6 +28,16 @@ pub async fn open_stream(
         "sse" => {
             let spec: SseSpec = serde_json::from_value(spec)
                 .map_err(|error| format!("SSE spec 非法：{error}"))?;
+            {
+                let parsed = url::Url::parse(spec.url.trim())
+                    .map_err(|e| format!("SSE URL 非法：{e}"))?;
+                let scheme = parsed.scheme();
+                if !matches!(scheme, "http" | "https") {
+                    return Err(format!(
+                        "SSE 需要 http/https URL，收到：{scheme}"
+                    ));
+                }
+            }
             state.insert(
                 session_id.clone(),
                 SessionHandle {
@@ -48,6 +58,16 @@ pub async fn open_stream(
         "ws" => {
             let spec: WsSpec = serde_json::from_value(spec)
                 .map_err(|error| format!("WS spec 非法：{error}"))?;
+            {
+                let parsed = url::Url::parse(spec.url.trim())
+                    .map_err(|e| format!("WS URL 非法：{e}"))?;
+                let scheme = parsed.scheme();
+                if !matches!(scheme, "ws" | "wss") {
+                    return Err(format!(
+                        "WS 需要 ws/wss URL，收到：{scheme}"
+                    ));
+                }
+            }
             let (send_tx, send_rx) = mpsc::unbounded_channel();
             state.insert(
                 session_id.clone(),
