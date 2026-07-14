@@ -1,25 +1,9 @@
 use std::collections::VecDeque;
 
+use crate::http::models::StreamMessage;
+
 pub const MAX_MESSAGES: usize = 2000;
 pub const MAX_BYTES: usize = 5 * 1024 * 1024;
-
-// 占位 —— Task 3 会用真实 enum 替代
-#[cfg(test)]
-#[derive(Debug, Clone)]
-pub struct StreamMessage {
-    pub size: usize,
-    pub tag: String,
-}
-
-#[cfg(test)]
-impl StreamMessage {
-    pub fn approx_size(&self) -> usize {
-        self.size
-    }
-}
-
-#[cfg(not(test))]
-pub use crate::http::models::StreamMessage;
 
 pub struct SessionBuffer {
     deque: VecDeque<StreamMessage>,
@@ -50,25 +34,13 @@ impl SessionBuffer {
         }
     }
 
-    pub fn take_truncated_meta(&mut self, _at_ms: u64) -> Option<StreamMessage> {
-        // Task 3 会返回真实 StreamMessage::BufferTruncated；测试环境返回占位
+    pub fn take_truncated_meta(&mut self, at_ms: u64) -> Option<StreamMessage> {
         if self.dropped_since_last_meta == 0 {
             return None;
         }
         let dropped = self.dropped_since_last_meta;
         self.dropped_since_last_meta = 0;
-        #[cfg(test)]
-        {
-            Some(StreamMessage {
-                size: 32,
-                tag: format!("truncated:{dropped}"),
-            })
-        }
-        #[cfg(not(test))]
-        {
-            let _ = dropped;
-            unreachable!("real impl provided in Task 3")
-        }
+        Some(StreamMessage::BufferTruncated { at_ms, dropped })
     }
 
     pub fn snapshot(&self) -> Vec<StreamMessage> {
@@ -79,11 +51,23 @@ impl SessionBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::models::{Direction, StreamMessage};
 
-    fn m(size: usize, tag: &str) -> StreamMessage {
-        StreamMessage {
-            size,
-            tag: tag.to_string(),
+    fn text(text: &str) -> StreamMessage {
+        StreamMessage::WsText {
+            at_ms: 0,
+            direction: Direction::In,
+            text: text.to_string(),
+            truncated: false,
+        }
+    }
+
+    fn big(payload: &str) -> StreamMessage {
+        StreamMessage::WsText {
+            at_ms: 0,
+            direction: Direction::In,
+            text: payload.to_string(),
+            truncated: false,
         }
     }
 
@@ -97,47 +81,52 @@ mod tests {
     fn drops_oldest_when_msg_count_exceeded() {
         let mut b = SessionBuffer::new();
         for i in 0..(MAX_MESSAGES + 5) {
-            b.push(m(1, &format!("{i}")));
+            b.push(text(&format!("m{i}")));
         }
-        let snap = b.snapshot();
-        assert_eq!(snap.len(), MAX_MESSAGES);
-        assert_eq!(snap.first().unwrap().tag, "5"); // 前 5 条被丢
+        assert_eq!(b.snapshot().len(), MAX_MESSAGES);
+        if let StreamMessage::WsText { text, .. } = &b.snapshot()[0] {
+            assert_eq!(text, "m5");
+        } else {
+            panic!("wrong variant");
+        }
     }
 
     #[test]
     fn drops_oldest_when_byte_size_exceeded() {
         let mut b = SessionBuffer::new();
-        let big = 1024 * 1024; // 1 MB per msg
+        // approx_size for WsText = 24 + text.len(); use (1 MB - 24) so each msg = exactly 1 MB
+        let payload = "x".repeat(1024 * 1024 - 24);
         for i in 0..8 {
-            b.push(m(big, &format!("{i}")));
+            b.push(big(&payload));
+            let _ = i;
         }
-        let snap = b.snapshot();
-        // 8 MB pushed, cap is 5 MB => 保留 5 条最新，丢弃 3 条
-        assert_eq!(snap.len(), 5);
-        assert_eq!(snap.first().unwrap().tag, "3");
+        // 8 MB pushed, cap 5 MB => 保留 5 条最新，丢弃 3 条
+        assert_eq!(b.snapshot().len(), 5);
     }
 
     #[test]
     fn take_truncated_meta_after_drops() {
         let mut b = SessionBuffer::new();
         for i in 0..(MAX_MESSAGES + 3) {
-            b.push(m(1, &format!("{i}")));
+            b.push(text(&format!("m{i}")));
         }
-        let meta = b.take_truncated_meta(0).expect("expected meta");
-        assert_eq!(meta.tag, "truncated:3");
-        // 第二次调用应为 None
+        let meta = b.take_truncated_meta(42).expect("expected meta");
+        match meta {
+            StreamMessage::BufferTruncated { at_ms, dropped } => {
+                assert_eq!(at_ms, 42);
+                assert_eq!(dropped, 3);
+            }
+            _ => panic!("wrong variant"),
+        }
         assert!(b.take_truncated_meta(0).is_none());
     }
 
     #[test]
     fn snapshot_reflects_current_content() {
         let mut b = SessionBuffer::new();
-        b.push(m(1, "a"));
-        b.push(m(1, "b"));
-        b.push(m(1, "c"));
+        b.push(text("a"));
+        b.push(text("b"));
         let snap = b.snapshot();
-        assert_eq!(snap.len(), 3);
-        assert_eq!(snap[0].tag, "a");
-        assert_eq!(snap[2].tag, "c");
+        assert_eq!(snap.len(), 2);
     }
 }

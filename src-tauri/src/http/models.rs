@@ -94,6 +94,12 @@ pub struct HttpTabRow {
     pub is_active: bool,
     pub spec_json: String,
     pub updated_at: i64,
+    #[serde(default = "default_kind")]
+    pub kind: String,
+}
+
+fn default_kind() -> String {
+    "http".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -130,4 +136,120 @@ pub struct HttpEnvVarRow {
     pub enabled: bool,
     pub order_index: i64,
     pub updated_at: i64,
+}
+
+// ---- stream (SSE / WebSocket) ----
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Direction {
+    In,
+    Out,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StreamMessage {
+    Open {
+        at_ms: u64,
+        status: Option<u16>,
+        headers: Vec<(String, String)>,
+    },
+    SseEvent {
+        at_ms: u64,
+        event: String,
+        data: String,
+        id: Option<String>,
+        retry_ms: Option<u64>,
+        truncated: bool,
+    },
+    WsText {
+        at_ms: u64,
+        direction: Direction,
+        text: String,
+        truncated: bool,
+    },
+    WsBinary {
+        at_ms: u64,
+        direction: Direction,
+        bytes_len: usize,
+        preview_b64: String,
+    },
+    Closed {
+        at_ms: u64,
+        code: Option<u16>,
+        reason: String,
+    },
+    Error {
+        at_ms: u64,
+        message: String,
+    },
+    BufferTruncated {
+        at_ms: u64,
+        dropped: usize,
+    },
+}
+
+impl StreamMessage {
+    /// 近似消息大小（bytes）——只统计承载数据，用于 buffer 上限判断。
+    pub fn approx_size(&self) -> usize {
+        match self {
+            StreamMessage::Open { headers, .. } => {
+                64 + headers.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
+            }
+            StreamMessage::SseEvent {
+                event, data, id, ..
+            } => 32 + event.len() + data.len() + id.as_deref().map(str::len).unwrap_or(0),
+            StreamMessage::WsText { text, .. } => 24 + text.len(),
+            StreamMessage::WsBinary { preview_b64, .. } => 32 + preview_b64.len(),
+            StreamMessage::Closed { reason, .. } => 24 + reason.len(),
+            StreamMessage::Error { message, .. } => 24 + message.len(),
+            StreamMessage::BufferTruncated { .. } => 32,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SseSpec {
+    pub url: String,
+    #[serde(default)]
+    pub headers: Vec<KeyValue>,
+    #[serde(default)]
+    pub query_params: Vec<KeyValue>,
+    #[serde(default)]
+    pub auth: HttpAuth,
+    #[serde(default)]
+    pub timeout_seconds: Option<u32>,
+    #[serde(default = "default_true")]
+    pub verify_ssl: bool,
+    #[serde(default)]
+    pub last_event_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsSpec {
+    pub url: String,
+    #[serde(default)]
+    pub headers: Vec<KeyValue>,
+    #[serde(default)]
+    pub query_params: Vec<KeyValue>,
+    #[serde(default)]
+    pub auth: HttpAuth,
+    #[serde(default = "default_true")]
+    pub verify_ssl: bool,
+    #[serde(default)]
+    pub subprotocols: Vec<String>,
+    #[serde(default)]
+    pub ping_interval_seconds: Option<u32>,
+    #[serde(default)]
+    pub templates: Vec<WsTemplate>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsTemplate {
+    pub name: String,
+    pub text: String,
 }
