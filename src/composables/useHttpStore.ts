@@ -5,11 +5,17 @@ import type {
   HttpHistoryItem,
   HttpRequestSpec,
   HttpResponseInfo,
-  HttpTab
+  HttpSession,
+  HttpTab,
+  SseSpec,
+  StreamMessage,
+  TabKind,
+  WsSpec
 } from '../components/http/types';
-import { makeEmptySpec } from '../components/http/types';
-import { applyVarsToSpec, makeVarContext } from '../components/http/variables';
+import { makeEmptySpec, makeEmptySseSpec, makeEmptyWsSpec } from '../components/http/types';
+import { applyVarsToSpec, applyVarsToSseSpec, applyVarsToWsSpec, makeVarContext, resolveVars } from '../components/http/variables';
 import { createHttpApi, type HttpApi } from '../components/http/httpApi';
+import { createStreamApi, type StreamApi } from '../components/http/streamApi';
 
 function ulid(): string {
   // 简易 ID：时间戳 + 随机后缀。不追求严格 ULID 结构，够用即可
@@ -33,7 +39,15 @@ interface HttpState {
 
 let _singleton: ReturnType<typeof createStore> | null = null;
 
-function createStore(api: HttpApi) {
+type FullApi = HttpApi & {
+  openStream: StreamApi['openStream'];
+  closeStream: StreamApi['closeStream'];
+  sendWsMessage: StreamApi['sendWsMessage'];
+  listStreamMessages: StreamApi['listStreamMessages'];
+  listen: StreamApi['listen'];
+};
+
+function createStore(api: FullApi) {
   const state = reactive<HttpState>({
     tabs: [],
     activeTabId: null,
@@ -68,6 +82,10 @@ function createStore(api: HttpApi) {
       ]);
       suppressWatch = true;
       state.tabs = tabs.length > 0 ? tabs : [makeDefaultTab()];
+      for (const t of state.tabs) {
+        if (!t.kind) t.kind = 'http';
+        if (t.kind !== 'http' && !t.session) t.session = { status: 'idle' };
+      }
       state.activeTabId =
         state.tabs.find((t) => t.isActive)?.id ?? state.tabs[0]?.id ?? null;
       if (!state.tabs.some((t) => t.isActive) && state.activeTabId) {
@@ -148,17 +166,21 @@ function createStore(api: HttpApi) {
 
   // ---- tabs API ----
 
-  async function newTab(spec?: HttpRequestSpec, title?: string): Promise<HttpTab> {
+  const streamUnlisten = new Map<string, () => void>();
+
+  async function newTab(spec?: HttpRequestSpec | SseSpec | WsSpec, title?: string, kind: TabKind = 'http'): Promise<HttpTab> {
     const tab: HttpTab = {
       id: ulid(),
       title: title ?? '新请求',
       orderIndex: state.tabs.length,
       isActive: false,
-      kind: 'http',
-      spec: spec ?? makeEmptySpec(),
+      kind,
+      spec: spec ?? (kind === 'sse' ? makeEmptySseSpec() : kind === 'ws' ? makeEmptyWsSpec() : makeEmptySpec()),
       lastResponse: null,
       lastError: null,
-      sending: false
+      sending: false,
+      session: kind === 'http' ? undefined : { status: 'idle' },
+      messages: kind === 'http' ? undefined : []
     };
     state.tabs.push(tab);
     await setActiveTab(tab.id);
@@ -169,6 +191,10 @@ function createStore(api: HttpApi) {
   async function closeTab(id: string) {
     const idx = state.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
+    const tab = state.tabs[idx];
+    if (tab.kind === 'sse' || tab.kind === 'ws') {
+      await closeStream(id).catch(() => {});
+    }
     state.tabs.splice(idx, 1);
     await api.deleteTab(id).catch(() => {});
     if (state.tabs.length === 0) {
@@ -177,6 +203,61 @@ function createStore(api: HttpApi) {
       const next = state.tabs[Math.min(idx, state.tabs.length - 1)];
       await setActiveTab(next.id);
     }
+  }
+
+  // ---- stream API ----
+
+  async function openStream(sessionId: string, kind: 'sse' | 'ws', spec: SseSpec | WsSpec) {
+    const tab = state.tabs.find((t) => t.id === sessionId);
+    if (!tab) throw new Error('tab not found');
+    tab.session = { status: 'connecting' };
+    tab.messages = [];
+    const unlisten = await api.listen(sessionId, (msg: StreamMessage) => {
+      tab.messages!.push(msg);
+      if (msg.kind === 'open') tab.session = { status: 'open', openedAt: msg.atMs };
+      else if (msg.kind === 'closed') tab.session = { status: 'closed', openedAt: (tab.session as HttpSession)?.openedAt, closedAt: msg.atMs };
+      else if (msg.kind === 'error') tab.session = { status: 'error', error: msg.message, openedAt: (tab.session as HttpSession)?.openedAt };
+    });
+    streamUnlisten.set(sessionId, unlisten);
+    const resolvedSpec = kind === 'sse'
+      ? applyVarsToSseSpec(spec as SseSpec, varContext.value)
+      : applyVarsToWsSpec(spec as WsSpec, varContext.value);
+    try {
+      await api.openStream(sessionId, kind, resolvedSpec);
+    } catch (err) {
+      tab.session = { status: 'error', error: String(err) };
+      unlisten();
+      streamUnlisten.delete(sessionId);
+      throw err;
+    }
+  }
+
+  async function closeStream(sessionId: string) {
+    await api.closeStream(sessionId).catch(() => {});
+    const tab = state.tabs.find((t) => t.id === sessionId);
+    if (tab && tab.session) {
+      tab.session = { ...tab.session, status: 'closed', closedAt: Date.now() };
+    }
+    const un = streamUnlisten.get(sessionId);
+    if (un) {
+      un();
+      streamUnlisten.delete(sessionId);
+    }
+  }
+
+  async function sendWsMessage(sessionId: string, text: string) {
+    const tab = state.tabs.find((t) => t.id === sessionId);
+    if (!tab || tab.session?.status !== 'open') {
+      throw new Error('session not open');
+    }
+    const resolved = resolveVars(text, varContext.value);
+    await api.sendWsMessage(sessionId, resolved);
+  }
+
+  async function listStreamMessages(sessionId: string) {
+    const msgs = await api.listStreamMessages(sessionId);
+    const tab = state.tabs.find((t) => t.id === sessionId);
+    if (tab) tab.messages = msgs;
   }
 
   async function setActiveTab(id: string) {
@@ -384,16 +465,23 @@ function createStore(api: HttpApi) {
     setActiveEnv,
     upsertVar,
     deleteVar,
-    makeVar
+    makeVar,
+    openStream,
+    closeStream,
+    sendWsMessage,
+    listStreamMessages
   };
 }
 
 export function useHttpStore() {
-  if (!_singleton) _singleton = createStore(createHttpApi());
+  if (!_singleton) {
+    const stream = createStreamApi();
+    _singleton = createStore({ ...createHttpApi(), ...stream } as FullApi);
+  }
   return _singleton;
 }
 
-export function _resetHttpStoreForTest(api: HttpApi) {
+export function _resetHttpStoreForTest(api: FullApi) {
   _singleton = createStore(api);
   return _singleton;
 }
