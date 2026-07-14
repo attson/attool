@@ -45,11 +45,26 @@ fn push_and_emit<R: tauri::Runtime>(
     }
 }
 
+fn floor_char_boundary(s: &str, n: usize) -> usize {
+    if n >= s.len() {
+        return s.len();
+    }
+    let bytes = s.as_bytes();
+    let mut i = n;
+    while i > 0 && (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+        i -= 1;
+    }
+    i
+}
+
 fn truncate_text(text: String) -> (String, bool) {
     if text.len() <= MAX_TEXT_BYTES {
         (text, false)
     } else {
-        (text.chars().take(MAX_TEXT_BYTES).collect(), true)
+        let cutoff = floor_char_boundary(&text, MAX_TEXT_BYTES);
+        let mut trimmed = text;
+        trimmed.truncate(cutoff);
+        (trimmed, true)
     }
 }
 
@@ -320,4 +335,28 @@ pub async fn run_ws<R: tauri::Runtime>(
     }
 
     state.remove(&sid);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_text_ascii_at_exact_max() {
+        let input = "x".repeat(MAX_TEXT_BYTES + 100);
+        let (output, truncated) = truncate_text(input);
+        assert!(truncated);
+        assert_eq!(output.len(), MAX_TEXT_BYTES);
+    }
+
+    #[test]
+    fn truncate_text_multibyte_respects_char_boundary() {
+        // "中" is 3 bytes in UTF-8; feed well over MAX_TEXT_BYTES worth.
+        let input = "中".repeat(MAX_TEXT_BYTES); // >> MAX_TEXT_BYTES bytes
+        let (output, truncated) = truncate_text(input);
+        // Must not panic, must set truncated, length within budget, and on a 3-byte boundary.
+        assert!(truncated);
+        assert!(output.len() <= MAX_TEXT_BYTES);
+        assert_eq!(output.len() % 3, 0);
+    }
 }
