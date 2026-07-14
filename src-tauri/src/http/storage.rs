@@ -26,7 +26,8 @@ impl HttpStore {
                     order_index INTEGER NOT NULL,
                     is_active INTEGER NOT NULL DEFAULT 0,
                     spec_json TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'http'
                 );
 
                 CREATE TABLE IF NOT EXISTS http_history (
@@ -65,6 +66,37 @@ impl HttpStore {
                 "#,
             )
             .map_err(|error| format!("初始化 http 数据库失败：{error}"))?;
+        // 兼容旧库：老 schema 没有 kind 列，动态补上
+        let has_kind = {
+            let mut stmt = connection
+                .prepare("PRAGMA table_info(http_tabs)")
+                .map_err(|error| format!("检查 http_tabs schema 失败：{error}"))?;
+            let mut found = false;
+            let mut rows = stmt
+                .query([])
+                .map_err(|error| format!("检查 http_tabs schema 失败：{error}"))?;
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| format!("检查 http_tabs schema 失败：{error}"))?
+            {
+                let name: String = row
+                    .get(1)
+                    .map_err(|error| format!("读取列名失败：{error}"))?;
+                if name == "kind" {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        };
+        if !has_kind {
+            connection
+                .execute(
+                    "ALTER TABLE http_tabs ADD COLUMN kind TEXT NOT NULL DEFAULT 'http'",
+                    [],
+                )
+                .map_err(|error| format!("迁移 http_tabs.kind 失败：{error}"))?;
+        }
         Ok(Self {
             conn: Mutex::new(connection),
         })
@@ -80,7 +112,7 @@ impl HttpStore {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, order_index, is_active, spec_json, updated_at \
+                "SELECT id, title, order_index, is_active, spec_json, updated_at, kind \
                  FROM http_tabs ORDER BY order_index ASC, updated_at ASC",
             )
             .map_err(err_map)?;
@@ -93,6 +125,7 @@ impl HttpStore {
                     is_active: row.get::<_, i64>(3)? != 0,
                     spec_json: row.get(4)?,
                     updated_at: row.get(5)?,
+                    kind: row.get(6)?,
                 })
             })
             .map_err(err_map)?
@@ -104,12 +137,12 @@ impl HttpStore {
     pub fn upsert_tab(&self, row: HttpTabRow) -> Result<(), String> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO http_tabs (id, title, order_index, is_active, spec_json, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+            "INSERT INTO http_tabs (id, title, order_index, is_active, spec_json, updated_at, kind) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
              ON CONFLICT(id) DO UPDATE SET \
                title=excluded.title, order_index=excluded.order_index, \
                is_active=excluded.is_active, spec_json=excluded.spec_json, \
-               updated_at=excluded.updated_at",
+               updated_at=excluded.updated_at, kind=excluded.kind",
             params![
                 row.id,
                 row.title,
@@ -117,6 +150,7 @@ impl HttpStore {
                 row.is_active as i64,
                 row.spec_json,
                 row.updated_at,
+                row.kind,
             ],
         )
         .map_err(err_map)?;

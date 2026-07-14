@@ -1,4 +1,4 @@
-import type { HttpRequestSpec, KV, MultipartField } from './types';
+import type { HttpRequestSpec, KV, MultipartField, SseSpec, WsSpec } from './types';
 
 export interface VarContext {
   active: Map<string, string>;
@@ -66,6 +66,48 @@ function resolveMultipart(fields: MultipartField[], ctx: VarContext): MultipartF
     // 文件路径不做替换
     value: field.kind === 'file' ? field.value : resolveVars(field.value, ctx)
   }));
+}
+
+function resolveKvListPub(list: KV[] | undefined, ctx: VarContext): KV[] {
+  if (!list) return [];
+  return list.map((kv) => ({
+    ...kv,
+    key: resolveVars(kv.key, ctx),
+    value: resolveVars(kv.value, ctx),
+  }));
+}
+
+export function applyVarsToSseSpec(spec: SseSpec, ctx: VarContext): SseSpec {
+  const auth = spec.auth ?? { type: 'none' as const };
+  return {
+    ...spec,
+    url: resolveVars(spec.url ?? '', ctx),
+    headers: resolveKvListPub(spec.headers, ctx),
+    queryParams: resolveKvListPub(spec.queryParams, ctx),
+    auth: {
+      ...auth,
+      bearerToken: auth.bearerToken ? resolveVars(auth.bearerToken, ctx) : undefined,
+      basicUser: auth.basicUser ? resolveVars(auth.basicUser, ctx) : undefined,
+      basicPass: auth.basicPass ? resolveVars(auth.basicPass, ctx) : undefined,
+    },
+    lastEventId: spec.lastEventId ? resolveVars(spec.lastEventId, ctx) : undefined,
+  };
+}
+
+export function applyVarsToWsSpec(spec: WsSpec, ctx: VarContext): WsSpec {
+  const auth = spec.auth ?? { type: 'none' as const };
+  return {
+    ...spec,
+    url: resolveVars(spec.url ?? '', ctx),
+    headers: resolveKvListPub(spec.headers, ctx),
+    queryParams: resolveKvListPub(spec.queryParams, ctx),
+    auth: {
+      ...auth,
+      bearerToken: auth.bearerToken ? resolveVars(auth.bearerToken, ctx) : undefined,
+      basicUser: auth.basicUser ? resolveVars(auth.basicUser, ctx) : undefined,
+      basicPass: auth.basicPass ? resolveVars(auth.basicPass, ctx) : undefined,
+    },
+  };
 }
 
 export function applyVarsToSpec(spec: HttpRequestSpec, ctx: VarContext): HttpRequestSpec {
