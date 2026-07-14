@@ -3,3 +3,4 @@ pub mod commands;
 pub mod models;
 pub mod send;
 pub mod storage;
+pub mod stream;
