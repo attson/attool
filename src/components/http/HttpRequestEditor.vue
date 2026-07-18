@@ -467,7 +467,7 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   z-index: 2;
   width: 100%;
 }
-.url-input:focus { border-color: var(--accent, #10b981); }
+.url-input:focus { border-color: var(--accent); }
 .url-overlay {
   position: absolute;
   inset: 0;
@@ -480,10 +480,10 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   overflow: hidden;
   z-index: 1;
 }
-:deep(.var-hit) { background: rgba(16, 185, 129, 0.18); border-radius: 3px; padding: 0 1px; }
-:deep(.var-miss) { background: rgba(239, 68, 68, 0.22); border-radius: 3px; padding: 0 1px; }
+:deep(.var-hit) { background: var(--accent-soft); border-radius: 3px; padding: 0 1px; }
+:deep(.var-miss) { background: var(--error-soft); border-radius: 3px; padding: 0 1px; }
 
-.var-warn { color: #f59e0b; font-size: var(--fs-xxs); padding: 2px 4px; }
+.var-warn { color: var(--warning); font-size: var(--fs-xxs); padding: 2px 4px; }
 
 .kv-table { display: grid; gap: 4px; padding: 4px 0; }
 .kv-row { display: grid; grid-template-columns: 24px 1fr 2fr 32px; gap: 6px; align-items: center; }
@@ -504,9 +504,9 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   font-family: var(--font-mono, monospace);
   outline: none;
 }
-.kv-input:focus { border-color: var(--accent, #10b981); }
+.kv-input:focus { border-color: var(--accent); }
 .kv-del { background: none; border: none; color: var(--text-muted); cursor: pointer; }
-.kv-del:hover { color: #ef4444; }
+.kv-del:hover { color: var(--error); }
 
 .body-pane { display: grid; gap: 10px; padding: 4px 0; }
 .body-opts { display: flex; align-items: center; gap: 12px; }
@@ -523,7 +523,7 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
 
 .import-modal { display: grid; gap: 10px; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.err { color: #ef4444; font-size: var(--fs-xs); }
+.err { color: var(--error); font-size: var(--fs-xs); }
 .hint pre {
   background: var(--bg-elev);
   padding: 8px 10px;

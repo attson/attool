@@ -77,7 +77,7 @@ function onNewSelect(key: 'http' | 'sse' | 'ws') {
 .tab.active {
   background: var(--bg-elev);
   color: var(--text);
-  box-shadow: inset 0 -2px 0 0 var(--accent, #10b981);
+  box-shadow: inset 0 -2px 0 0 var(--accent);
 }
 .tab.sending::before {
   content: '';
@@ -87,14 +87,14 @@ function onNewSelect(key: 'http' | 'sse' | 'ws') {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent, #10b981);
+  background: var(--accent);
   transform: translateY(-50%);
   animation: pulse 1s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: 0.3; } }
-.method { color: var(--accent, #10b981); font-weight: 600; }
-.kind-sse { color: #8b5cf6; }
-.kind-ws { color: #06b6d4; }
+.method { color: var(--accent); font-weight: 600; }
+.kind-sse { color: var(--purple); }
+.kind-ws  { color: var(--cyan); }
 .title {
   flex: 1;
   overflow: hidden;
@@ -110,7 +110,7 @@ function onNewSelect(key: 'http' | 'sse' | 'ws') {
   padding: 2px 4px;
   border-radius: 4px;
 }
-.close:hover { background: var(--bg-base); color: #ef4444; }
+.close:hover { background: var(--bg-base); color: var(--error); }
 .new {
   background: none;
   border: none;

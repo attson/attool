@@ -238,19 +238,19 @@ function parseCookie(raw: string): CookieInfo {
 .response-view { padding: 8px 12px; display: grid; gap: 8px; }
 .empty { color: var(--text-muted); font-size: var(--fs-xs); text-align: center; padding: 24px; }
 .err {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--error);
+  background: var(--error-soft);
+  border: 1px solid var(--error-soft);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: var(--fs-xs);
 }
 .summary { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); }
 .summary .url { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-2 { color: #10b981; font-weight: 600; }
-.st-3 { color: #3b82f6; font-weight: 600; }
-.st-4 { color: #f59e0b; font-weight: 600; }
-.st-5, .st-err { color: #ef4444; font-weight: 600; }
+.st-2 { color: var(--accent);  font-weight: 600; }
+.st-3 { color: var(--info);    font-weight: 600; }
+.st-4 { color: var(--warning); font-weight: 600; }
+.st-5, .st-err { color: var(--error); font-weight: 600; }
 .muted { color: var(--text-muted); }
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 
@@ -270,12 +270,12 @@ function parseCookie(raw: string): CookieInfo {
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.view-toggle button.on { background: var(--bg-elev); color: var(--text); border-color: var(--accent, #10b981); }
+.view-toggle button.on { background: var(--bg-elev); color: var(--text); border-color: var(--accent); }
 .body-actions { display: flex; gap: 4px; }
 
 .warn {
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
+  background: var(--warning-soft);
+  color: var(--warning);
   padding: 4px 8px;
   font-size: var(--fs-xxs);
   border-radius: var(--radius-sm);
