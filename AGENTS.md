@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart）。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试）。
 
 ## 技术栈
 
@@ -63,8 +63,13 @@ src/
 │   ├── time/                    # 时间：时间戳/时区/Cron/Duration
 │   ├── network/                 # 网络：URL 分解/Ping/端口/DNS
 │   ├── douyin/                  # 视频链接抽取（抖音，后端另支持 B站/小红书/YouTube）
-│   └── http/                    # HTTP 请求：三栏（Sidebar + TabBar + RequestEditor + ResponseView）
-│                                #   + EnvModal + curl.ts / variables.ts / httpApi.ts / types.ts（带测试）
+│   └── http/                    # HTTP 请求：三栏（Sidebar + TabBar + kind-branch 内容区）
+│                                #   HTTP：RequestEditor + ResponseView（一次请求 → 响应）
+│                                #   SSE：SseTool + SseRequestEditor（长连接事件流）
+│                                #   WS：WsTool + WsRequestEditor（长连接 + 发送框 + 模板）
+│                                #   共用：StreamMessageList / EnvModal
+│                                #   + curl.ts / variables.ts / httpApi.ts / streamApi.ts
+│                                #   / streamMessageTone.ts / types.ts（带测试）
 ├── types/                       # tool.ts / download.ts / ecommerceTemplate.ts / clipboard.ts
 └── utils/                       # ecommerceTemplate.ts / clipboardHistory.ts 等
 
@@ -77,7 +82,12 @@ src-tauri/
 ├── src/ecommerce/               # 主图模板：commands / models / render / storage / psd_bridge
 ├── src/network/                 # 网络诊断：commands / ping / port / dns
 ├── src/http/                    # HTTP 请求：mod / models / send（含 multipart 与 cancel）
-│                                #   / cancel / storage（tabs+history+envs+env_vars 4 张表）/ commands
+│                                #   / cancel / storage（tabs+history+envs+env_vars 4 张表，
+│                                #     http_tabs 有 kind 列区分 http/sse/ws）/ commands
+│   └── stream/                  # 长连接（v0.8.9+）：session（HashMap<sid, SessionHandle>）
+│                                #   / parser（自写 SSE 帧解析）/ buffer（2000 条·5 MB 上限）
+│                                #   / sse（reqwest bytes_stream）/ ws（tokio-tungstenite）
+│                                #   / commands（open/close/send/list_stream_messages）
 ├── src/updater/                 # 自研 updater：mod / check / verify / download / keys / state
 │                                #   / commands / apply/{macos,windows,linux}
 │                                #   + scripts/{install-linux.sh, update-windows.bat}（embed）
@@ -162,30 +172,23 @@ AT.Tool_<v>_arm64.tar.gz
 ## 发布流程
 
 1. 在 main 上把功能合并 + push
-2. 三处版本号同步 bump：
-
-   - `package.json` `"version"`
-   - `src-tauri/tauri.conf.json` `"version"`
-   - `src-tauri/Cargo.toml` `version = "..."`
-
-   跑一次 `cargo check`（更新 Cargo.lock）和 `pnpm build`（确认编译过），把这 4 个文件一起 commit：`chore: bump version to X.Y.Z`
-
-3. 打 annotated tag + 推：
+2. 直接打 tag + 推（**v0.8.8 起 CI 会自己把 `github.ref_name` 同步到 `package.json` / `tauri.conf.json` / `Cargo.toml`**，人手不用改这三处版本号）：
 
    ```bash
-   git tag -a vX.Y.Z -m "vX.Y.Z — <一句话亮点>"
-   git push origin main
+   git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
 
-4. tag push 触发 `.github/workflows/build.yml`：
+   如果要写 tag message，用 `git tag -a vX.Y.Z -m "..."`；annotate 与否 CI 都能拾取。
 
-   - **build job（matrix × 5）**：每个 runner 跑 `pnpm tauri build --target <triple>`，跑完 `stage-bundles.sh` 把 dmg/deb/exe 复制到 `runner.temp/stage` 并**同时打包 updater archive**（macOS 用 `tar` 打 `.app`；Windows 用 `7z` 打 exe；Linux 用 `tar` 打裸二进制），上传成 artifact
+3. tag push 触发 `.github/workflows/build.yml`：
+
+   - **build job（matrix × 5）**：每个 runner 先跑「Sync version from git tag」步骤，把 `github.ref_name` 去掉 `v` 前缀写入三个版本号文件；然后 `pnpm tauri build --target <triple>`，跑完 `stage-bundles.sh` 把 dmg/deb/exe 复制到 `runner.temp/stage` 并**同时打包 updater archive**（macOS 用 `tar` 打 `.app`；Windows 用 `7z` 打 exe；Linux 用 `tar` 打裸二进制），上传成 artifact
    - **release job（单 ubuntu，`environment: prod`）**：下载所有 artifact 到一个目录 → `find` 生成 `SHA256SUMS` → `sign-checksums.mjs` 签成 `.sig` → `gh release create` 直接发布正式 release（不再走草稿）
 
-5. 全部跑完（约 6-10 分钟）后 GitHub Releases 会直接公开正式 release。文件名应该正好是上面 §Release 产物列的 12 个
+4. 全部跑完（约 6-10 分钟）后 GitHub Releases 会直接公开正式 release。文件名应该正好是上面 §Release 产物列的 12 个
 
-6. release 公开后约 5 分钟（GitHub CDN 缓存），装着旧版的客户端启动 5 秒就会看到 banner
+5. release 公开后约 5 分钟（GitHub CDN 缓存），装着旧版的客户端启动 5 秒就会看到 banner
 
 如果 CI 失败：
 - 取消 stuck run（`gh run cancel <id>`）
@@ -198,6 +201,8 @@ AT.Tool_<v>_arm64.tar.gz
 - `src-tauri/src/lib.rs` 还保留 `batch_add_logo` / `list_logo_presets` / `save_logo_preset` 命令，前端"电商图片处理"工具已下线（被主图模板替代）。要清理就把这些命令和相关 struct 一起删掉，并从 `invoke_handler` 列表移除
 - 字体没打包，依赖系统字体栈（`-apple-system / SF Pro Text / PingFang SC / Inter / Segoe UI`）
 - v0.8.4 及以前的用户**无法自动升到 v0.8.5**（老 tauri-plugin-updater 查 `latest.json`，已下线）—— 必须手动下载 v0.8.5 安装包装一次
+- v0.8.5 / v0.8.6 / v0.8.7 用户装机 updater 里 `body: null` 的 GitHub Releases JSON 解析失败，也**无法自动升到 v0.8.8+**（Rust 侧 body: String 不接受 null）—— 必须手动下载 v0.8.8 或更新版本装一次，之后 in-app 更新恢复
+- HTTP 工具的 SSE / WebSocket 消息**不落库**，只驻内存 buffer（2000 条 · 5 MB），关 tab 即清；如需回顾必须自己复制导出
 
 ## 不要做
 
