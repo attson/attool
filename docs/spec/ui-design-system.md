@@ -85,19 +85,20 @@
 ┌──────────┬────────────────────────────────────────────┐
 │  brand   │  [面包屑] 工具 / Aria2 下载    [pill][pill] │
 │  ⌘K      ├────────────────────────────────────────────┤
-│ 已就绪    │                                            │
-│ ● Aria2  │   <slot />                                 │
-│ ○ 模板   │                                             │
-│ 规划中    │                                            │
+│ ● Aria2  │                                            │
+│ ○ 模板   │   <slot />                                 │
+│ ○ 剪贴板  │                                            │
 │ ○ ...    │                                             │
 │ v0.1 ☀ ‹ │                                             │
 └──────────┴────────────────────────────────────────────┘
 ```
 
+外壳自 v0.8.6 起：`AppShell` 用 `height: 100vh` 锁定视口，内容区自身滚动，sidebar 不再随内容一起滚走；工具列表不再分「已就绪 / 规划中」标题，全部工具在一个 `.nav` 容器里连续排列，容器自身可垂直滚动，工具再多也不会撑破外壳或推走底部按钮。
+
 | 部件 | 文件 | 关键行为 |
 |---|---|---|
-| AppShell | `src/components/shell/AppShell.vue` | sidebar + topbar + content slot |
-| Sidebar | `src/components/shell/Sidebar.vue` | 220 ↔ 56 折叠（`useSidebarState`），分组（已就绪 / 规划中），活跃项 emerald 高亮，⌘K 入口（占位 alert），底部 theme toggle + collapse toggle |
+| AppShell | `src/components/shell/AppShell.vue` | sidebar + topbar + content slot；外壳 `height: 100vh`（v0.8.6+） |
+| Sidebar | `src/components/shell/Sidebar.vue` | 220 ↔ 56 折叠（`useSidebarState`），无分组标题（v0.8.6+），活跃项 emerald 高亮，⌘K 入口（占位 alert），底部 theme toggle + collapse toggle |
 | Topbar | `src/components/shell/Topbar.vue` | 面包屑 `工具 / <name>` + 右侧 pill 槽（工具自定义渲染） |
 | Dashboard | `src/components/shell/Dashboard.vue` | 首屏：欢迎语 + 上次使用 + 快速入口；首次启动落在这里，之后恢复 `useLastTool` |
 | BrandMark | `src/components/shell/BrandMark.vue` | 26px emerald 方块 "A" |
@@ -134,26 +135,32 @@
 - **快捷键录制**：图片截图页、剪贴板页提供"修改 / 恢复默认"按钮 + 键盘录制框（`keydown` 捕获组合键），注册失败时就地红色 alert 提示。
 - **预览弹窗**：剪贴板图片用 `NImage` 预览层（缩放 / 旋转 / 复制工具栏），文本用 `NModal` 全文弹窗；均以悬浮图标触发，不劫持卡片点击。
 - **多窗口**：截图浮层（`capture-overlay`，透明全屏，选区 + 标注）、截图钉图窗（`capture-pin-*`）、剪贴板历史独立浮窗（`clipboard-history`）都是独立 Tauri 窗口，共用同一套 token / 主题。
-- **多 tab 工作区**（HTTP 工具的做法）：浏览器风格 tab 条 + 中键关闭 + 拖拽排序 + 每个 tab 自动持久化（无显式"保存"按钮，也无未保存状态）；配合左侧历史侧栏（时间倒序、搜索、右键回填/新 tab 打开），构成"三栏 + 顶栏环境切换"的开发者工具形态。
+- **多 tab 工作区**（HTTP 工具的做法）：浏览器风格 tab 条 + 中键关闭 + 拖拽排序 + 每个 tab 自动持久化（无显式"保存"按钮，也无未保存状态）；配合左侧历史侧栏（时间倒序、搜索、右键回填/新 tab 打开），构成"三栏 + 顶栏环境切换"的开发者工具形态。v0.8.9 起 tab 分 http / sse / ws 三种类型，`+` 按钮为 NDropdown（新建 HTTP / SSE / WebSocket），tab 方法字段按类型分色（HTTP 方法名默认色 / `SSE` 紫 `#8b5cf6` / `WS` 青 `#06b6d4`）。
 - **变量高亮**：URL / KV 输入 里的 `{{var}}` 用 `<VarText>` / `<VarInput>` 组件在文本上方叠一层 span，命中的变量画 emerald `--accent-soft` 底纹，未定义画 `--error` 底纹（透明度 22%）；不引 Monaco，只靠 CSS + 一层 overlay 实现。
+- **长连接消息流**（SSE / WS）：`StreamMessageList` 时间戳 mono 字体 + 消息内容 `<pre>` `whitespace: pre-wrap`；按 `messageTone(msg)` 分色：Open `rgba(16,185,129,.06)` 淡绿、BufferTruncated `rgba(245,158,11,.08)` 淡黄、Error `rgba(239,68,68,.08)` 淡红、WsBinary `rgba(59,130,246,.06)` 淡蓝、Closed 走 `--text-muted`、SseEvent / WsText 默认；顶部横条显示条数 + "自动滚动"复选框；发送 / 接收方向用 `↑` / `↓` 前缀标记。
 
 ## HTTP 工具三栏骨架
 
 ```
-┌────────┬──────────────────────────────────────────────┐
-│ 历史    │ [☰] 环境: [prod ▾]           [{{}} 变量]     │  ← HttpTopBar
-│ 🔍      ├──────────────────────────────────────────────┤
-│ • GET  │ [GET ▾ /users] [POST /login] [+]             │  ← HttpTabBar
-│ • POST ├──────────────────────────────────────────────┤
-│ • ...  │ [GET ▾] https://{{baseUrl}}/…  [发送 ▾][⋯]  │  ← HttpRequestEditor
-│        │ Params│Auth│Headers│Body│Settings             │
-│        ├──────────────────────────────────────────────┤
-│        │ ● 200 OK · 342 ms · 1.2 KB                   │  ← HttpResponseView
-│        │ Body│Headers│Cookies  [Pretty|Raw|Preview]    │
-└────────┴──────────────────────────────────────────────┘
+┌────────┬────────────────────────────────────────────────────┐
+│ 历史    │ [☰] 环境: [prod ▾]                    [{{}} 变量]  │  ← HttpTopBar
+│ 🔍      ├────────────────────────────────────────────────────┤
+│ • GET  │ [GET /users] [SSE /stream] [WS /ws]        [+ ▾]  │  ← HttpTabBar
+│ • POST ├────────────────────────────────────────────────────┤
+│ • ...  │ HTTP kind：地址栏 + 子 tabs + 响应视图              │  ← http/sse/ws
+│        │ SSE kind：地址栏 + 子 tabs + 连接/断开 + 消息流     │      分支渲染
+│        │ WS kind：地址栏 + 子 tabs + 连接/断开 + 消息流 +    │
+│        │           发送框 + 模板选择                        │
+└────────┴────────────────────────────────────────────────────┘
 ```
 
-历史侧栏 240px（可折叠 32px），tab 条永远置顶，请求编辑器与响应视图上下分栏。全部走 token —— 状态色（`--accent` 2xx、`--info` 3xx、`--warning` 4xx、`--error` 5xx）、`--font-mono` 数字对齐。
+历史侧栏 240px（可折叠 32px），tab 条永远置顶。**内容区按 `activeTab.kind` 分支渲染**：
+
+- `kind='http'`：`HttpRequestEditor`（地址栏 + Params/Auth/Headers/Body/Settings 子 tabs）+ `HttpResponseView`（状态行 + Body/Headers/Cookies，Body 有 Pretty/Raw/Preview 切换）；状态色走 token —— `--accent` 2xx、`--info` 3xx、`--warning` 4xx、`--error` 5xx；数字用 `--font-mono` 对齐
+- `kind='sse'`：`SseRequestEditor`（URL + Params/Headers/Auth/Settings 子 tabs，Settings 含超时 / SSL / Last-Event-ID）+ 连接控制条（状态徽标 `IDLE / CONNECTING / OPEN / CLOSED / ERROR` 分色）+ `StreamMessageList`
+- `kind='ws'`：`WsRequestEditor`（URL + Params/Headers/Auth/Protocol 子 tabs，Protocol 含 Sec-WebSocket-Protocol + SSL）+ 连接控制条 + `StreamMessageList` + 底部发送区（模板下拉 + 模板名录入 + 保存 / 删除按钮 + 发送 textarea + 发送按钮）
+
+tab 方法字段按 kind 分色：HTTP 方法名走默认色、`SSE` 走 `#8b5cf6` 紫、`WS` 走 `#06b6d4` 青。SSE / WS 的历史侧栏保留（仅 HTTP 请求写历史），SSE / WS 消息只在当前 tab 的 `StreamMessageList` 里，不入历史。
 
 ## 模板编辑器画布
 
@@ -179,13 +186,13 @@
 | `⌘\` / `Ctrl\` | 切换 sidebar 折叠 |
 | `⌘K` / `CtrlK` | 命令面板入口（当前 alert 占位） |
 
-**应用内 · HTTP 工具聚焦时**（通过 `useHttpShortcuts` composable 挂 window keydown）：
+**应用内 · HTTP 工具聚焦时**（`HttpTool.vue` 在 `onMounted` 挂 window keydown）：
 
 | 键位 | 行为 |
 |---|---|
-| `⌘Enter` | 发送当前 tab；发送中变"取消" |
-| `⌘T` | 新建 tab |
-| `⌘W` | 关闭当前 tab（最后一个关闭则新建空 tab） |
+| `⌘Enter` | HTTP 发送 / 取消当前 tab；SSE / WS 场景当前不做（长连接靠面板按钮） |
+| `⌘T` | 新建 tab（默认 HTTP kind） |
+| `⌘W` | 关闭当前 tab（stream tab 先自动断开长连接；最后一个关闭则新建空 tab） |
 | `⌘B` | 折叠 / 展开历史侧栏 |
 | `⌘E` | 打开环境弹窗（变量 tab） |
 

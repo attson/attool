@@ -17,7 +17,7 @@
 | **编码** | Base64 / URL / Unicode / Hex / Hash / JWT 解码 |
 | **生成器** | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 |
 | **时间** | Unix 时间戳、时区转换、Cron、时间差 |
-| **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E） |
+| **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E）。v0.8.9 起 tab 分 **HTTP / SSE / WebSocket** 三种：SSE 覆盖 AI 流式接口调试（自定义 Header + Bearer Token）；WebSocket 支持双向收发 + 发送模板；长连接切走 tab 不断线，`{{var}}` 展开也适用于 SSE / WS 的 URL / Header / 发送内容 |
 
 截图支持全平台：macOS 用系统 `screencapture`，Linux / Windows 用 xcap。
 
@@ -37,7 +37,7 @@
 
 应用启动后会自动检查更新（可在设置里关闭）。**全平台**（含 Linux `.deb`）都走 in-app 一键升级 —— 客户端拉取 GitHub Releases 的 `SHA256SUMS` + Ed25519 签名，校验通过后自动替换本地二进制并重启。Linux 上覆盖 `/usr/bin/attool` 会走 `pkexec` 提权（无 pkexec 环境提示手动 `sudo`）。
 
-> v0.8.4 及以前的用户无法自动升到 v0.8.5 及以后（老 updater 查的 `latest.json` 已下线），需手动下载一次新版本装包。
+> v0.8.4 及以前的用户无法自动升到 v0.8.5 及以后（老 updater 查的 `latest.json` 已下线）；v0.8.5 / v0.8.6 / v0.8.7 用户装机 updater 遇到 GitHub Releases 空 body（`body: null`）会解析失败，也无法自动升到 v0.8.8 及以后。两种情况都需手动下载一次新版本装包，之后 in-app 更新恢复。
 
 ## 运行时依赖
 
