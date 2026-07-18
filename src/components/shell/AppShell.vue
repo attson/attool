@@ -36,7 +36,7 @@ const emit = defineEmits<{
       @settings-toggle="emit('settingsToggle')"
     />
     <main class="main">
-      <Topbar :crumb="crumb">
+      <Topbar :crumb="crumb" @search="emit('search')">
         <template #right>
           <slot name="topbar-right" />
         </template>
