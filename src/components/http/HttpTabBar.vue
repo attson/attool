@@ -38,9 +38,13 @@ function onNewSelect(key: 'http' | 'sse' | 'ws') {
       @mousedown="onMouseDown(tab.id, $event)"
       :title="tab.title"
     >
-      <span class="method mono" v-if="tab.kind === 'http'">{{ (tab.spec as HttpRequestSpec).method }}</span>
-      <span class="method mono kind-sse" v-else-if="tab.kind === 'sse'">SSE</span>
-      <span class="method mono kind-ws" v-else-if="tab.kind === 'ws'">WS</span>
+      <span
+        v-if="tab.kind === 'http'"
+        class="method mono"
+        :class="`m-${(tab.spec as HttpRequestSpec).method.toLowerCase()}`"
+      >{{ (tab.spec as HttpRequestSpec).method }}</span>
+      <span v-else-if="tab.kind === 'sse'" class="method mono m-sse">SSE</span>
+      <span v-else-if="tab.kind === 'ws'"  class="method mono m-ws">WS</span>
       <span class="title">{{ tab.title || '新请求' }}</span>
       <button class="close" @click.stop="emit('close', tab.id)">✕</button>
     </div>
@@ -92,9 +96,24 @@ function onNewSelect(key: 'http' | 'sse' | 'ws') {
   animation: pulse 1s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: 0.3; } }
-.method { color: var(--accent); font-weight: 600; }
-.kind-sse { color: var(--purple); }
-.kind-ws  { color: var(--cyan); }
+.method {
+  font-weight: 700;
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  line-height: 1.3;
+}
+.m-get     { background: var(--accent-soft);  color: var(--accent); }
+.m-post    { background: var(--warning-soft); color: var(--warning); }
+.m-put     { background: var(--info-soft);    color: var(--info); }
+.m-patch   { background: var(--info-soft);    color: var(--info); }
+.m-delete  { background: var(--error-soft);   color: var(--error); }
+.m-head    { background: var(--accent-soft);  color: var(--text-muted); }
+.m-options { background: var(--accent-soft);  color: var(--text-muted); }
+.m-sse     { background: var(--purple-soft);  color: var(--purple); }
+.m-ws      { background: var(--cyan-soft);    color: var(--cyan); }
 .title {
   flex: 1;
   overflow: hidden;
