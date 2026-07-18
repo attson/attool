@@ -149,10 +149,12 @@ function parseCookie(raw: string): CookieInfo {
 
     <template v-if="response">
       <div class="summary">
-        <span :class="['st', 'mono', statusClass()]">
-          {{ response.status }} {{ response.statusText }}
+        <span :class="['status-pill', 'mono', statusClass()]">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="code">{{ response.status }}</span>
+          <span class="text">{{ response.statusText }}</span>
         </span>
-        <span class="muted mono">· {{ response.elapsedMs }} ms · {{ formatSize(response.bodyBytes) }}</span>
+        <span class="muted mono">{{ response.elapsedMs }} ms · {{ formatSize(response.bodyBytes) }}</span>
         <span class="url mono" :title="response.finalUrl">{{ response.finalUrl }}</span>
         <n-button size="tiny" quaternary @click="copyUrl">复制 URL</n-button>
       </div>
@@ -247,10 +249,42 @@ function parseCookie(raw: string): CookieInfo {
 }
 .summary { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); }
 .summary .url { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-2 { color: var(--accent);  font-weight: 600; }
-.st-3 { color: var(--info);    font-weight: 600; }
-.st-4 { color: var(--warning); font-weight: 600; }
-.st-5, .st-err { color: var(--error); font-weight: 600; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+.status-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.status-pill.st-3 {
+  background: var(--info-soft);
+  color: var(--info);
+  border-color: var(--info-soft);
+}
+.status-pill.st-3 .dot { box-shadow: 0 0 0 3px var(--info-soft); }
+.status-pill.st-4 {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: var(--warning-soft);
+}
+.status-pill.st-4 .dot { box-shadow: 0 0 0 3px var(--warning-soft); }
+.status-pill.st-5, .status-pill.st-err {
+  background: var(--error-soft);
+  color: var(--error);
+  border-color: var(--error-soft);
+}
+.status-pill.st-5 .dot, .status-pill.st-err .dot { box-shadow: 0 0 0 3px var(--error-soft); }
 .muted { color: var(--text-muted); }
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 
@@ -260,17 +294,28 @@ function parseCookie(raw: string): CookieInfo {
   align-items: center;
   padding: 4px 0;
 }
-.view-toggle { display: flex; gap: 4px; }
+.view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
 .view-toggle button {
   background: none;
-  border: 1px solid var(--line);
+  border: 0;
   color: var(--text-muted);
-  padding: 2px 8px;
+  padding: 3px 10px;
   font-size: var(--fs-xxs);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.view-toggle button.on { background: var(--bg-elev); color: var(--text); border-color: var(--accent); }
+.view-toggle button:hover { color: var(--text); }
+.view-toggle button.on {
+  background: var(--bg-overlay);
+  color: var(--text);
+}
 .body-actions { display: flex; gap: 4px; }
 
 .warn {
