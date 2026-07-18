@@ -22,6 +22,8 @@ import ClipboardTool from './components/clipboard/ClipboardTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import ShortcutErrorNotifier from './components/shell/ShortcutErrorNotifier.vue';
 import Dashboard from './components/shell/Dashboard.vue';
+import CommandPalette from './components/shell/CommandPalette.vue';
+import { useCommandPalette } from './composables/useCommandPalette';
 import StatPill from './components/ui/StatPill.vue';
 import Panel from './components/ui/Panel.vue';
 import TaskRow from './components/ui/TaskRow.vue';
@@ -88,6 +90,22 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const {
+  open: paletteOpen,
+  query: paletteQuery,
+  results: paletteResults,
+  show: showPalette,
+  hide: hidePalette
+} = useCommandPalette({
+  tools: () => tools,
+  onOpenTool: (id) => selectTool(id)
+});
+function onPaletteOpen(v: boolean) {
+  v ? showPalette() : hidePalette();
+}
+function onPaletteQuery(v: string) {
+  paletteQuery.value = v;
+}
 const aria2Handoff = useAria2Handoff();
 const { state: updaterState, check: updaterCheck, install: updaterInstall, relaunch: updaterRelaunch, dismiss: updaterDismiss } = useUpdater();
 const { autoCheck: updaterAutoCheck, setAutoCheck: updaterSetAutoCheck, skipVersion: updaterSkipVersion, shouldSkip: updaterShouldSkip } = useUpdaterPrefs();
@@ -207,7 +225,7 @@ function goHome() {
 }
 
 function openSearch() {
-  alert('命令面板敬请期待');
+  showPalette();
 }
 
 function handleSkip() {
@@ -583,6 +601,14 @@ async function clearCompleted() {
           <HttpTool />
         </template>
       </AppShell>
+
+      <CommandPalette
+        :open="paletteOpen"
+        :query="paletteQuery"
+        :results="paletteResults"
+        @update:open="onPaletteOpen"
+        @update:query="onPaletteQuery"
+      />
 
       <SettingsModal
         v-model:show="settingsOpen"
