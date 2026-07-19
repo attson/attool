@@ -22,6 +22,8 @@ import ClipboardTool from './components/clipboard/ClipboardTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import ShortcutErrorNotifier from './components/shell/ShortcutErrorNotifier.vue';
 import Dashboard from './components/shell/Dashboard.vue';
+import CommandPalette from './components/shell/CommandPalette.vue';
+import { useCommandPalette } from './composables/useCommandPalette';
 import StatPill from './components/ui/StatPill.vue';
 import Panel from './components/ui/Panel.vue';
 import TaskRow from './components/ui/TaskRow.vue';
@@ -47,18 +49,18 @@ const TimeTool = defineAsyncComponent(() => import('./components/time/TimeTool.v
 const HttpTool = defineAsyncComponent(() => import('./components/http/HttpTool.vue'));
 
 const tools: Tool[] = [
-  { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download' },
-  { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout' },
-  { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard' },
-  { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code' },
-  { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video' },
-  { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image' },
-  { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比', status: 'ready', icon: 'type' },
-  { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi' },
-  { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash' },
-  { id: 'generator', name: '生成器',         description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',  status: 'ready', icon: 'dice' },
-  { id: 'time',      name: '时间工具',       description: '时间戳 / 时区 / Cron / Duration',      status: 'ready', icon: 'clock' },
-  { id: 'http',      name: 'HTTP 请求',      description: 'GET/POST/... + headers / body / 响应',   status: 'ready', icon: 'send' }
+  { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download',  group: 'download' },
+  { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout',    group: 'edit' },
+  { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard', group: 'edit' },
+  { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code',      group: 'edit' },
+  { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video',     group: 'download' },
+  { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image',     group: 'edit' },
+  { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比', status: 'ready', icon: 'type',      group: 'edit' },
+  { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi',      group: 'network' },
+  { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash',      group: 'network' },
+  { id: 'generator', name: '生成器',         description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',  status: 'ready', icon: 'dice',      group: 'utility' },
+  { id: 'time',      name: '时间工具',       description: '时间戳 / 时区 / Cron / Duration',      status: 'ready', icon: 'clock',     group: 'utility' },
+  { id: 'http',      name: 'HTTP 请求',      description: 'GET/POST/... + headers / body / 响应',   status: 'ready', icon: 'send',      group: 'network' }
 ];
 
 const currentWindow = getCurrentWindow();
@@ -88,6 +90,22 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const {
+  open: paletteOpen,
+  query: paletteQuery,
+  results: paletteResults,
+  show: showPalette,
+  hide: hidePalette
+} = useCommandPalette({
+  tools: () => tools,
+  onOpenTool: (id) => selectTool(id)
+});
+function onPaletteOpen(v: boolean) {
+  v ? showPalette() : hidePalette();
+}
+function onPaletteQuery(v: string) {
+  paletteQuery.value = v;
+}
 const aria2Handoff = useAria2Handoff();
 const { state: updaterState, check: updaterCheck, install: updaterInstall, relaunch: updaterRelaunch, dismiss: updaterDismiss } = useUpdater();
 const { autoCheck: updaterAutoCheck, setAutoCheck: updaterSetAutoCheck, skipVersion: updaterSkipVersion, shouldSkip: updaterShouldSkip } = useUpdaterPrefs();
@@ -207,7 +225,7 @@ function goHome() {
 }
 
 function openSearch() {
-  alert('命令面板敬请期待');
+  showPalette();
 }
 
 function handleSkip() {
@@ -583,6 +601,14 @@ async function clearCompleted() {
           <HttpTool />
         </template>
       </AppShell>
+
+      <CommandPalette
+        :open="paletteOpen"
+        :query="paletteQuery"
+        :results="paletteResults"
+        @update:open="onPaletteOpen"
+        @update:query="onPaletteQuery"
+      />
 
       <SettingsModal
         v-model:show="settingsOpen"

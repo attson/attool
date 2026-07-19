@@ -19,13 +19,25 @@
   --accent-hover: #4ade80;
   --accent-pressed: #16a34a;
   --accent-fg: #0a0a0b;
-  --accent-soft: rgba(52, 211, 153, 0.18);
+  --accent-soft: rgba(52, 211, 153, 0.14);
+  --accent-line: rgba(52, 211, 153, 0.35);
 
   /* Semantic */
   --warning: #f5b94b;
   --error: #f87171;
   --info: #60a5fa;
   --success: var(--accent);
+
+  /* Extended semantic colors (SSE / WS) */
+  --purple: #c084fc;
+  --cyan:   #22d3ee;
+
+  /* Soft backgrounds (chip / pill 底色统一：rgba(same-rgb, 0.14)) */
+  --warning-soft: rgba(245, 185, 75, 0.14);
+  --info-soft:    rgba(96, 165, 250, 0.14);
+  --error-soft:   rgba(248, 113, 113, 0.14);
+  --purple-soft:  rgba(192, 132, 252, 0.14);
+  --cyan-soft:    rgba(34, 211, 238, 0.14);
 
   /* Canvas (template editor checker pattern) */
   --canvas-bg: var(--bg-base);
@@ -58,6 +70,11 @@
   /* Shadow */
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-canvas: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* Layout */
+  --topbar-height: 52px;
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 56px;
 }
 
 [data-theme="light"] {
@@ -88,4 +105,15 @@
 
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.10);
   --shadow-canvas: 0 12px 32px rgba(0, 0, 0, 0.10);
+
+  --purple: #7c3aed;
+  --cyan:   #0891b2;
+
+  --warning-soft: rgba(217, 119, 6, 0.10);
+  --info-soft:    rgba(37, 99, 235, 0.10);
+  --error-soft:   rgba(220, 38, 38, 0.10);
+  --purple-soft:  rgba(124, 58, 237, 0.10);
+  --cyan-soft:    rgba(8, 145, 178, 0.10);
+
+  --accent-line:  rgba(16, 185, 129, 0.28);
 }

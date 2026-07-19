@@ -5,7 +5,7 @@ import BrandMark from './BrandMark.vue';
 import ToolIcon from './ToolIcon.vue';
 import SettingsIcon from './SettingsIcon.vue';
 import Kbd from '../ui/Kbd.vue';
-import type { Tool } from '../../types/tool';
+import type { Tool, ToolGroup } from '../../types/tool';
 
 const props = defineProps<{
   tools: Tool[];
@@ -32,8 +32,21 @@ const emit = defineEmits<{
   settingsToggle: [];
 }>();
 
-const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
-const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
+const GROUP_ORDER: ToolGroup[] = ['download', 'edit', 'network', 'utility'];
+const GROUP_LABEL: Record<ToolGroup, string> = {
+  download: '下载',
+  edit: '编辑',
+  network: '网络',
+  utility: '实用'
+};
+
+const grouped = computed(() => {
+  return GROUP_ORDER.map((g) => ({
+    key: g,
+    label: GROUP_LABEL[g],
+    items: props.tools.filter((t) => t.group === g)
+  })).filter((section) => section.items.length > 0);
+});
 </script>
 
 <template>
@@ -50,31 +63,23 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
     </button>
 
     <div class="nav">
-      <button
-        v-for="tool in ready"
-        :key="tool.id"
-        type="button"
-        class="item"
-        :class="{ active: tool.id === activeId }"
-        :title="tool.name"
-        @click="emit('select', tool.id)"
-      >
-        <ToolIcon :name="tool.icon" />
-        <span class="label">{{ tool.name }}</span>
-      </button>
-
-      <button
-        v-for="tool in soon"
-        :key="tool.id"
-        type="button"
-        class="item dim"
-        disabled
-        :title="tool.name"
-      >
-        <ToolIcon :name="tool.icon" />
-        <span class="label">{{ tool.name }}</span>
-        <span class="pill">Soon</span>
-      </button>
+      <div v-for="section in grouped" :key="section.key" class="group">
+        <div class="group-label">{{ section.label }}</div>
+        <button
+          v-for="tool in section.items"
+          :key="tool.id"
+          type="button"
+          class="item"
+          :class="{ active: tool.id === activeId, dim: tool.status === 'soon' }"
+          :disabled="tool.status === 'soon'"
+          :title="tool.name"
+          @click="tool.status === 'ready' && emit('select', tool.id)"
+        >
+          <ToolIcon :name="tool.icon" />
+          <span class="label">{{ tool.name }}</span>
+          <span v-if="tool.status === 'soon'" class="pill">Soon</span>
+        </button>
+      </div>
     </div>
 
     <div class="foot">
@@ -187,6 +192,16 @@ const soon = computed(() => props.tools.filter((t) => t.status === 'soon'));
   overflow-y: auto;
   padding: 8px 0;
 }
+.group + .group { margin-top: 6px; }
+.group-label {
+  padding: 8px 16px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.sidebar.collapsed .group-label { display: none; }
 
 .item {
   display: flex;

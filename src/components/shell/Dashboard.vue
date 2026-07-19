@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import ToolIcon from './ToolIcon.vue';
-import type { Tool } from '../../types/tool';
+import type { Tool, ToolGroup } from '../../types/tool';
 
 const props = defineProps<{
   tools: Tool[];
@@ -12,8 +12,24 @@ const emit = defineEmits<{
   open: [id: string];
 }>();
 
+const GROUP_ORDER: ToolGroup[] = ['download', 'edit', 'network', 'utility'];
+const GROUP_LABEL: Record<ToolGroup, string> = {
+  download: '下载',
+  edit: '编辑',
+  network: '网络',
+  utility: '实用'
+};
+
 const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
 const soonCount = computed(() => props.tools.filter((t) => t.status === 'soon').length);
+
+const readyByGroup = computed(() =>
+  GROUP_ORDER.map((g) => ({
+    key: g,
+    label: GROUP_LABEL[g],
+    items: props.tools.filter((t) => t.status === 'ready' && t.group === g)
+  })).filter((s) => s.items.length > 0)
+);
 
 const lastTool = computed(() =>
   props.lastToolId ? ready.value.find((t) => t.id === props.lastToolId) ?? null : null
@@ -39,11 +55,11 @@ const lastTool = computed(() =>
       </button>
     </div>
 
-    <div class="block">
-      <div class="block-title">快速入口</div>
+    <div v-for="section in readyByGroup" :key="section.key" class="block">
+      <div class="block-title">{{ section.label }}</div>
       <div class="grid">
         <button
-          v-for="tool in ready"
+          v-for="tool in section.items"
           :key="tool.id"
           class="tile"
           type="button"

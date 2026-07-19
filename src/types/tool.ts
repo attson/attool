@@ -1,5 +1,7 @@
 export type ToolStatus = 'ready' | 'soon';
 
+export type ToolGroup = 'download' | 'edit' | 'network' | 'utility';
+
 export type ToolIconId =
   | 'download'
   | 'layout'
@@ -20,4 +22,5 @@ export interface Tool {
   description: string;
   status: ToolStatus;
   icon: ToolIconId;
+  group: ToolGroup;
 }

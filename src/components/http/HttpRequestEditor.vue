@@ -15,6 +15,7 @@ import type { HttpRequestSpec, HttpMethod, KV, MultipartField } from './types';
 import type { VarContext } from './variables';
 import { collectUnknownVars } from './variables';
 import { parseCurl, toCurl } from './curl';
+import Kbd from '../ui/Kbd.vue';
 
 const props = defineProps<{
   spec: HttpRequestSpec;
@@ -233,7 +234,9 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
         />
         <div class="url-overlay mono" v-html="urlHtml" aria-hidden="true"></div>
       </div>
-      <n-button v-if="!sending" type="primary" @click="emit('send')">发送</n-button>
+      <n-button v-if="!sending" type="primary" @click="emit('send')">
+        <span class="send-label">发送<Kbd>⌘↩</Kbd></span>
+      </n-button>
       <n-button v-else tertiary @click="emit('cancel')">取消</n-button>
       <n-dropdown :options="menuOptions" trigger="click" @select="onMenu">
         <n-button quaternary>⋯</n-button>
@@ -445,7 +448,20 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
 
 <style scoped>
 .request-editor { display: grid; gap: 8px; padding: 8px 12px; }
-.url-row { display: flex; gap: 6px; align-items: center; }
+.url-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+}
+.send-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .url-input-wrap {
   flex: 1;
   position: relative;
@@ -467,7 +483,7 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   z-index: 2;
   width: 100%;
 }
-.url-input:focus { border-color: var(--accent, #10b981); }
+.url-input:focus { border-color: var(--accent); }
 .url-overlay {
   position: absolute;
   inset: 0;
@@ -480,13 +496,45 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   overflow: hidden;
   z-index: 1;
 }
-:deep(.var-hit) { background: rgba(16, 185, 129, 0.18); border-radius: 3px; padding: 0 1px; }
-:deep(.var-miss) { background: rgba(239, 68, 68, 0.22); border-radius: 3px; padding: 0 1px; }
+:deep(.var-hit) { background: var(--accent-soft); border-radius: 3px; padding: 0 1px; }
+:deep(.var-miss) { background: var(--error-soft); border-radius: 3px; padding: 0 1px; }
 
-.var-warn { color: #f59e0b; font-size: var(--fs-xxs); padding: 2px 4px; }
+.var-warn { color: var(--warning); font-size: var(--fs-xxs); padding: 2px 4px; }
 
-.kv-table { display: grid; gap: 4px; padding: 4px 0; }
-.kv-row { display: grid; grid-template-columns: 24px 1fr 2fr 32px; gap: 6px; align-items: center; }
+.kv-table { display: grid; gap: 0; padding: 4px 0; }
+.kv-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 2fr 32px;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+}
+.kv-row + .kv-row { border-top: 1px solid var(--line); }
+.kv-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.kv-row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.kv-row input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
 .mp-row {
   display: grid;
   grid-template-columns: 24px 1fr 90px 2fr 32px;
@@ -504,9 +552,9 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
   font-family: var(--font-mono, monospace);
   outline: none;
 }
-.kv-input:focus { border-color: var(--accent, #10b981); }
+.kv-input:focus { border-color: var(--accent); }
 .kv-del { background: none; border: none; color: var(--text-muted); cursor: pointer; }
-.kv-del:hover { color: #ef4444; }
+.kv-del:hover { color: var(--error); }
 
 .body-pane { display: grid; gap: 10px; padding: 4px 0; }
 .body-opts { display: flex; align-items: center; gap: 12px; }
@@ -523,7 +571,7 @@ const urlUnknownVars = computed(() => collectUnknownVars(props.spec.url, props.v
 
 .import-modal { display: grid; gap: 10px; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.err { color: #ef4444; font-size: var(--fs-xs); }
+.err { color: var(--error); font-size: var(--fs-xs); }
 .hint pre {
   background: var(--bg-elev);
   padding: 8px 10px;
