@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, provide, ref } from 'vue';
 import { NButton } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import JsonTreeView from './JsonTreeView.vue';
+import { expandCommandKey, type JsonExpandCommand } from './expandCommand';
 import { format, minify, parseJson, sortKeys } from '../../utils/jsonFormat';
 import { useFileDrop } from '../../composables/useFileDrop';
 import type { JsonValue } from '../../types/json';
@@ -11,6 +12,16 @@ const text = ref('');
 const error = ref<string | null>(null);
 const elapsedMs = ref(0);
 const parsed = ref<JsonValue | null>(null);
+
+const expandCommand = ref<JsonExpandCommand | null>(null);
+provide(expandCommandKey, expandCommand);
+
+function expandAll() {
+  expandCommand.value = { action: 'expand', v: (expandCommand.value?.v ?? 0) + 1 };
+}
+function collapseAll() {
+  expandCommand.value = { action: 'collapse', v: (expandCommand.value?.v ?? 0) + 1 };
+}
 
 const charCount = computed(() => text.value.length);
 
@@ -83,6 +94,8 @@ function copyTreePath(path: string) {
       <n-button size="small" @click="doSortKeys">键排序</n-button>
       <n-button size="small" @click="doCopy">复制</n-button>
       <span class="spacer" />
+      <n-button size="small" @click="expandAll">全部展开</n-button>
+      <n-button size="small" @click="collapseAll">全部折叠</n-button>
       <n-button size="small" @click="drop.openFile">📂 打开文件</n-button>
     </div>
     <div class="split">

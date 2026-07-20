@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
 import type { JsonValue } from '../../types/json';
+import { expandCommandKey, type JsonExpandCommand } from './expandCommand';
 
 const props = defineProps<{
   value: JsonValue;
@@ -54,6 +55,17 @@ const primitiveClass = computed(() => {
   if (typeof v === 'boolean') return 'boolean';
   return '';
 });
+
+const expandCommand = inject(expandCommandKey, ref<JsonExpandCommand | null>(null));
+watch(
+  expandCommand,
+  (cmd) => {
+    if (!cmd) return;
+    if (kind.value === 'primitive') return;
+    open.value = cmd.action === 'expand';
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
