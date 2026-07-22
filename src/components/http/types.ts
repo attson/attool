@@ -162,6 +162,33 @@ export interface HttpEnvVar {
   orderIndex: number;
 }
 
+export interface HttpCollection {
+  id: string;
+  name: string;
+  orderIndex: number;
+  updatedAt: number;
+}
+
+export interface HttpCollectionFolder {
+  id: string;
+  collectionId: string;
+  parentId: string | null;
+  name: string;
+  orderIndex: number;
+  updatedAt: number;
+}
+
+export interface HttpCollectionRequest {
+  id: string;
+  collectionId: string;
+  folderId: string | null;
+  name: string;
+  method: HttpMethod;
+  spec: HttpRequestSpec;
+  orderIndex: number;
+  updatedAt: number;
+}
+
 export function makeEmptySpec(): HttpRequestSpec {
   return {
     method: 'GET',

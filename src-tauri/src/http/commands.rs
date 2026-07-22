@@ -2,7 +2,8 @@ use tauri::State;
 
 use super::cancel::HttpCancelState;
 use super::models::{
-    HttpEnvRow, HttpEnvVarRow, HttpHistoryRow, HttpRequestSpec, HttpResponseInfo, HttpTabRow,
+    HttpCollectionFolderRow, HttpCollectionRequestRow, HttpCollectionRow, HttpEnvRow,
+    HttpEnvVarRow, HttpHistoryRow, HttpRequestSpec, HttpResponseInfo, HttpTabRow,
 };
 use super::send;
 use super::storage::HttpStore;
@@ -111,4 +112,62 @@ pub fn upsert_http_env_var(
 #[tauri::command]
 pub fn delete_http_env_var(id: String, store: State<'_, HttpStore>) -> Result<(), String> {
     store.delete_env_var(&id)
+}
+
+// ---- collections ----
+
+#[tauri::command]
+pub fn list_http_collections(store: State<'_, HttpStore>) -> Result<Vec<HttpCollectionRow>, String> {
+    store.list_collections()
+}
+
+#[tauri::command]
+pub fn list_http_collection_folders(
+    store: State<'_, HttpStore>,
+) -> Result<Vec<HttpCollectionFolderRow>, String> {
+    store.list_collection_folders()
+}
+
+#[tauri::command]
+pub fn list_http_collection_requests(
+    store: State<'_, HttpStore>,
+) -> Result<Vec<HttpCollectionRequestRow>, String> {
+    store.list_collection_requests()
+}
+
+#[tauri::command]
+pub fn upsert_http_collection(
+    row: HttpCollectionRow,
+    store: State<'_, HttpStore>,
+) -> Result<(), String> {
+    store.upsert_collection(row)
+}
+
+#[tauri::command]
+pub fn upsert_http_collection_folder(
+    row: HttpCollectionFolderRow,
+    store: State<'_, HttpStore>,
+) -> Result<(), String> {
+    store.upsert_collection_folder(row)
+}
+
+#[tauri::command]
+pub fn upsert_http_collection_request(
+    row: HttpCollectionRequestRow,
+    store: State<'_, HttpStore>,
+) -> Result<(), String> {
+    store.upsert_collection_request(row)
+}
+
+#[tauri::command]
+pub fn delete_http_collection(id: String, store: State<'_, HttpStore>) -> Result<(), String> {
+    store.delete_collection(&id)
+}
+
+#[tauri::command]
+pub fn delete_http_collection_request(
+    id: String,
+    store: State<'_, HttpStore>,
+) -> Result<(), String> {
+    store.delete_collection_request(&id)
 }

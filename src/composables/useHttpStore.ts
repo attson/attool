@@ -2,6 +2,9 @@ import { computed, reactive, ref, watch } from 'vue';
 import type {
   HttpEnv,
   HttpEnvVar,
+  HttpCollection,
+  HttpCollectionFolder,
+  HttpCollectionRequest,
   HttpHistoryItem,
   HttpRequestSpec,
   HttpResponseInfo,
@@ -16,6 +19,7 @@ import { makeEmptySpec, makeEmptySseSpec, makeEmptyWsSpec } from '../components/
 import { applyVarsToSpec, applyVarsToSseSpec, applyVarsToWsSpec, makeVarContext, resolveVars } from '../components/http/variables';
 import { createHttpApi, type HttpApi } from '../components/http/httpApi';
 import { createStreamApi, type StreamApi } from '../components/http/streamApi';
+import type { ImportedOpenApiCollection } from '../components/http/openapiImport';
 
 function ulid(): string {
   // 简易 ID：时间戳 + 随机后缀。不追求严格 ULID 结构，够用即可
@@ -34,6 +38,9 @@ interface HttpState {
   activeEnvId: string | null;
   activeEnvVars: HttpEnvVar[];
   globalVars: HttpEnvVar[];
+  collections: HttpCollection[];
+  collectionFolders: HttpCollectionFolder[];
+  collectionRequests: HttpCollectionRequest[];
   ready: boolean;
 }
 
@@ -56,6 +63,9 @@ function createStore(api: FullApi) {
     activeEnvId: null,
     activeEnvVars: [],
     globalVars: [],
+    collections: [],
+    collectionFolders: [],
+    collectionRequests: [],
     ready: false
   });
 
@@ -74,11 +84,14 @@ function createStore(api: FullApi) {
 
   async function init() {
     try {
-      const [tabs, history, envs, globalVars] = await Promise.all([
+      const [tabs, history, envs, globalVars, collections, collectionFolders, collectionRequests] = await Promise.all([
         api.listTabs(),
         api.listHistory(HISTORY_LIMIT),
         api.listEnvs(),
-        api.listEnvVars('')
+        api.listEnvVars(''),
+        api.listCollections(),
+        api.listCollectionFolders(),
+        api.listCollectionRequests()
       ]);
       suppressWatch = true;
       state.tabs = tabs.length > 0 ? tabs : [makeDefaultTab()];
@@ -95,6 +108,9 @@ function createStore(api: FullApi) {
       state.history = history;
       state.envs = envs;
       state.globalVars = globalVars;
+      state.collections = collections;
+      state.collectionFolders = collectionFolders;
+      state.collectionRequests = collectionRequests;
       const active = envs.find((e) => e.isActive);
       state.activeEnvId = active?.id ?? null;
       state.activeEnvVars = active ? await api.listEnvVars(active.id) : [];
@@ -287,14 +303,14 @@ function createStore(api: FullApi) {
     await flushDirtyNow();
   }
 
-  function loadIntoTab(spec: HttpRequestSpec, target?: 'active' | 'new'): void {
+  function loadIntoTab(spec: HttpRequestSpec, target?: 'active' | 'new', title?: string): void {
     const mode = target ?? 'active';
     if (mode === 'new' || !activeTab.value) {
-      void newTab(spec, defaultTitle(spec));
+      void newTab(spec, title ?? defaultTitle(spec));
       return;
     }
     activeTab.value.spec = spec;
-    activeTab.value.title = defaultTitle(spec);
+    activeTab.value.title = title ?? defaultTitle(spec);
   }
 
   function defaultTitle(spec: HttpRequestSpec): string {
@@ -450,6 +466,37 @@ function createStore(api: FullApi) {
     };
   }
 
+  async function importCollection(imported: ImportedOpenApiCollection) {
+    const now = Date.now();
+    const collection: HttpCollection = { ...imported.collection, updatedAt: now };
+    const folders: HttpCollectionFolder[] = imported.folders.map((f) => ({ ...f, updatedAt: now }));
+    const requests: HttpCollectionRequest[] = imported.requests.map((r) => ({ ...r, updatedAt: now }));
+
+    state.collections.push(collection);
+    state.collectionFolders.push(...folders);
+    state.collectionRequests.push(...requests);
+
+    await api.upsertCollection(collection);
+    for (const folder of folders) await api.upsertCollectionFolder(folder);
+    for (const request of requests) await api.upsertCollectionRequest(request);
+  }
+
+  async function deleteCollection(id: string) {
+    state.collections = state.collections.filter((c) => c.id !== id);
+    state.collectionFolders = state.collectionFolders.filter((f) => f.collectionId !== id);
+    state.collectionRequests = state.collectionRequests.filter((r) => r.collectionId !== id);
+    await api.deleteCollection(id).catch(() => {});
+  }
+
+  async function deleteCollectionRequest(id: string) {
+    state.collectionRequests = state.collectionRequests.filter((r) => r.id !== id);
+    await api.deleteCollectionRequest(id).catch(() => {});
+  }
+
+  async function openCollectionRequest(request: HttpCollectionRequest, target: 'active' | 'new' = 'active') {
+    loadIntoTab(JSON.parse(JSON.stringify(request.spec)), target, request.name);
+  }
+
   return {
     state,
     initError,
@@ -473,6 +520,10 @@ function createStore(api: FullApi) {
     upsertVar,
     deleteVar,
     makeVar,
+    importCollection,
+    deleteCollection,
+    deleteCollectionRequest,
+    openCollectionRequest,
     openStream,
     closeStream,
     sendWsMessage,

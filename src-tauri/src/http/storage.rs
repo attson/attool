@@ -2,7 +2,10 @@ use std::{fs, path::PathBuf, sync::Mutex};
 
 use rusqlite::{params, Connection};
 
-use super::models::{HttpEnvRow, HttpEnvVarRow, HttpHistoryRow, HttpTabRow};
+use super::models::{
+    HttpCollectionFolderRow, HttpCollectionRequestRow, HttpCollectionRow, HttpEnvRow,
+    HttpEnvVarRow, HttpHistoryRow, HttpTabRow,
+};
 
 const HISTORY_MAX_ROWS: i64 = 500;
 const HISTORY_MAX_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
@@ -63,6 +66,39 @@ impl HttpStore {
                 );
                 CREATE INDEX IF NOT EXISTS idx_http_env_vars_env
                     ON http_env_vars(env_id);
+
+                CREATE TABLE IF NOT EXISTS http_collections (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    order_index INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS http_collection_folders (
+                    id TEXT PRIMARY KEY,
+                    collection_id TEXT NOT NULL,
+                    parent_id TEXT,
+                    name TEXT NOT NULL,
+                    order_index INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_http_collection_folders_collection
+                    ON http_collection_folders(collection_id);
+
+                CREATE TABLE IF NOT EXISTS http_collection_requests (
+                    id TEXT PRIMARY KEY,
+                    collection_id TEXT NOT NULL,
+                    folder_id TEXT,
+                    name TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    spec_json TEXT NOT NULL,
+                    order_index INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_http_collection_requests_collection
+                    ON http_collection_requests(collection_id);
+                CREATE INDEX IF NOT EXISTS idx_http_collection_requests_folder
+                    ON http_collection_requests(folder_id);
                 "#,
             )
             .map_err(|error| format!("初始化 http 数据库失败：{error}"))?;
@@ -391,8 +427,230 @@ impl HttpStore {
             .map_err(err_map)?;
         Ok(())
     }
+
+    // ---- collections ----
+
+    pub fn list_collections(&self) -> Result<Vec<HttpCollectionRow>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, order_index, updated_at FROM http_collections \
+                 ORDER BY order_index ASC, updated_at ASC",
+            )
+            .map_err(err_map)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(HttpCollectionRow {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    order_index: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })
+            .map_err(err_map)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err_map)?;
+        Ok(rows)
+    }
+
+    pub fn list_collection_folders(&self) -> Result<Vec<HttpCollectionFolderRow>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, collection_id, parent_id, name, order_index, updated_at \
+                 FROM http_collection_folders ORDER BY collection_id ASC, order_index ASC, updated_at ASC",
+            )
+            .map_err(err_map)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(HttpCollectionFolderRow {
+                    id: row.get(0)?,
+                    collection_id: row.get(1)?,
+                    parent_id: row.get(2)?,
+                    name: row.get(3)?,
+                    order_index: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
+            })
+            .map_err(err_map)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err_map)?;
+        Ok(rows)
+    }
+
+    pub fn list_collection_requests(&self) -> Result<Vec<HttpCollectionRequestRow>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, collection_id, folder_id, name, method, spec_json, order_index, updated_at \
+                 FROM http_collection_requests ORDER BY collection_id ASC, folder_id ASC, order_index ASC, updated_at ASC",
+            )
+            .map_err(err_map)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(HttpCollectionRequestRow {
+                    id: row.get(0)?,
+                    collection_id: row.get(1)?,
+                    folder_id: row.get(2)?,
+                    name: row.get(3)?,
+                    method: row.get(4)?,
+                    spec_json: row.get(5)?,
+                    order_index: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            })
+            .map_err(err_map)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err_map)?;
+        Ok(rows)
+    }
+
+    pub fn upsert_collection(&self, row: HttpCollectionRow) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO http_collections (id, name, order_index, updated_at) VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, order_index=excluded.order_index, updated_at=excluded.updated_at",
+            params![row.id, row.name, row.order_index, row.updated_at],
+        )
+        .map_err(err_map)?;
+        Ok(())
+    }
+
+    pub fn upsert_collection_folder(&self, row: HttpCollectionFolderRow) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO http_collection_folders (id, collection_id, parent_id, name, order_index, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+             ON CONFLICT(id) DO UPDATE SET collection_id=excluded.collection_id, parent_id=excluded.parent_id, \
+               name=excluded.name, order_index=excluded.order_index, updated_at=excluded.updated_at",
+            params![
+                row.id,
+                row.collection_id,
+                row.parent_id,
+                row.name,
+                row.order_index,
+                row.updated_at,
+            ],
+        )
+        .map_err(err_map)?;
+        Ok(())
+    }
+
+    pub fn upsert_collection_request(&self, row: HttpCollectionRequestRow) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO http_collection_requests (id, collection_id, folder_id, name, method, spec_json, order_index, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+             ON CONFLICT(id) DO UPDATE SET collection_id=excluded.collection_id, folder_id=excluded.folder_id, \
+               name=excluded.name, method=excluded.method, spec_json=excluded.spec_json, \
+               order_index=excluded.order_index, updated_at=excluded.updated_at",
+            params![
+                row.id,
+                row.collection_id,
+                row.folder_id,
+                row.name,
+                row.method,
+                row.spec_json,
+                row.order_index,
+                row.updated_at,
+            ],
+        )
+        .map_err(err_map)?;
+        Ok(())
+    }
+
+    pub fn delete_collection(&self, id: &str) -> Result<(), String> {
+        let mut conn = self.conn();
+        let tx = conn.transaction().map_err(err_map)?;
+        tx.execute(
+            "DELETE FROM http_collection_requests WHERE collection_id = ?1",
+            params![id],
+        )
+        .map_err(err_map)?;
+        tx.execute(
+            "DELETE FROM http_collection_folders WHERE collection_id = ?1",
+            params![id],
+        )
+        .map_err(err_map)?;
+        tx.execute("DELETE FROM http_collections WHERE id = ?1", params![id])
+            .map_err(err_map)?;
+        tx.commit().map_err(err_map)?;
+        Ok(())
+    }
+
+    pub fn delete_collection_request(&self, id: &str) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "DELETE FROM http_collection_requests WHERE id = ?1",
+            params![id],
+        )
+        .map_err(err_map)?;
+        Ok(())
+    }
 }
 
 fn err_map(error: rusqlite::Error) -> String {
     format!("http 数据库错误：{error}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+    use crate::http::models::{HttpCollectionFolderRow, HttpCollectionRequestRow, HttpCollectionRow};
+
+    fn make_store() -> HttpStore {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("attool-http-store-test-{stamp}"));
+        HttpStore::new(dir).expect("store")
+    }
+
+    #[test]
+    fn collection_rows_roundtrip_and_delete_cascade() {
+        let store = make_store();
+
+        store
+            .upsert_collection(HttpCollectionRow {
+                id: "c1".into(),
+                name: "Admin API".into(),
+                order_index: 0,
+                updated_at: 1,
+            })
+            .expect("upsert collection");
+        store
+            .upsert_collection_folder(HttpCollectionFolderRow {
+                id: "f1".into(),
+                collection_id: "c1".into(),
+                parent_id: None,
+                name: "users".into(),
+                order_index: 0,
+                updated_at: 1,
+            })
+            .expect("upsert folder");
+        store
+            .upsert_collection_request(HttpCollectionRequestRow {
+                id: "r1".into(),
+                collection_id: "c1".into(),
+                folder_id: Some("f1".into()),
+                name: "GET users".into(),
+                method: "GET".into(),
+                spec_json: r#"{"method":"GET","url":"/users"}"#.into(),
+                order_index: 0,
+                updated_at: 1,
+            })
+            .expect("upsert request");
+
+        assert_eq!(store.list_collections().expect("collections").len(), 1);
+        assert_eq!(store.list_collection_folders().expect("folders").len(), 1);
+        assert_eq!(store.list_collection_requests().expect("requests").len(), 1);
+
+        store.delete_collection("c1").expect("delete collection");
+        assert!(store.list_collections().expect("collections").is_empty());
+        assert!(store.list_collection_folders().expect("folders").is_empty());
+        assert!(store.list_collection_requests().expect("requests").is_empty());
+    }
 }

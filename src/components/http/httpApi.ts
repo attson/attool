@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   HttpEnv,
   HttpEnvVar,
+  HttpCollection,
+  HttpCollectionFolder,
+  HttpCollectionRequest,
   HttpHistoryItem,
   HttpRequestSpec,
   HttpResponseInfo,
@@ -45,6 +48,33 @@ interface HttpEnvVarRow {
   key: string;
   value: string;
   enabled: boolean;
+  orderIndex: number;
+  updatedAt: number;
+}
+
+interface HttpCollectionRow {
+  id: string;
+  name: string;
+  orderIndex: number;
+  updatedAt: number;
+}
+
+interface HttpCollectionFolderRow {
+  id: string;
+  collectionId: string;
+  parentId: string | null;
+  name: string;
+  orderIndex: number;
+  updatedAt: number;
+}
+
+interface HttpCollectionRequestRow {
+  id: string;
+  collectionId: string;
+  folderId: string | null;
+  name: string;
+  method: string;
+  specJson: string;
   orderIndex: number;
   updatedAt: number;
 }
@@ -118,6 +148,47 @@ function envVarFromRow(row: HttpEnvVarRow): HttpEnvVar {
   };
 }
 
+function collectionFromRow(row: HttpCollectionRow): HttpCollection {
+  return { id: row.id, name: row.name, orderIndex: row.orderIndex, updatedAt: row.updatedAt };
+}
+
+function folderFromRow(row: HttpCollectionFolderRow): HttpCollectionFolder {
+  return {
+    id: row.id,
+    collectionId: row.collectionId,
+    parentId: row.parentId,
+    name: row.name,
+    orderIndex: row.orderIndex,
+    updatedAt: row.updatedAt
+  };
+}
+
+function requestFromRow(row: HttpCollectionRequestRow): HttpCollectionRequest {
+  return {
+    id: row.id,
+    collectionId: row.collectionId,
+    folderId: row.folderId,
+    name: row.name,
+    method: row.method as HttpCollectionRequest['method'],
+    spec: JSON.parse(row.specJson) as HttpRequestSpec,
+    orderIndex: row.orderIndex,
+    updatedAt: row.updatedAt
+  };
+}
+
+function requestToRow(row: HttpCollectionRequest): HttpCollectionRequestRow {
+  return {
+    id: row.id,
+    collectionId: row.collectionId,
+    folderId: row.folderId,
+    name: row.name,
+    method: row.method,
+    specJson: JSON.stringify(row.spec),
+    orderIndex: row.orderIndex,
+    updatedAt: row.updatedAt
+  };
+}
+
 export interface HttpApi {
   sendHttp(spec: HttpRequestSpec, cancelTokenId?: string): Promise<HttpResponseInfo>;
   cancelHttp(cancelTokenId: string): Promise<boolean>;
@@ -140,6 +211,15 @@ export interface HttpApi {
   listEnvVars(envId: string): Promise<HttpEnvVar[]>;
   upsertEnvVar(v: HttpEnvVar): Promise<void>;
   deleteEnvVar(id: string): Promise<void>;
+
+  listCollections(): Promise<HttpCollection[]>;
+  listCollectionFolders(): Promise<HttpCollectionFolder[]>;
+  listCollectionRequests(): Promise<HttpCollectionRequest[]>;
+  upsertCollection(row: HttpCollection): Promise<void>;
+  upsertCollectionFolder(row: HttpCollectionFolder): Promise<void>;
+  upsertCollectionRequest(row: HttpCollectionRequest): Promise<void>;
+  deleteCollection(id: string): Promise<void>;
+  deleteCollectionRequest(id: string): Promise<void>;
 }
 
 export function createHttpApi(invoker = invoke): HttpApi {
@@ -220,6 +300,34 @@ export function createHttpApi(invoker = invoke): HttpApi {
     },
     async deleteEnvVar(id) {
       await invoker('delete_http_env_var', { id });
+    },
+
+    async listCollections() {
+      const rows = await invoker<HttpCollectionRow[]>('list_http_collections');
+      return rows.map(collectionFromRow);
+    },
+    async listCollectionFolders() {
+      const rows = await invoker<HttpCollectionFolderRow[]>('list_http_collection_folders');
+      return rows.map(folderFromRow);
+    },
+    async listCollectionRequests() {
+      const rows = await invoker<HttpCollectionRequestRow[]>('list_http_collection_requests');
+      return rows.map(requestFromRow);
+    },
+    async upsertCollection(row) {
+      await invoker('upsert_http_collection', { row });
+    },
+    async upsertCollectionFolder(row) {
+      await invoker('upsert_http_collection_folder', { row });
+    },
+    async upsertCollectionRequest(row) {
+      await invoker('upsert_http_collection_request', { row: requestToRow(row) });
+    },
+    async deleteCollection(id) {
+      await invoker('delete_http_collection', { id });
+    },
+    async deleteCollectionRequest(id) {
+      await invoker('delete_http_collection_request', { id });
     }
   };
 }

@@ -138,6 +138,39 @@ pub struct HttpEnvVarRow {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpCollectionRow {
+    pub id: String,
+    pub name: String,
+    pub order_index: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpCollectionFolderRow {
+    pub id: String,
+    pub collection_id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub order_index: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpCollectionRequestRow {
+    pub id: String,
+    pub collection_id: String,
+    pub folder_id: Option<String>,
+    pub name: String,
+    pub method: String,
+    pub spec_json: String,
+    pub order_index: i64,
+    pub updated_at: i64,
+}
+
 // ---- stream (SSE / WebSocket) ----
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
