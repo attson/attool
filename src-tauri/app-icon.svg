@@ -13,12 +13,14 @@
       <feDropShadow dx="0" dy="34" stdDeviation="38" flood-color="#2c3222" flood-opacity="0.28"/>
     </filter>
   </defs>
-  <rect width="1024" height="1024" rx="224" fill="url(#paper)"/>
-  <circle cx="166" cy="150" r="236" fill="#d86d3d" opacity="0.22"/>
-  <circle cx="878" cy="218" r="292" fill="#56715d" opacity="0.18"/>
-  <path d="M158 784 C310 660 425 690 512 786 C602 886 738 872 872 730" fill="none" stroke="#d6a84f" stroke-width="34" stroke-linecap="round" opacity="0.58"/>
-  <rect x="236" y="214" width="552" height="596" rx="154" fill="url(#mark)" filter="url(#shadow)"/>
-  <path d="M329 670 L445 354 H507 L623 670 H552 L530 600 H420 L399 670 H329 Z M437 544 H513 L475 419 L437 544 Z" fill="#f8ebd4"/>
-  <path d="M610 354 H760 V417 H678 V670 H610 V354 Z" fill="#f8ebd4"/>
-  <path d="M596 354 H760 V417 H596 V354 Z" fill="#f8ebd4" opacity="0.92"/>
+  <g id="dock-safe-area" transform="translate(92 92) scale(0.8203125)">
+    <rect width="1024" height="1024" rx="224" fill="url(#paper)"/>
+    <circle cx="166" cy="150" r="236" fill="#d86d3d" opacity="0.22"/>
+    <circle cx="878" cy="218" r="292" fill="#56715d" opacity="0.18"/>
+    <path d="M158 784 C310 660 425 690 512 786 C602 886 738 872 872 730" fill="none" stroke="#d6a84f" stroke-width="34" stroke-linecap="round" opacity="0.58"/>
+    <rect x="236" y="214" width="552" height="596" rx="154" fill="url(#mark)" filter="url(#shadow)"/>
+    <path d="M329 670 L445 354 H507 L623 670 H552 L530 600 H420 L399 670 H329 Z M437 544 H513 L475 419 L437 544 Z" fill="#f8ebd4"/>
+    <path d="M610 354 H760 V417 H678 V670 H610 V354 Z" fill="#f8ebd4"/>
+    <path d="M596 354 H760 V417 H596 V354 Z" fill="#f8ebd4" opacity="0.92"/>
+  </g>
 </svg>
