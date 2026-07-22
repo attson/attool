@@ -62,15 +62,16 @@
 |---|---|---|
 | UI session | Vue ref | 当前选中工具、表单值、loading flags |
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
-| 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars** |
+| 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections** |
 | updater 缓存 | 文件（`app_cache_dir/updater/`） | 已下载但未 apply 的 archive stage |
 | 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`）、HTTP cancel token 表、Updater 状态机 `UpdaterState`、**HTTP 工具的 SSE / WS 长连接 session 表**（`HttpStreamState`：`HashMap<sessionId, SessionHandle>`，每个 session 持有 cancel oneshot、send mpsc（仅 WS）、消息 buffer `Arc<Mutex<SessionBuffer>>`；带 generation 计数器防重连 race） |
 
-HTTP 工具的持久层分 4 张表存在独立 `http.sqlite3`：
+HTTP 工具的持久层存在独立 `http.sqlite3`：
 - `http_tabs` —— 每 tab 一行，spec 序列化 JSON 存 `spec_json`；`is_active` 单例约束；**v0.8.9 起加了 `kind TEXT NOT NULL DEFAULT 'http'` 列**区分 http / sse / ws（老库启动时用 `PRAGMA table_info` 探测 → `ALTER TABLE ADD COLUMN` 迁移）
 - `http_history` —— 每次发送插一条，500 条上限 + 30 天 TTL，响应体只存前 4KB 到 `resp_summary`（仅 http kind 使用；SSE / WS 消息**不入库**）
 - `http_envs` —— 环境集合，`is_active` 单例
 - `http_env_vars` —— 变量条目，`env_id=''` 表示全局作用域
+- `http_collections` / `http_collection_folders` / `http_collection_requests` —— 请求集合树；request 节点保存完整 `HttpRequestSpec` JSON，OpenAPI 导入直接写入这三张表
 
 SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后端 `HttpStreamState` 内存里。关闭 App 或 tab 即清；关闭 tab 前，前端 `useHttpStore.closeTab` 会先调 `close_stream` 让后端优雅关掉 task。
 
@@ -149,7 +150,7 @@ export function useTheme(
 
 测试时传入 fake storage / fake root，断言行为与持久化结果。
 
-**HTTP 工具的 `useHttpStore` 是单例 composable**（模块级 `reactive`），全局共享 tabs / history / envs / active 环境；`_resetHttpStoreForTest(api)` 提供注入点便于单测。
+**HTTP 工具的 `useHttpStore` 是单例 composable**（模块级 `reactive`），全局共享 tabs / history / envs / active 环境 / collections；`_resetHttpStoreForTest(api)` 提供注入点便于单测。
 
 ### `src/components/ecommerce/TemplateTool.vue`
 
@@ -167,14 +168,15 @@ export function useTheme(
 
 HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `activeTab.kind` 分支渲染** http / sse / ws 三种编辑器：
 
-- `HttpSidebar` —— 左侧历史列表 + 搜索 + 右键菜单（仅 http kind 有效数据；sse / ws 不写历史）
+- `HttpSidebar` —— 左侧集合 / 历史切换；集合树支持 OpenAPI JSON 导入、请求回填 / 新 tab 打开、删除集合或请求；历史列表支持搜索 + 右键菜单（仅 http kind 写历史；sse / ws 不写历史）
 - `HttpTabBar` —— 中上多 tab 条，方法字段按 kind 分色显示（HTTP 方法名默认色 / `SSE` 紫 / `WS` 青）；`+` 按钮为 NDropdown，可新建 HTTP / SSE / WS
 - `HttpRequestEditor` + `HttpResponseView` —— http kind 的编辑器 + 响应视图（Params / Auth / Headers / Body / Settings 子 tabs；响应视图分 Body Pretty/Raw/Preview + Headers + Cookies）
 - `SseTool` —— sse kind：`SseRequestEditor`（URL + Params + Headers + Auth + Settings 含 lastEventId）+ 连接控制条 + `StreamMessageList`
 - `WsTool` —— ws kind：`WsRequestEditor`（URL + Params + Headers + Auth + Protocol 含 subprotocols）+ 连接控制条 + `StreamMessageList` + 发送框 + 发送模板选择
 - `StreamMessageList` —— sse / ws 共享的消息流视图：按 `messageTone` 分色（Open / Closed / Error / BufferTruncated / WsBinary / SseEvent · WsText），自动滚动到底部
 - `HttpEnvModal` —— 环境 + 变量 CRUD 弹窗（共用）
-- `curl.ts` / `variables.ts` / `httpApi.ts` / `streamApi.ts` / `streamMessageTone.ts` / `types.ts` —— 纯函数与类型，vitest 覆盖 40+ 用例（含 SSE / WS store 测试与 tone 分色测试）
+- `HttpOpenApiImportModal` + `openapiImport.ts` —— 读取 OAS 3.x JSON，按 path 首段生成集合目录，支持 base URL 覆盖为真实 URL 或 `{{baseUrl}}`
+- `curl.ts` / `variables.ts` / `httpApi.ts` / `streamApi.ts` / `streamMessageTone.ts` / `types.ts` —— 纯函数与类型，vitest 覆盖 40+ 用例（含 OpenAPI 导入、集合 store、SSE / WS store 测试与 tone 分色测试）
 
 状态全部走 `useHttpStore` 单例；子组件通过 props 拿 spec（union：`HttpRequestSpec | SseSpec | WsSpec`），通过 emit 触发修改；`useHttpStore` 用 300ms debounce 把 tabs 写回 SQLite（关闭 / 发送 / 拖拽即时 flush）。SSE / WS 的 `openStream / closeStream / sendWsMessage / listStreamMessages` 也挂在同一个 store 上，`openStream` 在调后端前做 `{{var}}` 展开（`applyVarsToSseSpec` / `applyVarsToWsSpec`），`sendWsMessage` 也走 `resolveVars`。
 
@@ -189,7 +191,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 | `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
 | `ecommerce/` | 主图模板：PSD 导入 / 图层渲染 / 批量替换 | `import_psd_template` / `save·load·list·delete_ecommerce_template` / `run_batch_replace_tasks` |
 | `network/` | 网络诊断 | `ping_host` / `check_ports` / `resolve_dns` |
-| `http/` | HTTP 工具后端：请求发送（含 multipart + cancel）+ tabs/history/envs/env_vars 4 张表 CRUD（tabs 有 `kind` 列） | `send_http` / `cancel_http` / `list·upsert·delete·set_active_http_{tab,env}` / `list·insert·delete·clear_http_history` / `list·upsert·delete_http_env_var` |
+| `http/` | HTTP 工具后端：请求发送（含 multipart + cancel）+ tabs/history/envs/env_vars/collections CRUD（tabs 有 `kind` 列） | `send_http` / `cancel_http` / `list·upsert·delete·set_active_http_{tab,env}` / `list·insert·delete·clear_http_history` / `list·upsert·delete_http_env_var` / `list·upsert·delete_http_collection*` |
 | `http/stream/` | SSE / WebSocket 长连接会话（v0.8.9+）：`HttpStreamState` 管理 sessions、消息 buffer、cancel 与发送通道；SSE 用 reqwest bytes_stream + 自写 UTF-8 安全帧解析；WS 用 tokio-tungstenite | `open_stream` / `close_stream` / `send_ws_message` / `list_stream_messages` |
 | `updater/` | 自研更新：check / verify / download / apply | `updater_get_state` / `updater_check` / `updater_download` / `updater_apply` / `updater_cancel` |
 | `qrcode.rs` | 二维码生成 | `generate_qr_png` |
@@ -212,7 +214,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 - `models.rs` —— `HttpRequestSpec` / `HttpResponseInfo` / `KeyValue` / `MultipartField` / `HttpAuth` / 4 张表的 Row 结构（`HttpTabRow` 带 `kind: String`）+ `Direction` / `StreamMessage`（7 variants：Open / SseEvent / WsText / WsBinary / Closed / Error / BufferTruncated）/ `SseSpec` / `WsSpec` / `WsTemplate`
 - `send.rs` —— reqwest 组装（含 auth inject、multipart 组装、cancel token 集成）
 - `cancel.rs` —— `HttpCancelState`：`Mutex<HashMap<String, oneshot::Sender<()>>>`
-- `storage.rs` —— 4 张表的 init + CRUD + history TTL 清理（启动时跑一次）；启动时 `PRAGMA table_info` 探测 → 老库自动 `ALTER TABLE http_tabs ADD COLUMN kind`
+- `storage.rs` —— tabs/history/envs/env_vars/collections 表的 init + CRUD + history TTL 清理（启动时跑一次）；启动时 `PRAGMA table_info` 探测 → 老库自动 `ALTER TABLE http_tabs ADD COLUMN kind`
 - `commands.rs` —— 一次请求 / 历史 / 环境 / 变量的全部 tauri 命令
 
 ### `src-tauri/src/http/stream/`（v0.8.9+）
@@ -251,7 +253,7 @@ SSE / WebSocket 长连接。所有 session 共享 `HttpStreamState`（通过 `.m
 
 ## 测试策略
 
-- **逻辑模块** —— Vitest，colocated `*.test.ts`：composable / theme / utils / HTTP 工具的 `variables.ts` `curl.ts` `httpApi.ts` / `streamMessageTone.ts` / `useHttpStore.stream.test.ts`
+- **逻辑模块** —— Vitest，colocated `*.test.ts`：composable / theme / utils / HTTP 工具的 `variables.ts` `curl.ts` `openapiImport.ts` `httpApi.ts` / `streamMessageTone.ts` / `useHttpStore.stream.test.ts` / `useHttpStore.collections.test.ts`
 - **Vue SFC** —— 不写单元测试（不引 jsdom）；改动后人工目视回归
 - **后端 Rust** —— 模板模块、updater 模块（`updater::verify` + `updater::check` 单测覆盖签名 / SHA256SUMS lookup / semver 比较）、HTTP stream 模块（`stream::parser` 9 条 / `stream::buffer` 5 条 / `stream::session` 6 条 / `stream::ws::tests` 2 条 UTF-8 截断测试）
 - **集成** —— HTTP stream 有 `src-tauri/tests/stream_it.rs` 起本地 TCP server 模拟 SSE 200 / SSE 401 / WS echo；其余无 e2e，依赖 `pnpm tauri:dev` + 手动操作验收
