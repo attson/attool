@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import {
   NAlert,
   NButton,
@@ -31,6 +31,7 @@ import { useSidebarState } from './composables/useSidebarState';
 import { useLastTool } from './composables/useLastTool';
 import { useTheme } from './composables/useTheme';
 import { useAria2Handoff } from './composables/useAria2Handoff';
+import { useHttpStore } from './composables/useHttpStore';
 import UpdateBanner from './components/shell/UpdateBanner.vue';
 import SettingsModal from './components/shell/SettingsModal.vue';
 import { useUpdater } from './composables/useUpdater';
@@ -90,6 +91,7 @@ const notice = ref('');
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState();
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
+const httpStore = useHttpStore();
 const {
   open: paletteOpen,
   query: paletteQuery,
@@ -98,7 +100,54 @@ const {
   hide: hidePalette
 } = useCommandPalette({
   tools: () => tools,
-  onOpenTool: (id) => selectTool(id)
+  onOpenTool: (id) => selectTool(id),
+  envs: () => httpStore.state.envs.map((env) => ({
+    id: env.id,
+    name: env.name,
+    active: env.id === httpStore.state.activeEnvId
+  })),
+  onSwitchEnv: (id) => {
+    selectTool('http');
+    void httpStore.setActiveEnv(id);
+  },
+  httpHistory: () => httpStore.state.history.map((item) => ({
+    method: item.method,
+    url: item.url,
+    ts: item.createdAt
+  })),
+  onOpenHistory: (entry) => {
+    const item = httpStore.state.history.find((h) => h.createdAt === entry.ts && h.url === entry.url);
+    if (!item) return;
+    selectTool('http');
+    httpStore.loadIntoTab(JSON.parse(JSON.stringify(item.spec)), 'new');
+  },
+  collectionRequests: () => httpStore.state.collectionRequests.map((request) => ({
+    id: request.id,
+    name: request.name,
+    method: request.method,
+    url: request.spec.url,
+    collectionName: httpStore.state.collections.find((c) => c.id === request.collectionId)?.name ?? 'HTTP 集合'
+  })),
+  onOpenCollectionRequest: (id) => {
+    const request = httpStore.state.collectionRequests.find((r) => r.id === id);
+    if (!request) return;
+    selectTool('http');
+    void httpStore.openCollectionRequest(request, 'new');
+  },
+  actions: () => [
+    {
+      id: 'http-vars',
+      title: 'HTTP 变量',
+      subtitle: '打开环境变量管理',
+      groupLabel: '动作',
+      onSelect: () => {
+        selectTool('http');
+        void nextTick(() => {
+          window.dispatchEvent(new CustomEvent('attool:http-open-vars'));
+        });
+      }
+    }
+  ]
 });
 function onPaletteOpen(v: boolean) {
   v ? showPalette() : hidePalette();

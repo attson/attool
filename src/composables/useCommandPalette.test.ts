@@ -71,6 +71,37 @@ describe('useCommandPalette', () => {
     expect(histItems.length).toBe(5);
   });
 
+  it('提供 collectionRequests 时可搜索集合请求', () => {
+    const onOpenCollectionRequest = vi.fn();
+    const cp = useCommandPalette({
+      tools: () => fakeTools,
+      onOpenTool: vi.fn(),
+      collectionRequests: () => [
+        { id: 'r1', name: 'GET users', method: 'GET', url: '{{baseUrl}}/users', collectionName: 'Admin API' }
+      ],
+      onOpenCollectionRequest
+    });
+    cp.query.value = 'users';
+    const item = cp.results.value[0];
+    expect(item.kind).toBe('collection-request');
+    item.onSelect();
+    expect(onOpenCollectionRequest).toHaveBeenCalledWith('r1');
+  });
+
+  it('提供 actions 时可触发普通动作', () => {
+    const onSelect = vi.fn();
+    const cp = useCommandPalette({
+      tools: () => fakeTools,
+      onOpenTool: vi.fn(),
+      actions: () => [{ id: 'http-vars', title: 'HTTP 变量', subtitle: '打开变量管理', groupLabel: '动作', onSelect }]
+    });
+    cp.query.value = '变量';
+    const item = cp.results.value[0];
+    expect(item.kind).toBe('action');
+    item.onSelect();
+    expect(onSelect).toHaveBeenCalled();
+  });
+
   it('每分区搜索命中最多 20 条', () => {
     const many = Array.from({ length: 50 }, (_, i) => ({
       id: `t${i}`, name: `Tool ${i}`, description: 'match',

@@ -10,13 +10,16 @@ import HttpTabBar from './HttpTabBar.vue';
 import HttpRequestEditor from './HttpRequestEditor.vue';
 import HttpResponseView from './HttpResponseView.vue';
 import HttpEnvModal from './HttpEnvModal.vue';
+import HttpOpenApiImportModal from './HttpOpenApiImportModal.vue';
 import SseTool from './SseTool.vue';
 import WsTool from './WsTool.vue';
+import type { ImportedOpenApiCollection } from './openapiImport';
 
 const store = useHttpStore();
 const collapsed = ref(false);
 const envModalOpen = ref(false);
 const envModalTab = ref<'env' | 'vars'>('vars');
+const openApiImportOpen = ref(false);
 
 const envOptions = computed(() => [
   { label: '不使用环境', value: '__none__' },
@@ -67,6 +70,10 @@ function onLoadHistory(item: import('./types').HttpHistoryItem, mode: 'active' |
   store.loadIntoTab(JSON.parse(JSON.stringify(item.spec)), mode);
 }
 
+async function onImportOpenApi(imported: ImportedOpenApiCollection) {
+  await store.importCollection(imported);
+}
+
 // ---- 快捷键 ----
 function onKey(ev: KeyboardEvent) {
   const meta = ev.metaKey || ev.ctrlKey;
@@ -92,12 +99,19 @@ function onKey(ev: KeyboardEvent) {
   }
 }
 
+function onOpenVarsEvent() {
+  envModalTab.value = 'vars';
+  envModalOpen.value = true;
+}
+
 onMounted(async () => {
   await store.init();
   window.addEventListener('keydown', onKey);
+  window.addEventListener('attool:http-open-vars', onOpenVarsEvent);
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
+  window.removeEventListener('attool:http-open-vars', onOpenVarsEvent);
   void store.flushDirtyNow();
 });
 </script>
@@ -106,8 +120,15 @@ onBeforeUnmount(() => {
   <div class="http-root">
     <HttpSidebar
       :items="store.state.history"
+      :collections="store.state.collections"
+      :folders="store.state.collectionFolders"
+      :requests="store.state.collectionRequests"
       :collapsed="collapsed"
       @load="onLoadHistory"
+      @open-request="store.openCollectionRequest"
+      @delete-collection="store.deleteCollection"
+      @delete-request="store.deleteCollectionRequest"
+      @import-openapi="openApiImportOpen = true"
       @delete="(id: string) => store.deleteHistory(id)"
       @clear="() => store.clearHistory()"
       @toggle-collapse="collapsed = !collapsed"
@@ -174,6 +195,10 @@ onBeforeUnmount(() => {
       @add-var="(envId: string) => store.upsertVar(store.makeVar(envId))"
       @update-var="(v: HttpEnvVar) => store.upsertVar(v)"
       @delete-var="(id: string, envId: string) => store.deleteVar(id, envId)"
+    />
+    <HttpOpenApiImportModal
+      v-model:show="openApiImportOpen"
+      @import="onImportOpenApi"
     />
   </div>
 </template>
