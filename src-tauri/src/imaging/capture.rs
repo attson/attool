@@ -213,22 +213,68 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 把主屏静默截取为 PNG 存到 path。macOS 用 screencapture(不含鼠标);
+fn bgra_bytes_to_rgba_image(
+    raw: &[u8],
+    width: u32,
+    height: u32,
+    bytes_per_row: usize,
+) -> Result<image::RgbaImage, String> {
+    let row_len = width
+        .checked_mul(4)
+        .map(|v| v as usize)
+        .ok_or_else(|| "截图尺寸过大".to_string())?;
+    if bytes_per_row < row_len {
+        return Err("截图像素行数据异常".to_string());
+    }
+    let height_usize = height as usize;
+    let required_len = if height_usize == 0 {
+        0
+    } else {
+        bytes_per_row
+            .checked_mul(height_usize - 1)
+            .and_then(|v| v.checked_add(row_len))
+            .ok_or_else(|| "截图像素数据过大".to_string())?
+    };
+    if raw.len() < required_len {
+        return Err("截图像素数据不完整".to_string());
+    }
+
+    let mut rgba = Vec::with_capacity(row_len * height_usize);
+    for y in 0..height_usize {
+        let offset = y * bytes_per_row;
+        for px in raw[offset..offset + row_len].chunks_exact(4) {
+            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+        }
+    }
+    image::RgbaImage::from_raw(width, height, rgba).ok_or_else(|| "截图像素转换失败".to_string())
+}
+
+/// 把主屏静默截取为 BMP 存到 path。macOS 用 CoreGraphics(不含鼠标);
 /// 其他平台用 xcap(X11/Windows 可用,Wayland 尽力而为)。
 #[cfg(target_os = "macos")]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
-    // 输出 BMP 与非 macOS 分支保持一致(path 扩展名为 .bmp),避免扩展名与内容不符
-    let status = Command::new("screencapture")
-        .arg("-x") // silent
-        .arg("-C") // no cursor
-        .arg("-t")
-        .arg("bmp")
-        .arg(path)
-        .status()
-        .map_err(|error| format!("启动 screencapture 失败：{error}"))?;
-    if !status.success() {
-        return Err("screencapture 执行失败".to_string());
+    use core_graphics::display::CGDisplay;
+
+    let image = CGDisplay::main()
+        .image()
+        .ok_or_else(|| "桌面截图失败：请确认已授予录屏权限并重启 AT Tool".to_string())?;
+    if image.bits_per_pixel() != 32 {
+        return Err(format!(
+            "不支持的截图像素格式：{} bits/pixel",
+            image.bits_per_pixel()
+        ));
     }
+
+    let data = image.data();
+    let rgba = bgra_bytes_to_rgba_image(
+        data.bytes(),
+        image.width() as u32,
+        image.height() as u32,
+        image.bytes_per_row(),
+    )?;
+    image::DynamicImage::ImageRgba8(rgba)
+        .save(path)
+        .map_err(|error| format!("保存截图失败：{error}"))?;
     Ok(())
 }
 
@@ -432,5 +478,19 @@ pub fn capture_screen(mode: &str, delay_seconds: u32) -> Result<PathBuf, String>
     {
         let _ = (mode, delay_seconds, output_path);
         Err("目前仅 macOS 支持系统截图（Windows / Linux 待接入）".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bgra_stride_rows_are_converted_to_rgba_pixels() {
+        let raw = [10, 20, 30, 255, 0, 0, 0, 0, 40, 50, 60, 128, 0, 0, 0, 0];
+
+        let image = bgra_bytes_to_rgba_image(&raw, 1, 2, 8).unwrap();
+
+        assert_eq!(image.as_raw(), &[30, 20, 10, 255, 60, 50, 40, 128]);
     }
 }
