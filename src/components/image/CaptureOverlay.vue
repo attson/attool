@@ -802,14 +802,55 @@ onUnmounted(() => {
     <!-- Toolbar under the selection -->
     <div v-if="selection" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <div class="tools">
-        <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">▢</button>
-        <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">○</button>
-        <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">/</button>
-        <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">↗</button>
-        <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">✎</button>
-        <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">▦</button>
-        <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">T</button>
-        <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">①</button>
+        <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="6" width="16" height="12" rx="1"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="7"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="19" x2="19" y2="5"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="19" x2="18" y2="6"/>
+            <polyline points="11,6 18,6 18,13"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17 Q7 10 11 14 T18 8"/>
+            <path d="M17 8 L20 5 L21 6 L18 9 Z" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="1"/>
+            <line x1="9.33" y1="4" x2="9.33" y2="20"/>
+            <line x1="14.67" y1="4" x2="14.67" y2="20"/>
+            <line x1="4" y1="9.33" x2="20" y2="9.33"/>
+            <line x1="4" y1="14.67" x2="20" y2="14.67"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="6" x2="18" y2="6"/>
+            <line x1="12" y1="6" x2="12" y2="19"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="8"/>
+            <path d="M10 9 L12 8 L12 16"/>
+            <line x1="9" y1="16" x2="15" y2="16"/>
+          </svg>
+        </button>
       </div>
       <div class="palette">
         <button
