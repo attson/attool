@@ -868,13 +868,47 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="ops">
-        <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">↺</button>
-        <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">↻</button>
-        <button @click="reselect" title="重选">◇</button>
-        <button @click="saveToFile" title="保存到文件 ⌘S">⬇</button>
-        <button @click="pinIt" title="钉在桌面（浮窗置顶）">📌</button>
-        <button class="cancel" @click="cancel" title="取消 Esc">✕</button>
-        <button class="confirm" @click="confirm" title="完成 ⌘↩">✓</button>
+        <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 14 L4 9 L9 4"/>
+            <path d="M4 9 H14 A6 6 0 0 1 20 15 V16"/>
+          </svg>
+        </button>
+        <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 14 L20 9 L15 4"/>
+            <path d="M20 9 H10 A6 6 0 0 0 4 15 V16"/>
+          </svg>
+        </button>
+        <button @click="reselect" title="重选">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3 L21 12 L12 21 L3 12 Z"/>
+          </svg>
+        </button>
+        <button @click="saveToFile" title="保存到文件 ⌘S">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="4" x2="12" y2="16"/>
+            <polyline points="7,11 12,16 17,11"/>
+            <line x1="5" y1="20" x2="19" y2="20"/>
+          </svg>
+        </button>
+        <button class="pin" @click="pinIt" title="钉在桌面（浮窗置顶）">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 4 L15 4 L14 10 L18 14 L6 14 L10 10 Z"/>
+            <line x1="12" y1="14" x2="12" y2="20" stroke="currentColor" fill="none"/>
+          </svg>
+        </button>
+        <button class="cancel" @click="cancel" title="取消 Esc">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="6" x2="18" y2="18"/>
+            <line x1="18" y1="6" x2="6" y2="18"/>
+          </svg>
+        </button>
+        <button class="confirm" @click="confirm" title="完成 ⌘↩">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="5,13 10,18 19,6"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -1033,6 +1067,7 @@ onUnmounted(() => {
 .toolbar button:disabled { opacity: 0.35; cursor: not-allowed; }
 .toolbar button.cancel { color: #ef4444; }
 .toolbar button.confirm { color: #10b981; }
+.toolbar button.pin { color: #ef4444; }
 .swatch {
   width: 18px !important;
   min-width: 18px !important;
