@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { NButton, NSelect } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import { useFileDrop } from '../../composables/useFileDrop';
-import { convert } from '../../utils/jsonConvert';
+import { useJsonWorker } from '../../composables/useJsonWorker';
 import type { ConvertFormat } from '../../types/json';
 
 const FORMAT_OPTIONS = [
@@ -12,6 +12,8 @@ const FORMAT_OPTIONS = [
   { label: 'TOML', value: 'toml' },
   { label: 'CSV',  value: 'csv'  },
 ];
+
+const worker = useJsonWorker();
 
 const source = ref('');
 const target = ref('');
@@ -22,26 +24,28 @@ const error = ref<string | null>(null);
 let timer: number | null = null;
 function schedule() {
   if (timer) window.clearTimeout(timer);
-  timer = window.setTimeout(recompute, 200);
+  timer = window.setTimeout(() => { void recompute(); }, 200);
 }
 
-function recompute() {
+async function recompute() {
   if (!source.value.trim()) {
     target.value = '';
     error.value = null;
     return;
   }
-  const result = convert(source.value, fromFmt.value, toFmt.value);
-  if (result.ok) {
-    target.value = result.value ?? '';
+  const res = await worker.convert(source.value, fromFmt.value, toFmt.value, 'convert:convert');
+  if (res === null) return;
+  if (res.ok) {
+    target.value = res.text;
     error.value = null;
   } else {
     target.value = '';
-    error.value = result.error ?? '转换失败';
+    error.value = res.error;
   }
 }
 
 watch([source, fromFmt, toFmt], schedule);
+onBeforeUnmount(() => { if (timer) window.clearTimeout(timer); });
 
 function swap() {
   const oldSource = source.value;
