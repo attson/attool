@@ -43,11 +43,23 @@ const emit = defineEmits<{
 const container = ref<HTMLDivElement | null>(null);
 const instance = shallowRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
 let suppress = false;
+// 记录上次跑 resolveLargeOptions 时的长度，用来限流 maxLineLength 的 O(n) 扫描。
+let lastResolvedLen = 0;
+const RESOLVE_LEN_DELTA = 16_384;
+
+function maybeResolve(editor: MonacoEditor.IStandaloneCodeEditor, value: string) {
+  const crossedLargeBoundary = (value.length > LARGE_INPUT) !== (lastResolvedLen > LARGE_INPUT);
+  if (crossedLargeBoundary || Math.abs(value.length - lastResolvedLen) >= RESOLVE_LEN_DELTA) {
+    editor.updateOptions(resolveLargeOptions(value));
+    lastResolvedLen = value.length;
+  }
+}
 
 onMounted(async () => {
   if (!container.value) return;
   const monaco = await loadMonaco();
   const initialOpts = resolveLargeOptions(props.modelValue);
+  lastResolvedLen = props.modelValue.length;
   const editor = monaco.editor.create(container.value, {
     value: props.modelValue,
     language: props.language ?? 'json',
@@ -65,7 +77,10 @@ onMounted(async () => {
   });
   editor.onDidChangeModelContent(() => {
     if (suppress) return;
-    emit('update:modelValue', editor.getValue());
+    const value = editor.getValue();
+    // Monaco 自己接住的粘贴/输入也要重算选项；否则 wordWrap 一直停在初始状态。
+    maybeResolve(editor, value);
+    emit('update:modelValue', value);
   });
   instance.value = editor;
 });
@@ -77,6 +92,7 @@ watch(
     if (!editor) return;
     if (editor.getValue() === next) return;
     editor.updateOptions(resolveLargeOptions(next));
+    lastResolvedLen = next.length;
     suppress = true;
     editor.setValue(next);
     suppress = false;
