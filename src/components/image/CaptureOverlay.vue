@@ -22,7 +22,7 @@ interface InitPayload {
   windows: WindowRect[];
 }
 
-type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
+type Tool = 'cursor' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
 
 interface MosaicBlock {
   x: number; // canvas-pixel top-left of block
@@ -76,7 +76,7 @@ function windowAt(px: number, py: number): WindowRect | null {
   return null;
 }
 
-const tool = ref<Tool>('rect');
+const tool = ref<Tool>('cursor');
 const color = ref('#ef4444');
 const lineWidth = ref(3);
 const textValue = ref('');
@@ -176,7 +176,7 @@ const hasSelection = computed(() => selection.value !== null && selection.value.
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 980;
+  const toolbarW = 1020;
   const toolbarH = 58;
   const margin = 8;
   let left = sel.x + sel.w - toolbarW;
@@ -668,6 +668,7 @@ function resetState() {
   textPending.value = null;
   pencilPoints.value = [];
   hoveredWindow.value = null;
+  tool.value = 'cursor';
 }
 
 async function confirm() {
@@ -802,6 +803,11 @@ onUnmounted(() => {
     <!-- Toolbar under the selection -->
     <div v-if="selection" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <div class="tools">
+        <button :class="{ active: tool === 'cursor' }" @click="tool = 'cursor'" title="光标（拖动/调整选区）">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3 L5 17 L9 13 L11.5 20 L14 19 L11.5 12 L17 12 Z"/>
+          </svg>
+        </button>
         <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="6" width="16" height="12" rx="1"/>
