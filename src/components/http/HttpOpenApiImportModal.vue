@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onUnmounted, ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal } from 'naive-ui';
 import type { ImportedOpenApiCollection } from './openapiImport';
 import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
@@ -61,6 +61,10 @@ async function runPreview(text: string) {
 
 watch([jsonText, baseUrl, collectionName], schedulePreview);
 
+onUnmounted(() => {
+  if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+});
+
 watch(
   () => props.show,
   (show) => {
@@ -81,6 +85,10 @@ async function onFile(e: Event) {
   try {
     const text = await file.text();
     jsonText.value = text;
+    // Assigning jsonText above schedules a debounced preview with the same
+    // 'preview' tag; cancel it so it can't supersede this file parse below.
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    parsing.value = false;
     const outcome = await worker.parse(text, {}, 'preview');
     if (outcome && outcome.ok) {
       baseUrl.value = outcome.result.baseUrl;
