@@ -1,108 +1,105 @@
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
+import { NVirtualList } from 'naive-ui';
 import type { JsonValue } from '../../types/json';
-import { expandCommandKey, type JsonExpandCommand } from './expandCommand';
+import { flatten, allExpandableKeys, type FlatNode } from '../../utils/jsonTreeFlatten';
 
 const props = defineProps<{
   value: JsonValue;
-  name?: string;
-  path?: string;
-  depth?: number;
 }>();
 
 const emit = defineEmits<{
   copyPath: [path: string];
 }>();
 
-const open = ref((props.depth ?? 0) < 1);
-const currentPath = computed(() => props.path ?? '$');
+const openKeys = ref<Set<string>>(new Set(['$']));
 
-const kind = computed<'object' | 'array' | 'primitive'>(() => {
-  if (Array.isArray(props.value)) return 'array';
-  if (props.value && typeof props.value === 'object') return 'object';
-  return 'primitive';
-});
-
-const entries = computed(() => {
-  if (kind.value === 'array') {
-    return (props.value as JsonValue[]).map((v, i) => ({ key: String(i), child: v, childPath: `${currentPath.value}[${i}]` }));
-  }
-  if (kind.value === 'object') {
-    const obj = props.value as { [k: string]: JsonValue };
-    return Object.keys(obj).map((key) => ({ key, child: obj[key], childPath: `${currentPath.value}.${key}` }));
-  }
-  return [];
-});
-
-const sizeLabel = computed(() =>
-  kind.value === 'array' ? `[${(props.value as JsonValue[]).length}]` :
-  kind.value === 'object' ? `{${Object.keys(props.value as { [k: string]: JsonValue }).length}}` :
-  '',
-);
-
-const primitiveDisplay = computed(() => {
-  const v = props.value;
-  if (v === null) return 'null';
-  if (typeof v === 'string') return JSON.stringify(v);
-  return String(v);
-});
-
-const primitiveClass = computed(() => {
-  const v = props.value;
-  if (v === null) return 'null';
-  if (typeof v === 'string') return 'string';
-  if (typeof v === 'number') return 'number';
-  if (typeof v === 'boolean') return 'boolean';
-  return '';
-});
-
-const expandCommand = inject(expandCommandKey, ref<JsonExpandCommand | null>(null));
 watch(
-  expandCommand,
-  (cmd) => {
-    if (!cmd) return;
-    if (kind.value === 'primitive') return;
-    open.value = cmd.action === 'expand';
-  },
-  { immediate: true },
+  () => props.value,
+  () => { openKeys.value = new Set(['$']); },
 );
+
+const nodes = shallowRef<FlatNode[]>([]);
+function recompute() {
+  nodes.value = flatten(props.value, openKeys.value);
+}
+watch(() => [props.value, openKeys.value], recompute, { immediate: true });
+
+function toggle(node: FlatNode) {
+  if (node.kind === 'primitive') return;
+  const next = new Set(openKeys.value);
+  if (next.has(node.key)) next.delete(node.key); else next.add(node.key);
+  openKeys.value = next;
+}
+
+function isOpen(node: FlatNode) {
+  return openKeys.value.has(node.key);
+}
+
+function copyPath(path: string) {
+  emit('copyPath', path);
+}
+
+function expandAll() {
+  openKeys.value = allExpandableKeys(props.value);
+}
+
+function collapseAll() {
+  openKeys.value = new Set(['$']);
+}
+
+defineExpose({ expandAll, collapseAll });
+
+const sizeLabel = (n: FlatNode) => n.kind === 'array' ? `[${n.size}]`
+  : n.kind === 'object' ? `{${n.size}}` : '';
 </script>
 
 <template>
-  <div class="tree-node">
-    <div class="tree-row" v-if="kind === 'primitive'">
-      <span v-if="name !== undefined" class="key">{{ name }}:</span>
-      <span :class="['value', primitiveClass]">{{ primitiveDisplay }}</span>
-      <button class="path-btn" type="button" :title="`复制 ${currentPath}`" @click="emit('copyPath', currentPath)">⧉</button>
-    </div>
-    <template v-else>
-      <button type="button" class="tree-toggle" @click="open = !open">
-        <span class="caret">{{ open ? '▾' : '▸' }}</span>
-        <span v-if="name !== undefined" class="key">{{ name }}:</span>
-        <span class="meta">{{ sizeLabel }}</span>
-      </button>
-      <div v-if="open" class="children">
-        <JsonTreeView
-          v-for="entry in entries"
-          :key="entry.key"
-          :value="entry.child"
-          :name="entry.key"
-          :path="entry.childPath"
-          :depth="(depth ?? 0) + 1"
-          @copy-path="(p) => emit('copyPath', p)"
-        />
+  <n-virtual-list
+    class="tree-vlist"
+    :items="nodes"
+    :item-size="24"
+    :item-resizable="false"
+    key-field="key"
+  >
+    <template #default="{ item }">
+      <div class="tree-row" :style="{ paddingLeft: `${item.depth * 14 + 4}px` }">
+        <template v-if="item.kind === 'primitive'">
+          <span v-if="item.label" class="key">{{ item.label }}:</span>
+          <span :class="['value', item.primitiveClass]">{{ item.primitiveText }}</span>
+          <button class="path-btn" type="button" :title="`复制 ${item.path}`" @click="copyPath(item.path)">⧉</button>
+        </template>
+        <template v-else>
+          <button type="button" class="tree-toggle" @click="toggle(item)">
+            <span class="caret">{{ isOpen(item) ? '▾' : '▸' }}</span>
+            <span v-if="item.label" class="key">{{ item.label }}:</span>
+            <span class="meta">{{ sizeLabel(item) }}</span>
+          </button>
+          <button class="path-btn" type="button" :title="`复制 ${item.path}`" @click="copyPath(item.path)">⧉</button>
+        </template>
       </div>
     </template>
-  </div>
+  </n-virtual-list>
 </template>
 
 <style scoped>
-.tree-node { font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6; }
-.tree-row { display: flex; gap: 6px; align-items: center; padding-left: 18px; }
+.tree-vlist {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+.tree-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 24px;
+  white-space: nowrap;
+}
 .tree-toggle {
   background: none;
   border: 0;
-  padding: 0 0 0 0;
+  padding: 0;
   cursor: pointer;
   color: var(--text);
   font: inherit;
@@ -117,7 +114,6 @@ watch(
 .value.number { color: #2563eb; }
 .value.boolean { color: #d97706; }
 .value.null { color: var(--text-muted); }
-.children { padding-left: 14px; border-left: 1px dashed var(--line); margin-left: 6px; }
 .path-btn {
   background: none;
   border: 0;

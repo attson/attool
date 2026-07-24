@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { format, minify, parseJson, sortKeys } from './jsonFormat';
+import {
+  format, formatValue, minify, minifyValue, parseJson, sortKeys, sortValue,
+} from './jsonFormat';
 
 describe('parseJson', () => {
   it('parses valid JSON', () => {
@@ -58,5 +60,17 @@ describe('sortKeys', () => {
 
   it('throws on invalid input', () => {
     expect(() => sortKeys('{')).toThrow();
+  });
+});
+
+describe('valueApi', () => {
+  it('formatValue prints with 2 space indent by default', () => {
+    expect(formatValue({ a: 1 })).toBe('{\n  "a": 1\n}');
+  });
+  it('minifyValue prints without whitespace', () => {
+    expect(minifyValue({ a: 1, b: [2] })).toBe('{"a":1,"b":[2]}');
+  });
+  it('sortValue orders object keys deeply', () => {
+    expect(sortValue({ b: 1, a: { d: 2, c: 3 } })).toEqual({ a: { c: 3, d: 2 }, b: 1 });
   });
 });

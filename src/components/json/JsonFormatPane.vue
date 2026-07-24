@@ -1,80 +1,83 @@
 <script setup lang="ts">
-import { computed, provide, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 import { NButton } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import JsonTreeView from './JsonTreeView.vue';
-import { expandCommandKey, type JsonExpandCommand } from './expandCommand';
-import { format, minify, parseJson, sortKeys } from '../../utils/jsonFormat';
 import { useFileDrop } from '../../composables/useFileDrop';
+import { useJsonWorker } from '../../composables/useJsonWorker';
 import type { JsonValue } from '../../types/json';
+
+const worker = useJsonWorker();
 
 const text = ref('');
 const error = ref<string | null>(null);
 const elapsedMs = ref(0);
-const parsed = ref<JsonValue | null>(null);
-
-const expandCommand = ref<JsonExpandCommand | null>(null);
-provide(expandCommandKey, expandCommand);
-
-function expandAll() {
-  expandCommand.value = { action: 'expand', v: (expandCommand.value?.v ?? 0) + 1 };
-}
-function collapseAll() {
-  expandCommand.value = { action: 'collapse', v: (expandCommand.value?.v ?? 0) + 1 };
-}
+// shallowRef: parsed JSON can be large and is always replaced wholesale (never
+// mutated in place) — deep reactivity would wrap it in a Proxy that Worker
+// postMessage's structured-clone algorithm rejects (DataCloneError).
+const parsed = shallowRef<JsonValue | null>(null);
+const treeRef = ref<{ expandAll: () => void; collapseAll: () => void } | null>(null);
 
 const charCount = computed(() => text.value.length);
 
-function reparse() {
-  const start = performance.now();
-  const result = parseJson(text.value);
-  elapsedMs.value = Math.round(performance.now() - start);
-  if (result.ok) {
-    parsed.value = result.value ?? null;
-    error.value = null;
-  } else {
+let parseTimer: number | null = null;
+function scheduleReparse() {
+  if (parseTimer) window.clearTimeout(parseTimer);
+  parseTimer = window.setTimeout(() => { void reparse(); }, 300);
+}
+
+async function reparse() {
+  if (!text.value.trim()) {
     parsed.value = null;
-    if (text.value.trim().length === 0) {
-      error.value = null;
-    } else {
-      const line = result.error?.line ? `第 ${result.error.line} 行：` : '';
-      error.value = `${line}${result.error?.message ?? '解析失败'}`;
-    }
+    error.value = null;
+    elapsedMs.value = 0;
+    return;
+  }
+  const res = await worker.parse(text.value, 'format:parse');
+  if (res === null) return; // superseded
+  elapsedMs.value = res.elapsedMs;
+  if (res.error) {
+    parsed.value = null;
+    const line = res.error.line ? `第 ${res.error.line} 行：` : '';
+    error.value = `${line}${res.error.message ?? '解析失败'}`;
+  } else {
+    parsed.value = res.value;
+    error.value = null;
   }
 }
 
 function setText(next: string) {
   text.value = next;
-  reparse();
+  scheduleReparse();
 }
 
-function doFormat() {
+async function doSerialize(mode: 'format' | 'minify' | 'sort') {
   try {
-    setText(format(text.value));
+    let value = parsed.value;
+    if (value === null) {
+      const p = await worker.parse(text.value, 'format:parse');
+      if (p === null) return;
+      if (p.error) { error.value = p.error.message ?? '解析失败'; return; }
+      value = p.value;
+    }
+    if (value === null) return;
+    const out = await worker.serialize(value, mode, 2, 'format:serialize');
+    if (out === null) return;
+    if (!out.ok) { error.value = out.error; return; }
+    setText(out.text);
   } catch (e) {
     error.value = (e as Error).message;
   }
 }
 
-function doMinify() {
-  try {
-    setText(minify(text.value));
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
-}
+function doFormat()   { void doSerialize('format'); }
+function doMinify()   { void doSerialize('minify'); }
+function doSortKeys() { void doSerialize('sort'); }
 
-function doSortKeys() {
-  try {
-    setText(sortKeys(text.value));
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
-}
+function expandAll()   { treeRef.value?.expandAll(); }
+function collapseAll() { treeRef.value?.collapseAll(); }
 
-async function doCopy() {
-  await navigator.clipboard.writeText(text.value);
-}
+async function doCopy() { await navigator.clipboard.writeText(text.value); }
 
 const drop = useFileDrop(
   (content) => setText(content),
@@ -84,6 +87,8 @@ const drop = useFileDrop(
 function copyTreePath(path: string) {
   navigator.clipboard.writeText(path).catch(() => undefined);
 }
+
+onBeforeUnmount(() => { if (parseTimer) window.clearTimeout(parseTimer); });
 </script>
 
 <template>
@@ -101,7 +106,7 @@ function copyTreePath(path: string) {
     <div class="split">
       <CodeEditor :model-value="text" language="json" @update:model-value="setText" height="100%" />
       <div class="tree-pane">
-        <JsonTreeView v-if="parsed !== null" :value="parsed" @copy-path="copyTreePath" />
+        <JsonTreeView v-if="parsed !== null" ref="treeRef" :value="parsed" @copy-path="copyTreePath" />
         <div v-else class="empty">{{ text.trim() ? '等待有效 JSON' : '左侧粘贴 / 拖入 JSON 文本' }}</div>
       </div>
     </div>
@@ -114,8 +119,8 @@ function copyTreePath(path: string) {
 
 <style scoped>
 .format-pane { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; height: 100%; }
-.toolbar { display: flex; gap: 6px; align-items: center; }
-.toolbar .spacer { flex: 1; }
+.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; row-gap: 6px; }
+.toolbar .spacer { flex: 1; min-width: 8px; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 0; }
 .tree-pane {
   border: 1px solid var(--line);

@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import CodeEditor from './CodeEditor.vue';
-import { diffJson, diffJsonHtml } from '../../utils/jsondiff';
+import { useJsonWorker } from '../../composables/useJsonWorker';
+
+const DIFF_HTML_MAX = 1_000_000;
+
+const worker = useJsonWorker();
 
 const left = ref('');
 const right = ref('');
@@ -9,43 +13,66 @@ const html = ref('');
 const leftError = ref<string | null>(null);
 const rightError = ref<string | null>(null);
 const equal = ref(true);
+const tooBig = ref(false);
+const forceHtml = ref(false);
 
 let timer: number | null = null;
 function schedule() {
   if (timer) window.clearTimeout(timer);
-  timer = window.setTimeout(recompute, 200);
+  timer = window.setTimeout(() => { void recompute(); }, 400);
 }
 
-function recompute() {
+async function recompute() {
   if (!left.value.trim() && !right.value.trim()) {
     html.value = '';
     leftError.value = null;
     rightError.value = null;
     equal.value = true;
+    tooBig.value = false;
     return;
   }
-  const result = diffJson(left.value || '{}', right.value || '{}');
-  leftError.value = result.leftError ?? null;
-  rightError.value = result.rightError ?? null;
-  if (result.leftError || result.rightError) {
+  const withHtml = forceHtml.value || (left.value.length + right.value.length < DIFF_HTML_MAX);
+  const res = await worker.diff(left.value || '{}', right.value || '{}', withHtml, 'diff:diff');
+  if (res === null) return;
+  leftError.value = res.leftError ?? null;
+  rightError.value = res.rightError ?? null;
+  if (res.leftError || res.rightError) {
     html.value = '';
     equal.value = false;
+    tooBig.value = false;
     return;
   }
-  if (result.delta === null) {
+  if (res.equal) {
     html.value = '';
     equal.value = true;
+    tooBig.value = false;
     return;
   }
   equal.value = false;
-  html.value = diffJsonHtml(left.value, right.value);
+  const htmlWouldBeOversized = res.html && res.html.length > DIFF_HTML_MAX;
+  const htmlSkippedByPreflight = !res.html && !withHtml;
+  if (!forceHtml.value && (htmlWouldBeOversized || htmlSkippedByPreflight)) {
+    html.value = '';
+    tooBig.value = true;
+    return;
+  }
+  tooBig.value = false;
+  html.value = res.html ?? '';
 }
 
-watch([left, right], schedule);
+function forceShow() {
+  forceHtml.value = true;
+  if (timer) window.clearTimeout(timer);
+  void recompute();
+}
+
+watch([left, right, forceHtml], schedule);
+onBeforeUnmount(() => { if (timer) window.clearTimeout(timer); });
 
 const status = computed(() => {
   if (leftError.value) return `左侧 JSON 解析失败：${leftError.value}`;
   if (rightError.value) return `右侧 JSON 解析失败：${rightError.value}`;
+  if (tooBig.value) return '差异 HTML 过大，已隐藏；点右侧按钮强制显示';
   if (equal.value && (left.value.trim() || right.value.trim())) return '两侧内容等价';
   return '';
 });
@@ -58,7 +85,10 @@ const status = computed(() => {
       <CodeEditor :model-value="right" language="json" @update:model-value="(v) => right = v" height="100%" />
     </div>
     <div class="result" v-if="html" v-html="html" />
-    <div class="status" v-else>{{ status || '粘贴左右两份 JSON 进行对比' }}</div>
+    <div class="status" v-else>
+      {{ status || '粘贴左右两份 JSON 进行对比' }}
+      <button v-if="tooBig" type="button" class="force-btn" @click="forceShow">仍要显示</button>
+    </div>
   </div>
 </template>
 
@@ -85,4 +115,14 @@ const status = computed(() => {
 .result :deep(.jsondiffpatch-deleted .jsondiffpatch-value) { background: color-mix(in srgb, #dc2626 18%, transparent); text-decoration: line-through; }
 .result :deep(.jsondiffpatch-modified .jsondiffpatch-left-value) { background: color-mix(in srgb, #dc2626 18%, transparent); text-decoration: line-through; }
 .result :deep(.jsondiffpatch-modified .jsondiffpatch-right-value) { background: color-mix(in srgb, #16a34a 18%, transparent); }
+
+.force-btn {
+  margin-left: 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--text);
+}
 </style>
