@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -87,6 +87,19 @@ const drawStart = ref<{ x: number; y: number } | null>(null);
 const drawEnd = ref<{ x: number; y: number } | null>(null);
 const pencilPoints = ref<{ x: number; y: number }[]>([]);
 const nextNumber = ref(1);
+type AdjustMode = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const adjustMode = ref<AdjustMode | null>(null);
+const hoverAdjustMode = ref<AdjustMode | null>(null);
+const adjustStart = ref<{ x: number; y: number } | null>(null);
+const adjustStartRect = ref<Rect | null>(null);
+const canAdjust = computed(() => tool.value === 'cursor' && shapes.value.length === 0);
+const adjustCursor = computed(() => {
+  if (!canAdjust.value) return 'crosshair';
+  const m = adjustMode.value ?? hoverAdjustMode.value;
+  if (!m) return 'default';
+  if (m === 'move') return 'move';
+  return `${m}-resize`;
+});
 // Mosaic brush block size in canvas pixels (scaled up already; tuned so it "reads" as pixelation)
 const mosaicBlockSize = ref(14);
 
@@ -270,9 +283,106 @@ function canvasPosFromEvent(event: MouseEvent): { x: number; y: number } {
   };
 }
 
+const EDGE = 8;
+
+function detectAdjustZone(px: number, py: number, sel: Rect): AdjustMode | null {
+  const nearL = px >= sel.x - EDGE && px <= sel.x + EDGE;
+  const nearR = px >= sel.x + sel.w - EDGE && px <= sel.x + sel.w + EDGE;
+  const nearT = py >= sel.y - EDGE && py <= sel.y + EDGE;
+  const nearB = py >= sel.y + sel.h - EDGE && py <= sel.y + sel.h + EDGE;
+
+  if (nearT && nearL) return 'nw';
+  if (nearT && nearR) return 'ne';
+  if (nearB && nearL) return 'sw';
+  if (nearB && nearR) return 'se';
+  if (nearT) return 'n';
+  if (nearB) return 's';
+  if (nearL) return 'w';
+  if (nearR) return 'e';
+  if (px > sel.x && px < sel.x + sel.w && py > sel.y && py < sel.y + sel.h) return 'move';
+  return null;
+}
+
+function applyAdjust(px: number, py: number) {
+  const start = adjustStart.value;
+  const rect0 = adjustStartRect.value;
+  const mode = adjustMode.value;
+  if (!start || !rect0 || !mode) return;
+  const dx = px - start.x;
+  const dy = py - start.y;
+  const MIN = 20;
+  let x = rect0.x;
+  let y = rect0.y;
+  let w = rect0.w;
+  let h = rect0.h;
+
+  if (mode === 'move') {
+    x = rect0.x + dx;
+    y = rect0.y + dy;
+  } else {
+    if (mode.includes('n')) { y = rect0.y + dy; h = rect0.h - dy; }
+    if (mode.includes('s')) { h = rect0.h + dy; }
+    if (mode.includes('w')) { x = rect0.x + dx; w = rect0.w - dx; }
+    if (mode.includes('e')) { w = rect0.w + dx; }
+  }
+
+  if (w < MIN) {
+    if (mode.includes('w')) x = rect0.x + rect0.w - MIN;
+    w = MIN;
+  }
+  if (h < MIN) {
+    if (mode.includes('n')) y = rect0.y + rect0.h - MIN;
+    h = MIN;
+  }
+
+  if (x < 0) {
+    if (mode !== 'move') w = w + x;
+    x = 0;
+  }
+  if (y < 0) {
+    if (mode !== 'move') h = h + y;
+    y = 0;
+  }
+  if (x + w > screenW.value) {
+    if (mode === 'move') x = screenW.value - w;
+    else w = screenW.value - x;
+  }
+  if (y + h > screenH.value) {
+    if (mode === 'move') y = screenH.value - h;
+    else h = screenH.value - y;
+  }
+
+  selection.value = { x, y, w, h };
+  requestAnimationFrame(setupCanvas);
+}
+
+function onAdjustDragMove(event: MouseEvent) {
+  if (!adjustMode.value) return;
+  applyAdjust(event.clientX, event.clientY);
+}
+function onAdjustDragUp() {
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
+  adjustMode.value = null;
+  adjustStart.value = null;
+  adjustStartRect.value = null;
+}
+
 function onCanvasMouseDown(event: MouseEvent) {
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
+  if (canAdjust.value && selection.value) {
+    const zone = detectAdjustZone(event.clientX, event.clientY, selection.value);
+    if (zone) {
+      adjustMode.value = zone;
+      adjustStart.value = { x: event.clientX, y: event.clientY };
+      adjustStartRect.value = { ...selection.value };
+      window.addEventListener('mousemove', onAdjustDragMove);
+      window.addEventListener('mouseup', onAdjustDragUp);
+      return;
+    }
+  }
+  if (tool.value === 'cursor') return;
   if (tool.value === 'text') {
     if (textPending.value && textValue.value.trim()) {
       commitPendingText();
@@ -370,6 +480,12 @@ function cancelPendingText() {
 }
 
 function onCanvasMouseMove(event: MouseEvent) {
+  if (adjustMode.value) return;
+  if (canAdjust.value && selection.value) {
+    hoverAdjustMode.value = detectAdjustZone(event.clientX, event.clientY, selection.value);
+    return;
+  }
+  hoverAdjustMode.value = null;
   if (!drawing.value) return;
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
@@ -386,6 +502,7 @@ function onCanvasMouseMove(event: MouseEvent) {
 }
 
 function onCanvasMouseUp(event: MouseEvent) {
+  if (adjustMode.value) return;
   if (!drawing.value) return;
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
@@ -658,6 +775,12 @@ async function cancel() {
 }
 
 function resetState() {
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
+  adjustMode.value = null;
+  adjustStart.value = null;
+  adjustStartRect.value = null;
+  hoverAdjustMode.value = null;
   selection.value = null;
   shapes.value = [];
   undoneShapes.value = [];
@@ -714,6 +837,10 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+watch(() => tool.value, (v) => {
+  if (v !== 'cursor') hoverAdjustMode.value = null;
+});
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown);
   unlistenInit = await listen<InitPayload>('capture-overlay-init', (event) => {
@@ -730,6 +857,8 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
   if (unlistenInit) unlistenInit();
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
 });
 </script>
 
@@ -793,7 +922,8 @@ onUnmounted(() => {
         left: selection.x + 'px',
         top: selection.y + 'px',
         width: selection.w + 'px',
-        height: selection.h + 'px'
+        height: selection.h + 'px',
+        cursor: adjustCursor
       }"
       @mousedown="onCanvasMouseDown"
       @mousemove="onCanvasMouseMove"
