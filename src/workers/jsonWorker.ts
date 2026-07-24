@@ -9,10 +9,7 @@ export type WorkerReq =
   | { id: number; kind: 'serialize'; value: JsonValue; mode: SerializeMode; indent?: number }
   | { id: number; kind: 'jsonpath'; value: JsonValue; expr: string }
   | { id: number; kind: 'diff'; leftText: string; rightText: string; withHtml: boolean }
-  | { id: number; kind: 'convert'; text: string; from: ConvertFormat; to: ConvertFormat }
-  | { id: number; kind: 'cancel'; target: number };
-
-type SuccessKind = Exclude<WorkerReq['kind'], 'cancel'>;
+  | { id: number; kind: 'convert'; text: string; from: ConvertFormat; to: ConvertFormat };
 
 export type WorkerRes =
   | { id: number; ok: true;  kind: 'parse';     value: JsonValue; elapsedMs: number }
@@ -20,25 +17,14 @@ export type WorkerRes =
   | { id: number; ok: true;  kind: 'jsonpath';  matches: JsonValue[]; text: string; elapsedMs: number }
   | { id: number; ok: true;  kind: 'diff';      equal: boolean; delta: unknown | null; html: string | null; elapsedMs: number; leftError?: string; rightError?: string }
   | { id: number; ok: true;  kind: 'convert';   text: string; elapsedMs: number }
-  | { id: number; ok: false; kind: SuccessKind; error: JsonParseError | { message: string } };
-
-const cancelled = new Set<number>();
+  | { id: number; ok: false; kind: WorkerReq['kind']; error: JsonParseError | { message: string } };
 
 self.onmessage = (event: MessageEvent<WorkerReq>) => {
-  const req = event.data;
-  if (req.kind === 'cancel') {
-    cancelled.add(req.target);
-    return;
-  }
-  const res = dispatch(req);
-  if (cancelled.has(req.id)) {
-    cancelled.delete(req.id);
-    return;
-  }
+  const res = dispatch(event.data);
   (self as unknown as Worker).postMessage(res);
 };
 
-function dispatch(req: Exclude<WorkerReq, { kind: 'cancel' }>): WorkerRes {
+function dispatch(req: WorkerReq): WorkerRes {
   switch (req.kind) {
     case 'parse': {
       const r = handleParse(req.text);
