@@ -1,7 +1,4 @@
-// @iarna/toml (transitively imported by handleConvert) expects Node's global.
-if (typeof (globalThis as unknown as { global?: unknown }).global === 'undefined') {
-  (globalThis as unknown as { global: typeof globalThis }).global = globalThis;
-}
+import './globalShim';
 
 import type { JsonValue, JsonParseError, ConvertFormat } from '../types/json';
 import {
