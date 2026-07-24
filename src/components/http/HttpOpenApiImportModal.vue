@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue';
+import { nextTick, onUnmounted, ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal } from 'naive-ui';
 import type { ImportedOpenApiCollection } from './openapiImport';
 import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
@@ -24,9 +24,14 @@ const parsing = ref(false);
 
 const PREVIEW_DEBOUNCE_MS = 300;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+// Monotonic guard: every change to the preview intent bumps this. An async
+// parse may only write to the UI if its captured gen still matches — stale
+// results (superseded input, cleared text) are dropped.
+let previewGen = 0;
 
 function schedulePreview() {
   if (debounceTimer) clearTimeout(debounceTimer);
+  const gen = ++previewGen;
   const text = jsonText.value;
   if (!text.trim()) {
     preview.value = null;
@@ -36,18 +41,18 @@ function schedulePreview() {
   }
   parsing.value = true;
   debounceTimer = setTimeout(() => {
-    void runPreview(text);
+    void runPreview(text, gen);
   }, PREVIEW_DEBOUNCE_MS);
 }
 
-async function runPreview(text: string) {
+async function runPreview(text: string, gen: number) {
   const outcome = await worker.parse(
     text,
     { baseUrl: baseUrl.value || undefined, collectionName: collectionName.value || undefined },
     'preview',
   );
-  // Superseded by a newer keystroke — ignore.
-  if (outcome === null) return;
+  // Superseded by a newer intent (keystroke, clear, or file pick) — drop it.
+  if (gen !== previewGen || outcome === null) return;
   parsing.value = false;
   if (outcome.ok) {
     preview.value = outcome.result;
@@ -69,6 +74,7 @@ watch(
   () => props.show,
   (show) => {
     if (!show) return;
+    previewGen++;
     jsonText.value = '';
     baseUrl.value = '';
     collectionName.value = '';
@@ -85,25 +91,27 @@ async function onFile(e: Event) {
   try {
     const text = await file.text();
     jsonText.value = text;
-    // Assigning jsonText above schedules a debounced preview with the same
-    // 'preview' tag; cancel it so it can't supersede this file parse below.
-    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
     const outcome = await worker.parse(text, {}, 'preview');
     if (outcome && outcome.ok) {
       baseUrl.value = outcome.result.baseUrl;
       collectionName.value = outcome.result.collection.name;
       preview.value = outcome.result;
       error.value = '';
-      // The baseUrl/collectionName writes above re-scheduled a preview; drop it,
-      // our result is already current.
-      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
     } else if (outcome && !outcome.ok) {
       error.value = outcome.error;
     }
+    // Writing jsonText/baseUrl/collectionName above queued a debounced preview
+    // via the watcher (Vue flushes it on the next microtask). Wait for that
+    // flush, then bump the guard + clear the timer so the redundant re-parse
+    // is dropped and our file result stays authoritative.
+    await nextTick();
+    previewGen++;
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    parsing.value = false;
   } catch (err) {
     error.value = String((err as Error).message ?? err);
-  } finally {
     parsing.value = false;
+  } finally {
     input.value = '';
   }
 }
