@@ -119,8 +119,8 @@ onBeforeUnmount(() => { if (parseTimer) window.clearTimeout(parseTimer); });
 
 <style scoped>
 .format-pane { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; height: 100%; }
-.toolbar { display: flex; gap: 6px; align-items: center; }
-.toolbar .spacer { flex: 1; }
+.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; row-gap: 6px; }
+.toolbar .spacer { flex: 1; min-width: 8px; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 0; }
 .tree-pane {
   border: 1px solid var(--line);
