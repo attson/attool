@@ -26,6 +26,18 @@ function resolveLargeOptions(text: string) {
     wordWrap: noWrap ? 'off' as const : 'on' as const,
     folding: !isLarge,
     renderValidationDecorations: isLarge ? 'off' as const : 'editable' as const,
+    // 下面这些默认全开，对超长单行都是每帧扫描；大文件全部按需降级。
+    bracketPairColorization: { enabled: !isLarge },
+    guides: { bracketPairs: !isLarge, indentation: !isLarge, highlightActiveIndentation: !isLarge },
+    matchBrackets: (isLarge ? 'never' : 'always') as 'never' | 'always',
+    occurrencesHighlight: (isLarge ? 'off' : 'singleFile') as 'off' | 'singleFile',
+    selectionHighlight: !isLarge,
+    codeLens: !isLarge,
+    links: !isLarge,
+    renderWhitespace: (isLarge ? 'none' : 'selection') as 'none' | 'selection',
+    stopRenderingLineAfter: isLarge ? 5000 : 10000,
+    // Monaco 内建的大文件优化默认在 20MB / 30w 行才触发，手动放宽阈值触发不到就自己关。
+    largeFileOptimizations: true,
   };
 }
 
