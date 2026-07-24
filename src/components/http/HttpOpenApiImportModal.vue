@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal } from 'naive-ui';
-import { parseOpenApiToCollection, type ImportedOpenApiCollection } from './openapiImport';
+import type { ImportedOpenApiCollection } from './openapiImport';
+import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
 
 const props = defineProps<{
   show: boolean;
@@ -12,22 +13,53 @@ const emit = defineEmits<{
   (e: 'import', v: ImportedOpenApiCollection): void;
 }>();
 
+const worker = useOpenApiImportWorker();
+
 const jsonText = ref('');
 const baseUrl = ref('');
 const collectionName = ref('');
 const error = ref('');
+const preview = ref<ImportedOpenApiCollection | null>(null);
+const parsing = ref(false);
 
-const preview = computed(() => {
-  if (!jsonText.value.trim()) return null;
-  try {
-    return parseOpenApiToCollection(jsonText.value, {
-      baseUrl: baseUrl.value || undefined,
-      collectionName: collectionName.value || undefined
-    });
-  } catch {
-    return null;
+const PREVIEW_DEBOUNCE_MS = 300;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePreview() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  const text = jsonText.value;
+  if (!text.trim()) {
+    preview.value = null;
+    error.value = '';
+    parsing.value = false;
+    return;
   }
-});
+  parsing.value = true;
+  debounceTimer = setTimeout(() => {
+    void runPreview(text);
+  }, PREVIEW_DEBOUNCE_MS);
+}
+
+async function runPreview(text: string) {
+  const outcome = await worker.parse(
+    text,
+    { baseUrl: baseUrl.value || undefined, collectionName: collectionName.value || undefined },
+    'preview',
+  );
+  // Superseded by a newer keystroke — ignore.
+  if (outcome === null) return;
+  parsing.value = false;
+  if (outcome.ok) {
+    preview.value = outcome.result;
+    error.value = '';
+  } else {
+    preview.value = null;
+    // Preview errors stay silent (invalid partial JSON while typing); doImport surfaces them.
+    error.value = '';
+  }
+}
+
+watch([jsonText, baseUrl, collectionName], schedulePreview);
 
 watch(
   () => props.show,
@@ -37,7 +69,9 @@ watch(
     baseUrl.value = '';
     collectionName.value = '';
     error.value = '';
-  }
+    preview.value = null;
+    parsing.value = false;
+  },
 );
 
 async function onFile(e: Event) {
@@ -47,10 +81,15 @@ async function onFile(e: Event) {
   try {
     const text = await file.text();
     jsonText.value = text;
-    const parsed = parseOpenApiToCollection(text);
-    baseUrl.value = parsed.baseUrl;
-    collectionName.value = parsed.collection.name;
-    error.value = '';
+    const outcome = await worker.parse(text, {}, 'preview');
+    if (outcome && outcome.ok) {
+      baseUrl.value = outcome.result.baseUrl;
+      collectionName.value = outcome.result.collection.name;
+      preview.value = outcome.result;
+      error.value = '';
+    } else if (outcome && !outcome.ok) {
+      error.value = outcome.error;
+    }
   } catch (err) {
     error.value = String((err as Error).message ?? err);
   } finally {
@@ -62,16 +101,18 @@ function close() {
   emit('update:show', false);
 }
 
-function doImport() {
-  try {
-    const parsed = parseOpenApiToCollection(jsonText.value, {
-      baseUrl: baseUrl.value || undefined,
-      collectionName: collectionName.value || undefined
-    });
-    emit('import', parsed);
+async function doImport() {
+  const outcome = await worker.parse(
+    jsonText.value,
+    { baseUrl: baseUrl.value || undefined, collectionName: collectionName.value || undefined },
+    'import',
+  );
+  if (!outcome) return;
+  if (outcome.ok) {
+    emit('import', outcome.result);
     close();
-  } catch (err) {
-    error.value = String((err as Error).message ?? err);
+  } else {
+    error.value = outcome.error;
   }
 }
 </script>
@@ -113,6 +154,7 @@ function doImport() {
       </label>
 
       <n-alert v-if="error" type="error" :bordered="false">{{ error }}</n-alert>
+      <div v-else-if="parsing" class="preview">解析中…</div>
       <div v-else-if="preview" class="preview">
         将导入 {{ preview.requests.length }} 个请求、{{ preview.folders.length }} 个目录到集合
         <span class="mono">{{ preview.collection.name }}</span>
