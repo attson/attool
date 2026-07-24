@@ -120,7 +120,12 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
             equal: res.equal, delta: res.delta, html: res.html,
             elapsedMs: res.elapsedMs, leftError: res.leftError, rightError: res.rightError,
           } satisfies DiffOutcome;
-          return null;
+          // Worker threw — surface as leftError so DiffPane's error branch shows it.
+          const errorMsg = (res.error as { message: string }).message;
+          return {
+            equal: false, delta: null, html: null, elapsedMs: 0,
+            leftError: errorMsg,
+          } satisfies DiffOutcome;
         }) as Promise<DiffOutcome | null>;
     },
     convert(text, from, to, tag) {

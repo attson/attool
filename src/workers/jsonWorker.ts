@@ -22,8 +22,20 @@ export type WorkerRes =
   | { id: number; ok: false; kind: WorkerReq['kind']; error: JsonParseError | { message: string } };
 
 self.onmessage = (event: MessageEvent<WorkerReq>) => {
-  const res = dispatch(event.data);
-  (self as unknown as Worker).postMessage(res);
+  const req = event.data;
+  try {
+    const res = dispatch(req);
+    (self as unknown as Worker).postMessage(res);
+  } catch (e) {
+    // Unhandled throw must still resolve the caller's pending promise, or it hangs forever.
+    const message = e instanceof Error ? e.message : String(e);
+    (self as unknown as Worker).postMessage({
+      id: req.id,
+      ok: false,
+      kind: req.kind,
+      error: { message },
+    } as WorkerRes);
+  }
 };
 
 function dispatch(req: WorkerReq): WorkerRes {

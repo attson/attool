@@ -49,13 +49,21 @@ async function recompute() {
     return;
   }
   equal.value = false;
-  if (res.html && res.html.length > DIFF_HTML_MAX && !forceHtml.value) {
+  const htmlWouldBeOversized = res.html && res.html.length > DIFF_HTML_MAX;
+  const htmlSkippedByPreflight = !res.html && !withHtml;
+  if (!forceHtml.value && (htmlWouldBeOversized || htmlSkippedByPreflight)) {
     html.value = '';
     tooBig.value = true;
     return;
   }
   tooBig.value = false;
   html.value = res.html ?? '';
+}
+
+function forceShow() {
+  forceHtml.value = true;
+  if (timer) window.clearTimeout(timer);
+  void recompute();
 }
 
 watch([left, right, forceHtml], schedule);
@@ -79,7 +87,7 @@ const status = computed(() => {
     <div class="result" v-if="html" v-html="html" />
     <div class="status" v-else>
       {{ status || '粘贴左右两份 JSON 进行对比' }}
-      <button v-if="tooBig" type="button" class="force-btn" @click="forceHtml = true">仍要显示</button>
+      <button v-if="tooBig" type="button" class="force-btn" @click="forceShow">仍要显示</button>
     </div>
   </div>
 </template>
