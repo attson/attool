@@ -167,7 +167,7 @@ async function doImport() {
         <n-input
           v-model:value="jsonText"
           type="textarea"
-          :autosize="{ minRows: 10, maxRows: 16 }"
+          :rows="12"
           placeholder="{ &quot;openapi&quot;: &quot;3.0.0&quot;, ... }"
         />
       </label>
