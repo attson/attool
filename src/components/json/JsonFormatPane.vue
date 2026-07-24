@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 import { NButton } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import JsonTreeView from './JsonTreeView.vue';
@@ -12,7 +12,10 @@ const worker = useJsonWorker();
 const text = ref('');
 const error = ref<string | null>(null);
 const elapsedMs = ref(0);
-const parsed = ref<JsonValue | null>(null);
+// shallowRef: parsed JSON can be large and is always replaced wholesale (never
+// mutated in place) — deep reactivity would wrap it in a Proxy that Worker
+// postMessage's structured-clone algorithm rejects (DataCloneError).
+const parsed = shallowRef<JsonValue | null>(null);
 const treeRef = ref<{ expandAll: () => void; collapseAll: () => void } | null>(null);
 
 const charCount = computed(() => text.value.length);
