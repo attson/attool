@@ -146,11 +146,12 @@ let singleton: JsonWorkerClient | null = null;
 
 export function useJsonWorker(): JsonWorkerClient {
   if (!singleton) {
-    singleton = createJsonWorkerClient(() => {
-      // Vite worker: transpiles to a real Worker() constructor
-      const Ctor = new URL('../workers/jsonWorker.ts', import.meta.url);
-      return new Worker(Ctor, { type: 'module' }) as unknown as WorkerLike;
-    });
+    singleton = createJsonWorkerClient(() =>
+      new Worker(
+        new URL('../workers/jsonWorker.ts', import.meta.url),
+        { type: 'module' },
+      ) as unknown as WorkerLike,
+    );
   }
   return singleton;
 }
