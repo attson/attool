@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { NButton, NInput } from 'naive-ui';
-import { JSONPath } from 'jsonpath-plus';
 import CodeEditor from './CodeEditor.vue';
 import { useFileDrop } from '../../composables/useFileDrop';
-import { parseJson } from '../../utils/jsonFormat';
+import { useJsonWorker } from '../../composables/useJsonWorker';
+import type { JsonValue } from '../../types/json';
+
+const worker = useJsonWorker();
 
 const source = ref('');
 const expression = ref('$');
@@ -13,24 +15,33 @@ const matchCount = ref(0);
 const elapsedMs = ref(0);
 const error = ref<string | null>(null);
 
-function execute() {
+let cachedSource = '';
+let cachedParsed: JsonValue | null = null;
+
+async function execute() {
   error.value = null;
   if (!source.value.trim()) {
     result.value = '';
     matchCount.value = 0;
     return;
   }
-  const parsed = parseJson(source.value);
-  if (!parsed.ok) {
-    error.value = `源 JSON 解析失败：${parsed.error?.message ?? ''}`;
-    return;
-  }
-  const start = performance.now();
   try {
-    const matches = JSONPath({ path: expression.value || '$', json: parsed.value });
-    elapsedMs.value = Math.round(performance.now() - start);
-    matchCount.value = Array.isArray(matches) ? matches.length : 0;
-    result.value = JSON.stringify(matches, null, 2);
+    if (source.value !== cachedSource || cachedParsed === null) {
+      const p = await worker.parse(source.value, 'query:parse');
+      if (p === null) return;
+      if (p.error) {
+        error.value = `源 JSON 解析失败：${p.error.message ?? ''}`;
+        return;
+      }
+      cachedSource = source.value;
+      cachedParsed = p.value;
+    }
+    const out = await worker.jsonpath(cachedParsed, expression.value || '$', 'query:jsonpath');
+    if (out === null) return;
+    if (!out.ok) { error.value = `表达式错误：${out.error}`; result.value = ''; return; }
+    elapsedMs.value = out.elapsedMs;
+    matchCount.value = Array.isArray(out.matches) ? out.matches.length : 0;
+    result.value = out.text;
   } catch (e) {
     error.value = `表达式错误：${(e as Error).message}`;
     result.value = '';
@@ -44,12 +55,12 @@ async function copy() {
 function onExprKeydown(event: KeyboardEvent) {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault();
-    execute();
+    void execute();
   }
 }
 
 const drop = useFileDrop(
-  (content) => { source.value = content; },
+  (content) => { source.value = content; cachedSource = ''; cachedParsed = null; },
   { accept: ['json', 'txt'], onError: (m) => { error.value = m; } },
 );
 </script>
