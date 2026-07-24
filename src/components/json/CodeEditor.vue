@@ -3,6 +3,32 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { loadMonaco } from '../../composables/useMonacoLoader';
 import type { editor as MonacoEditor } from 'monaco-editor';
 
+const LARGE_INPUT = 1_000_000;
+const LONG_LINE = 50_000;
+
+function maxLineLength(text: string): number {
+  let max = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) { // '\n'
+      if (i - start > max) max = i - start;
+      start = i + 1;
+    }
+  }
+  if (text.length - start > max) max = text.length - start;
+  return max;
+}
+
+function resolveLargeOptions(text: string) {
+  const isLarge = text.length > LARGE_INPUT;
+  const noWrap = maxLineLength(text) > LONG_LINE;
+  return {
+    wordWrap: noWrap ? 'off' as const : 'on' as const,
+    folding: !isLarge,
+    renderValidationDecorations: isLarge ? 'off' as const : 'editable' as const,
+  };
+}
+
 const props = defineProps<{
   modelValue: string;
   language?: string;
@@ -21,6 +47,7 @@ let suppress = false;
 onMounted(async () => {
   if (!container.value) return;
   const monaco = await loadMonaco();
+  const initialOpts = resolveLargeOptions(props.modelValue);
   const editor = monaco.editor.create(container.value, {
     value: props.modelValue,
     language: props.language ?? 'json',
@@ -30,7 +57,10 @@ onMounted(async () => {
     fontSize: 13,
     scrollBeyondLastLine: false,
     tabSize: 2,
-    wordWrap: 'on',
+    largeFileOptimizations: true,
+    wordWrap: initialOpts.wordWrap,
+    folding: initialOpts.folding,
+    renderValidationDecorations: initialOpts.renderValidationDecorations,
     theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs',
   });
   editor.onDidChangeModelContent(() => {
@@ -46,6 +76,7 @@ watch(
     const editor = instance.value;
     if (!editor) return;
     if (editor.getValue() === next) return;
+    editor.updateOptions(resolveLargeOptions(next));
     suppress = true;
     editor.setValue(next);
     suppress = false;
