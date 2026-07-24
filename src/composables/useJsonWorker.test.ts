@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createJsonWorkerClient, type WorkerLike } from './useJsonWorker';
 import type { WorkerRes } from '../workers/jsonWorker';
 
@@ -69,5 +69,41 @@ describe('createJsonWorkerClient', () => {
     void client.parse('b');
     const cancels = mock.posted.filter((m) => (m as { kind: string }).kind === 'cancel');
     expect(cancels).toHaveLength(0);
+  });
+
+  it('serialize error resolves to ok:false outcome (no hang)', async () => {
+    const mock = makeMockWorker();
+    const client = createJsonWorkerClient(() => mock.w);
+    const p = client.serialize({ a: 1 }, 'format');
+    const req = mock.posted[0] as { id: number };
+    mock.reply({ id: req.id, ok: false, kind: 'serialize', error: { message: 'boom' } });
+    await expect(p).resolves.toEqual({ ok: false, error: 'boom' });
+  });
+
+  it('jsonpath error resolves to ok:false outcome (no hang)', async () => {
+    const mock = makeMockWorker();
+    const client = createJsonWorkerClient(() => mock.w);
+    const p = client.jsonpath({}, '][[[');
+    const req = mock.posted[0] as { id: number };
+    mock.reply({ id: req.id, ok: false, kind: 'jsonpath', error: { message: 'bad expr' } });
+    await expect(p).resolves.toEqual({ ok: false, error: 'bad expr' });
+  });
+
+  it('serialize ok resolves to structured outcome', async () => {
+    const mock = makeMockWorker();
+    const client = createJsonWorkerClient(() => mock.w);
+    const p = client.serialize({ a: 1 }, 'format');
+    const req = mock.posted[0] as { id: number };
+    mock.reply({ id: req.id, ok: true, kind: 'serialize', text: '{"a":1}', elapsedMs: 2 });
+    await expect(p).resolves.toEqual({ ok: true, text: '{"a":1}', elapsedMs: 2 });
+  });
+
+  it('jsonpath ok resolves to structured outcome', async () => {
+    const mock = makeMockWorker();
+    const client = createJsonWorkerClient(() => mock.w);
+    const p = client.jsonpath({ a: [1] }, '$.a[*]');
+    const req = mock.posted[0] as { id: number };
+    mock.reply({ id: req.id, ok: true, kind: 'jsonpath', matches: [1], text: '[1]', elapsedMs: 1 });
+    await expect(p).resolves.toEqual({ ok: true, matches: [1], text: '[1]', elapsedMs: 1 });
   });
 });

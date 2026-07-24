@@ -3,7 +3,10 @@ import type { JsonValue, JsonParseError, ConvertFormat } from '../types/json';
 import type { SerializeMode } from '../utils/jsonWorkerHandlers';
 
 export type ParseOutcome = { value: JsonValue | null; error?: JsonParseError; elapsedMs: number };
-export type JsonPathOutcome = { matches: JsonValue[]; text: string; elapsedMs: number };
+export type SerializeOutcome = { ok: true; text: string; elapsedMs: number } | { ok: false; error: string };
+export type JsonPathOutcome =
+  | { ok: true; matches: JsonValue[]; text: string; elapsedMs: number }
+  | { ok: false; error: string };
 export type DiffOutcome = {
   equal: boolean; delta: unknown | null; html: string | null; elapsedMs: number;
   leftError?: string; rightError?: string;
@@ -16,11 +19,11 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-type Pending = { resolve: (v: unknown) => void; kind: WorkerReq['kind'] };
+type Pending = { resolve: (v: unknown) => void };
 
 export interface JsonWorkerClient {
   parse(text: string, tag?: string): Promise<ParseOutcome | null>;
-  serialize(value: JsonValue, mode: SerializeMode, indent?: number, tag?: string): Promise<string | null>;
+  serialize(value: JsonValue, mode: SerializeMode, indent?: number, tag?: string): Promise<SerializeOutcome | null>;
   jsonpath(value: JsonValue, expr: string, tag?: string): Promise<JsonPathOutcome | null>;
   diff(leftText: string, rightText: string, withHtml: boolean, tag?: string): Promise<DiffOutcome | null>;
   convert(text: string, from: ConvertFormat, to: ConvertFormat, tag?: string): Promise<ConvertOutcome | null>;
@@ -67,7 +70,6 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
     }
     return new Promise((resolve) => {
       pending.set(id, {
-        kind,
         resolve: (res: unknown) => {
           if (res === null) { resolve(null); return; }
           resolve(map(res as WorkerRes));
@@ -94,9 +96,9 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
         tag,
         (res) => {
           if (res.kind !== 'serialize') return null;
-          if (res.ok) return res.text;
-          throw new Error((res.error as { message: string }).message);
-        }) as Promise<string | null>;
+          if (res.ok) return { ok: true, text: res.text, elapsedMs: res.elapsedMs } satisfies SerializeOutcome;
+          return { ok: false, error: (res.error as { message: string }).message } satisfies SerializeOutcome;
+        }) as Promise<SerializeOutcome | null>;
     },
     jsonpath(value, expr, tag) {
       return issue('jsonpath',
@@ -104,8 +106,8 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
         tag,
         (res) => {
           if (res.kind !== 'jsonpath') return null;
-          if (res.ok) return { matches: res.matches, text: res.text, elapsedMs: res.elapsedMs };
-          throw new Error((res.error as { message: string }).message);
+          if (res.ok) return { ok: true, matches: res.matches, text: res.text, elapsedMs: res.elapsedMs } satisfies JsonPathOutcome;
+          return { ok: false, error: (res.error as { message: string }).message } satisfies JsonPathOutcome;
         }) as Promise<JsonPathOutcome | null>;
     },
     diff(leftText, rightText, withHtml, tag) {
