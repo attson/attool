@@ -88,19 +88,22 @@ async function onFile(e: Event) {
     // Assigning jsonText above schedules a debounced preview with the same
     // 'preview' tag; cancel it so it can't supersede this file parse below.
     if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
-    parsing.value = false;
     const outcome = await worker.parse(text, {}, 'preview');
     if (outcome && outcome.ok) {
       baseUrl.value = outcome.result.baseUrl;
       collectionName.value = outcome.result.collection.name;
       preview.value = outcome.result;
       error.value = '';
+      // The baseUrl/collectionName writes above re-scheduled a preview; drop it,
+      // our result is already current.
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
     } else if (outcome && !outcome.ok) {
       error.value = outcome.error;
     }
   } catch (err) {
     error.value = String((err as Error).message ?? err);
   } finally {
+    parsing.value = false;
     input.value = '';
   }
 }
