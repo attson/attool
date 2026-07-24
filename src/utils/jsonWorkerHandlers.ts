@@ -10,20 +10,6 @@ type Err = { ok: false; error: { message: string } | JsonParseError };
 
 export type SerializeMode = 'format' | 'minify' | 'sort';
 
-export type WorkerReq =
-  | { id: number; kind: 'parse'; text: string }
-  | { id: number; kind: 'serialize'; value: JsonValue; mode: SerializeMode; indent?: number }
-  | { id: number; kind: 'jsonpath'; value: JsonValue; expr: string }
-  | { id: number; kind: 'diff'; leftText: string; rightText: string; withHtml: boolean }
-  | { id: number; kind: 'convert'; text: string; from: ConvertFormat; to: ConvertFormat };
-
-export type WorkerRes =
-  | { id: number; kind: 'parse'; result: ReturnType<typeof handleParse> }
-  | { id: number; kind: 'serialize'; result: ReturnType<typeof handleSerialize> }
-  | { id: number; kind: 'jsonpath'; result: ReturnType<typeof handleJsonpath> }
-  | { id: number; kind: 'diff'; result: ReturnType<typeof handleDiff> }
-  | { id: number; kind: 'convert'; result: ReturnType<typeof handleConvert> };
-
 export function handleParse(text: string):
   | Ok<{ value: JsonValue; elapsedMs: number }>
   | { ok: false; error: JsonParseError } {
