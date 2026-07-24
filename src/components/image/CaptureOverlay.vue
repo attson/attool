@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -22,7 +22,7 @@ interface InitPayload {
   windows: WindowRect[];
 }
 
-type Tool = 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
+type Tool = 'cursor' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'pencil' | 'text' | 'number' | 'mosaic';
 
 interface MosaicBlock {
   x: number; // canvas-pixel top-left of block
@@ -76,7 +76,7 @@ function windowAt(px: number, py: number): WindowRect | null {
   return null;
 }
 
-const tool = ref<Tool>('rect');
+const tool = ref<Tool>('cursor');
 const color = ref('#ef4444');
 const lineWidth = ref(3);
 const textValue = ref('');
@@ -87,6 +87,19 @@ const drawStart = ref<{ x: number; y: number } | null>(null);
 const drawEnd = ref<{ x: number; y: number } | null>(null);
 const pencilPoints = ref<{ x: number; y: number }[]>([]);
 const nextNumber = ref(1);
+type AdjustMode = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const adjustMode = ref<AdjustMode | null>(null);
+const hoverAdjustMode = ref<AdjustMode | null>(null);
+const adjustStart = ref<{ x: number; y: number } | null>(null);
+const adjustStartRect = ref<Rect | null>(null);
+const canAdjust = computed(() => tool.value === 'cursor' && shapes.value.length === 0);
+const adjustCursor = computed(() => {
+  if (!canAdjust.value) return 'crosshair';
+  const m = adjustMode.value ?? hoverAdjustMode.value;
+  if (!m) return 'default';
+  if (m === 'move') return 'move';
+  return `${m}-resize`;
+});
 // Mosaic brush block size in canvas pixels (scaled up already; tuned so it "reads" as pixelation)
 const mosaicBlockSize = ref(14);
 
@@ -176,8 +189,8 @@ const hasSelection = computed(() => selection.value !== null && selection.value.
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 760;
-  const toolbarH = 44;
+  const toolbarW = 1020;
+  const toolbarH = 58;
   const margin = 8;
   let left = sel.x + sel.w - toolbarW;
   let top = sel.y + sel.h + margin;
@@ -270,9 +283,106 @@ function canvasPosFromEvent(event: MouseEvent): { x: number; y: number } {
   };
 }
 
+const EDGE = 8;
+
+function detectAdjustZone(px: number, py: number, sel: Rect): AdjustMode | null {
+  const nearL = px >= sel.x - EDGE && px <= sel.x + EDGE;
+  const nearR = px >= sel.x + sel.w - EDGE && px <= sel.x + sel.w + EDGE;
+  const nearT = py >= sel.y - EDGE && py <= sel.y + EDGE;
+  const nearB = py >= sel.y + sel.h - EDGE && py <= sel.y + sel.h + EDGE;
+
+  if (nearT && nearL) return 'nw';
+  if (nearT && nearR) return 'ne';
+  if (nearB && nearL) return 'sw';
+  if (nearB && nearR) return 'se';
+  if (nearT) return 'n';
+  if (nearB) return 's';
+  if (nearL) return 'w';
+  if (nearR) return 'e';
+  if (px > sel.x && px < sel.x + sel.w && py > sel.y && py < sel.y + sel.h) return 'move';
+  return null;
+}
+
+function applyAdjust(px: number, py: number) {
+  const start = adjustStart.value;
+  const rect0 = adjustStartRect.value;
+  const mode = adjustMode.value;
+  if (!start || !rect0 || !mode) return;
+  const dx = px - start.x;
+  const dy = py - start.y;
+  const MIN = 20;
+  let x = rect0.x;
+  let y = rect0.y;
+  let w = rect0.w;
+  let h = rect0.h;
+
+  if (mode === 'move') {
+    x = rect0.x + dx;
+    y = rect0.y + dy;
+  } else {
+    if (mode.includes('n')) { y = rect0.y + dy; h = rect0.h - dy; }
+    if (mode.includes('s')) { h = rect0.h + dy; }
+    if (mode.includes('w')) { x = rect0.x + dx; w = rect0.w - dx; }
+    if (mode.includes('e')) { w = rect0.w + dx; }
+  }
+
+  if (w < MIN) {
+    if (mode.includes('w')) x = rect0.x + rect0.w - MIN;
+    w = MIN;
+  }
+  if (h < MIN) {
+    if (mode.includes('n')) y = rect0.y + rect0.h - MIN;
+    h = MIN;
+  }
+
+  if (x < 0) {
+    if (mode !== 'move') w = w + x;
+    x = 0;
+  }
+  if (y < 0) {
+    if (mode !== 'move') h = h + y;
+    y = 0;
+  }
+  if (x + w > screenW.value) {
+    if (mode === 'move') x = screenW.value - w;
+    else w = screenW.value - x;
+  }
+  if (y + h > screenH.value) {
+    if (mode === 'move') y = screenH.value - h;
+    else h = screenH.value - y;
+  }
+
+  selection.value = { x, y, w, h };
+  requestAnimationFrame(setupCanvas);
+}
+
+function onAdjustDragMove(event: MouseEvent) {
+  if (!adjustMode.value) return;
+  applyAdjust(event.clientX, event.clientY);
+}
+function onAdjustDragUp() {
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
+  adjustMode.value = null;
+  adjustStart.value = null;
+  adjustStartRect.value = null;
+}
+
 function onCanvasMouseDown(event: MouseEvent) {
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
+  if (canAdjust.value && selection.value) {
+    const zone = detectAdjustZone(event.clientX, event.clientY, selection.value);
+    if (zone) {
+      adjustMode.value = zone;
+      adjustStart.value = { x: event.clientX, y: event.clientY };
+      adjustStartRect.value = { ...selection.value };
+      window.addEventListener('mousemove', onAdjustDragMove);
+      window.addEventListener('mouseup', onAdjustDragUp);
+      return;
+    }
+  }
+  if (tool.value === 'cursor') return;
   if (tool.value === 'text') {
     if (textPending.value && textValue.value.trim()) {
       commitPendingText();
@@ -370,6 +480,12 @@ function cancelPendingText() {
 }
 
 function onCanvasMouseMove(event: MouseEvent) {
+  if (adjustMode.value) return;
+  if (canAdjust.value && selection.value) {
+    hoverAdjustMode.value = detectAdjustZone(event.clientX, event.clientY, selection.value);
+    return;
+  }
+  hoverAdjustMode.value = null;
   if (!drawing.value) return;
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
@@ -386,6 +502,7 @@ function onCanvasMouseMove(event: MouseEvent) {
 }
 
 function onCanvasMouseUp(event: MouseEvent) {
+  if (adjustMode.value) return;
   if (!drawing.value) return;
   event.stopPropagation();
   const p = canvasPosFromEvent(event);
@@ -594,12 +711,7 @@ function redo() {
 }
 
 function reselect() {
-  selection.value = null;
-  shapes.value = [];
-  undoneShapes.value = [];
-  nextNumber.value = 1;
-  dragStart.value = null;
-  dragEnd.value = null;
+  resetState();
 }
 
 async function composeCanvas(): Promise<HTMLCanvasElement | null> {
@@ -658,6 +770,12 @@ async function cancel() {
 }
 
 function resetState() {
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
+  adjustMode.value = null;
+  adjustStart.value = null;
+  adjustStartRect.value = null;
+  hoverAdjustMode.value = null;
   selection.value = null;
   shapes.value = [];
   undoneShapes.value = [];
@@ -668,6 +786,7 @@ function resetState() {
   textPending.value = null;
   pencilPoints.value = [];
   hoveredWindow.value = null;
+  tool.value = 'cursor';
 }
 
 async function confirm() {
@@ -713,6 +832,10 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+watch(() => tool.value, (v) => {
+  if (v !== 'cursor') hoverAdjustMode.value = null;
+});
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown);
   unlistenInit = await listen<InitPayload>('capture-overlay-init', (event) => {
@@ -729,6 +852,8 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
   if (unlistenInit) unlistenInit();
+  window.removeEventListener('mousemove', onAdjustDragMove);
+  window.removeEventListener('mouseup', onAdjustDragUp);
 });
 </script>
 
@@ -792,7 +917,8 @@ onUnmounted(() => {
         left: selection.x + 'px',
         top: selection.y + 'px',
         width: selection.w + 'px',
-        height: selection.h + 'px'
+        height: selection.h + 'px',
+        cursor: adjustCursor
       }"
       @mousedown="onCanvasMouseDown"
       @mousemove="onCanvasMouseMove"
@@ -802,14 +928,60 @@ onUnmounted(() => {
     <!-- Toolbar under the selection -->
     <div v-if="selection" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <div class="tools">
-        <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">▢</button>
-        <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">○</button>
-        <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">/</button>
-        <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">↗</button>
-        <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">✎</button>
-        <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">▦</button>
-        <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">T</button>
-        <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">①</button>
+        <button :class="{ active: tool === 'cursor' }" @click="tool = 'cursor'" title="光标（拖动/调整选区）">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3 L5 17 L9 13 L11.5 20 L14 19 L11.5 12 L17 12 Z"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="6" width="16" height="12" rx="1"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="7"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="19" x2="19" y2="5"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="19" x2="18" y2="6"/>
+            <polyline points="11,6 18,6 18,13"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17 Q7 10 11 14 T18 8"/>
+            <path d="M17 8 L20 5 L21 6 L18 9 Z" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="1"/>
+            <line x1="9.33" y1="4" x2="9.33" y2="20"/>
+            <line x1="14.67" y1="4" x2="14.67" y2="20"/>
+            <line x1="4" y1="9.33" x2="20" y2="9.33"/>
+            <line x1="4" y1="14.67" x2="20" y2="14.67"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="6" x2="18" y2="6"/>
+            <line x1="12" y1="6" x2="12" y2="19"/>
+          </svg>
+        </button>
+        <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="8"/>
+            <path d="M10 9 L12 8 L12 16"/>
+            <line x1="9" y1="16" x2="15" y2="16"/>
+          </svg>
+        </button>
       </div>
       <div class="palette">
         <button
@@ -827,13 +999,47 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="ops">
-        <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">↺</button>
-        <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">↻</button>
-        <button @click="reselect" title="重选">◇</button>
-        <button @click="saveToFile" title="保存到文件 ⌘S">⬇</button>
-        <button @click="pinIt" title="钉在桌面（浮窗置顶）">📌</button>
-        <button class="cancel" @click="cancel" title="取消 Esc">✕</button>
-        <button class="confirm" @click="confirm" title="完成 ⌘↩">✓</button>
+        <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 14 L4 9 L9 4"/>
+            <path d="M4 9 H14 A6 6 0 0 1 20 15 V16"/>
+          </svg>
+        </button>
+        <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 14 L20 9 L15 4"/>
+            <path d="M20 9 H10 A6 6 0 0 0 4 15 V16"/>
+          </svg>
+        </button>
+        <button @click="reselect" title="重选">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3 L21 12 L12 21 L3 12 Z"/>
+          </svg>
+        </button>
+        <button @click="saveToFile" title="保存到文件 ⌘S">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="4" x2="12" y2="16"/>
+            <polyline points="7,11 12,16 17,11"/>
+            <line x1="5" y1="20" x2="19" y2="20"/>
+          </svg>
+        </button>
+        <button class="pin" @click="pinIt" title="钉在桌面（浮窗置顶）">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 4 L15 4 L14 10 L18 14 L6 14 L10 10 Z"/>
+            <line x1="12" y1="14" x2="12" y2="20" stroke="currentColor" fill="none"/>
+          </svg>
+        </button>
+        <button class="cancel" @click="cancel" title="取消 Esc">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="6" x2="18" y2="18"/>
+            <line x1="18" y1="6" x2="6" y2="18"/>
+          </svg>
+        </button>
+        <button class="confirm" @click="confirm" title="完成 ⌘↩">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="5,13 10,18 19,6"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -957,7 +1163,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: rgba(30, 30, 30, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
@@ -974,8 +1180,8 @@ onUnmounted(() => {
 }
 .ops { border-right: none; }
 .toolbar button {
-  min-width: 26px;
-  height: 26px;
+  min-width: 36px;
+  height: 36px;
   padding: 0 6px;
   border: none;
   border-radius: 4px;
@@ -992,10 +1198,11 @@ onUnmounted(() => {
 .toolbar button:disabled { opacity: 0.35; cursor: not-allowed; }
 .toolbar button.cancel { color: #ef4444; }
 .toolbar button.confirm { color: #10b981; }
+.toolbar button.pin { color: #ef4444; }
 .swatch {
-  width: 18px !important;
-  min-width: 18px !important;
-  height: 18px !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
   border-radius: 50% !important;
   padding: 0 !important;
   border: 2px solid transparent !important;
