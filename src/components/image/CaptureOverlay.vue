@@ -176,8 +176,8 @@ const hasSelection = computed(() => selection.value !== null && selection.value.
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 760;
-  const toolbarH = 44;
+  const toolbarW = 980;
+  const toolbarH = 58;
   const margin = 8;
   let left = sel.x + sel.w - toolbarW;
   let top = sel.y + sel.h + margin;
@@ -803,34 +803,34 @@ onUnmounted(() => {
     <div v-if="selection" class="toolbar" :style="toolbarStyle" @mousedown.stop>
       <div class="tools">
         <button :class="{ active: tool === 'rect' }" @click="tool = 'rect'" title="矩形">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="6" width="16" height="12" rx="1"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'ellipse' }" @click="tool = 'ellipse'" title="椭圆">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="7"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'line' }" @click="tool = 'line'" title="直线">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="19" x2="19" y2="5"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'arrow' }" @click="tool = 'arrow'" title="箭头">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="19" x2="18" y2="6"/>
             <polyline points="11,6 18,6 18,13"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'pencil' }" @click="tool = 'pencil'" title="铅笔">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 17 Q7 10 11 14 T18 8"/>
             <path d="M17 8 L20 5 L21 6 L18 9 Z" fill="currentColor" stroke="none"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'mosaic' }" @click="tool = 'mosaic'" title="马赛克">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="4" width="16" height="16" rx="1"/>
             <line x1="9.33" y1="4" x2="9.33" y2="20"/>
             <line x1="14.67" y1="4" x2="14.67" y2="20"/>
@@ -839,13 +839,13 @@ onUnmounted(() => {
           </svg>
         </button>
         <button :class="{ active: tool === 'text' }" @click="tool = 'text'" title="文字">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="6" y1="6" x2="18" y2="6"/>
             <line x1="12" y1="6" x2="12" y2="19"/>
           </svg>
         </button>
         <button :class="{ active: tool === 'number' }" @click="tool = 'number'" title="序号">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="8"/>
             <path d="M10 9 L12 8 L12 16"/>
             <line x1="9" y1="16" x2="15" y2="16"/>
@@ -869,43 +869,43 @@ onUnmounted(() => {
       </div>
       <div class="ops">
         <button @click="undo" :disabled="shapes.length === 0" title="撤销 ⌘Z">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 14 L4 9 L9 4"/>
             <path d="M4 9 H14 A6 6 0 0 1 20 15 V16"/>
           </svg>
         </button>
         <button @click="redo" :disabled="undoneShapes.length === 0" title="重做 ⌘⇧Z">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 14 L20 9 L15 4"/>
             <path d="M20 9 H10 A6 6 0 0 0 4 15 V16"/>
           </svg>
         </button>
         <button @click="reselect" title="重选">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3 L21 12 L12 21 L3 12 Z"/>
           </svg>
         </button>
         <button @click="saveToFile" title="保存到文件 ⌘S">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="4" x2="12" y2="16"/>
             <polyline points="7,11 12,16 17,11"/>
             <line x1="5" y1="20" x2="19" y2="20"/>
           </svg>
         </button>
         <button class="pin" @click="pinIt" title="钉在桌面（浮窗置顶）">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 4 L15 4 L14 10 L18 14 L6 14 L10 10 Z"/>
             <line x1="12" y1="14" x2="12" y2="20" stroke="currentColor" fill="none"/>
           </svg>
         </button>
         <button class="cancel" @click="cancel" title="取消 Esc">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="6" y1="6" x2="18" y2="18"/>
             <line x1="18" y1="6" x2="6" y2="18"/>
           </svg>
         </button>
         <button class="confirm" @click="confirm" title="完成 ⌘↩">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="5,13 10,18 19,6"/>
           </svg>
         </button>
@@ -1032,7 +1032,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: rgba(30, 30, 30, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
@@ -1049,8 +1049,8 @@ onUnmounted(() => {
 }
 .ops { border-right: none; }
 .toolbar button {
-  min-width: 26px;
-  height: 26px;
+  min-width: 36px;
+  height: 36px;
   padding: 0 6px;
   border: none;
   border-radius: 4px;
@@ -1069,9 +1069,9 @@ onUnmounted(() => {
 .toolbar button.confirm { color: #10b981; }
 .toolbar button.pin { color: #ef4444; }
 .swatch {
-  width: 18px !important;
-  min-width: 18px !important;
-  height: 18px !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
   border-radius: 50% !important;
   padding: 0 !important;
   border: 2px solid transparent !important;
