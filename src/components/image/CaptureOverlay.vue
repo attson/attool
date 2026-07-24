@@ -711,12 +711,7 @@ function redo() {
 }
 
 function reselect() {
-  selection.value = null;
-  shapes.value = [];
-  undoneShapes.value = [];
-  nextNumber.value = 1;
-  dragStart.value = null;
-  dragEnd.value = null;
+  resetState();
 }
 
 async function composeCanvas(): Promise<HTMLCanvasElement | null> {
