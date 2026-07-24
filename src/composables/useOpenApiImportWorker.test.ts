@@ -58,4 +58,18 @@ describe('createOpenApiImportWorkerClient', () => {
     const out2 = await second;
     expect(out2!.ok && out2!.result.collection.name).toBe('B');
   });
+
+  it('resolves null when superseded request returns an error response', async () => {
+    const mock = makeMockWorker();
+    const client = createOpenApiImportWorkerClient(() => mock.worker);
+    const first = client.parse('a', {}, 'preview');
+    const second = client.parse('b', {}, 'preview');
+    const [req1, req2] = mock.posted;
+    mock.respond({ id: req1.id, ok: false, kind: 'parse', error: '被取消' });
+    mock.respond({ id: req2.id, ok: true, kind: 'parse', elapsedMs: 1,
+      result: { collection: { id: '2', name: 'B', orderIndex: 0 }, folders: [], requests: [], baseUrl: '' } });
+    expect(await first).toBeNull();
+    const out2 = await second;
+    expect(out2!.ok && out2!.result.collection.name).toBe('B');
+  });
 });
