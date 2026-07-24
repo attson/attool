@@ -30,7 +30,7 @@ export function sortKeys(text: string, indent = 2): string {
   return JSON.stringify(sortValue(result.value), null, indent);
 }
 
-function sortValue(value: JsonValue): JsonValue {
+export function sortValue(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(sortValue);
   if (value && typeof value === 'object') {
     const sorted: { [key: string]: JsonValue } = {};
@@ -40,6 +40,14 @@ function sortValue(value: JsonValue): JsonValue {
     return sorted;
   }
   return value;
+}
+
+export function formatValue(value: JsonValue, indent = 2): string {
+  return JSON.stringify(value, null, indent);
+}
+
+export function minifyValue(value: JsonValue): string {
+  return JSON.stringify(value);
 }
 
 function toParseError(error: unknown, text: string): JsonParseError {
