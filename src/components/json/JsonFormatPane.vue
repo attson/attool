@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, provide, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { NButton } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import JsonTreeView from './JsonTreeView.vue';
-import { expandCommandKey, type JsonExpandCommand } from './expandCommand';
 import { format, minify, parseJson, sortKeys } from '../../utils/jsonFormat';
 import { useFileDrop } from '../../composables/useFileDrop';
 import type { JsonValue } from '../../types/json';
@@ -13,15 +12,10 @@ const error = ref<string | null>(null);
 const elapsedMs = ref(0);
 const parsed = ref<JsonValue | null>(null);
 
-const expandCommand = ref<JsonExpandCommand | null>(null);
-provide(expandCommandKey, expandCommand);
+const treeRef = ref<{ expandAll: () => void; collapseAll: () => void } | null>(null);
 
-function expandAll() {
-  expandCommand.value = { action: 'expand', v: (expandCommand.value?.v ?? 0) + 1 };
-}
-function collapseAll() {
-  expandCommand.value = { action: 'collapse', v: (expandCommand.value?.v ?? 0) + 1 };
-}
+function expandAll() { treeRef.value?.expandAll(); }
+function collapseAll() { treeRef.value?.collapseAll(); }
 
 const charCount = computed(() => text.value.length);
 
@@ -101,7 +95,7 @@ function copyTreePath(path: string) {
     <div class="split">
       <CodeEditor :model-value="text" language="json" @update:model-value="setText" height="100%" />
       <div class="tree-pane">
-        <JsonTreeView v-if="parsed !== null" :value="parsed" @copy-path="copyTreePath" />
+        <JsonTreeView v-if="parsed !== null" ref="treeRef" :value="parsed" @copy-path="copyTreePath" />
         <div v-else class="empty">{{ text.trim() ? '等待有效 JSON' : '左侧粘贴 / 拖入 JSON 文本' }}</div>
       </div>
     </div>
