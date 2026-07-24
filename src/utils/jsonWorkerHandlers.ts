@@ -53,12 +53,12 @@ export function handleJsonpath(
 }
 
 // jsonpath-plus's grammar tolerates near-arbitrary garbage (e.g. "][[[" quietly
-// resolves to an empty match) instead of throwing, so obviously malformed
-// expressions need to be rejected before reaching it.
+// resolves to an empty match) instead of throwing, so obviously bracket-mismatched
+// expressions need to be rejected before reaching it. Bare/dotted/wildcard paths
+// (e.g. "name", "store.book[0]", "*") are legitimate and must not be rejected.
 function assertValidJsonpath(expr: string): void {
   const trimmed = expr.trim();
   if (!trimmed) return;
-  if (!/^[$@]/.test(trimmed)) throw new Error('无效的 JSONPath 表达式');
   let depth = 0;
   for (const ch of trimmed) {
     if (ch === '[') depth++;
