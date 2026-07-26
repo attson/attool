@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { NButton, NSelect } from 'naive-ui';
+import { NButton, NSelect, useMessage } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useHttpStore } from '../../composables/useHttpStore';
-import type { HttpEnvVar, HttpRequestSpec, TabKind } from './types';
+import type { HttpCollection, HttpEnvVar, HttpRequestSpec, TabKind } from './types';
 import { toCurl } from './curl';
 import HttpSidebar from './HttpSidebar.vue';
 import HttpTabBar from './HttpTabBar.vue';
@@ -11,15 +11,29 @@ import HttpRequestEditor from './HttpRequestEditor.vue';
 import HttpResponseView from './HttpResponseView.vue';
 import HttpEnvModal from './HttpEnvModal.vue';
 import HttpOpenApiImportModal from './HttpOpenApiImportModal.vue';
+import type { ImportPayload } from './HttpOpenApiImportModal.vue';
+import HttpSyncSettingsModal from './HttpSyncSettingsModal.vue';
 import SseTool from './SseTool.vue';
 import WsTool from './WsTool.vue';
-import type { ImportedOpenApiCollection } from './openapiImport';
+import { createHttpApi } from './httpApi';
 
 const store = useHttpStore();
+const message = useMessage();
+const httpApi = createHttpApi();
 const collapsed = ref(false);
 const envModalOpen = ref(false);
 const envModalTab = ref<'env' | 'vars'>('vars');
 const openApiImportOpen = ref(false);
+const syncSettingsOpen = ref(false);
+const syncSettingsCollectionId = ref<string | null>(null);
+const syncSettingsCollection = computed<HttpCollection | null>(() =>
+  syncSettingsCollectionId.value
+    ? store.state.collections.find((c) => c.id === syncSettingsCollectionId.value) ?? null
+    : null
+);
+const syncSettingsSyncing = computed(() =>
+  syncSettingsCollection.value ? store.syncingIds.has(syncSettingsCollection.value.id) : false
+);
 
 const envOptions = computed(() => [
   { label: '不使用环境', value: '__none__' },
@@ -70,8 +84,56 @@ function onLoadHistory(item: import('./types').HttpHistoryItem, mode: 'active' |
   store.loadIntoTab(JSON.parse(JSON.stringify(item.spec)), mode);
 }
 
-async function onImportOpenApi(imported: ImportedOpenApiCollection) {
-  await store.importCollection(imported);
+async function fetchOpenApi(url: string, headers: Array<{ key: string; value: string }>) {
+  return await httpApi.fetchOpenApiUrl(url, headers);
+}
+
+async function onImportOpenApi(payload: ImportPayload) {
+  await store.importCollection(payload.imported, payload.source ? {
+    sourceUrl: payload.source.url,
+    sourceHeaders: payload.source.headers,
+    syncIntervalSecs: payload.source.intervalSecs ?? undefined,
+    baseUrl: payload.source.baseUrl
+  } : undefined);
+}
+
+function openSyncSettings(id: string) {
+  syncSettingsCollectionId.value = id;
+  syncSettingsOpen.value = true;
+}
+
+async function onSyncNow(id: string) {
+  try {
+    const diff = await store.syncCollection(id, { manual: true });
+    message.success(`新增 ${diff.added} · 更新 ${diff.updated} · 删除 ${diff.deleted}`);
+  } catch (err) {
+    message.error(String((err as Error).message ?? err));
+  }
+}
+
+async function onSyncSettingsSave(patch: { url: string; headers: Array<{ key: string; value: string; enabled: boolean }>; intervalSecs: number | null; baseUrl: string }) {
+  if (!syncSettingsCollectionId.value) return;
+  await store.updateCollectionSyncConfig(syncSettingsCollectionId.value, {
+    sourceUrl: patch.url || null,
+    sourceHeaders: patch.headers.length ? patch.headers : null,
+    syncIntervalSecs: patch.intervalSecs,
+    baseUrl: patch.baseUrl || null
+  });
+}
+
+async function onSyncSettingsDisconnect() {
+  if (!syncSettingsCollectionId.value) return;
+  await store.updateCollectionSyncConfig(syncSettingsCollectionId.value, {
+    sourceUrl: null,
+    sourceHeaders: null,
+    syncIntervalSecs: null
+  });
+  syncSettingsOpen.value = false;
+}
+
+async function onSyncSettingsSyncNow() {
+  if (!syncSettingsCollectionId.value) return;
+  await onSyncNow(syncSettingsCollectionId.value);
 }
 
 // ---- 快捷键 ----
@@ -198,7 +260,16 @@ onBeforeUnmount(() => {
     />
     <HttpOpenApiImportModal
       v-model:show="openApiImportOpen"
+      :fetch-open-api="fetchOpenApi"
       @import="onImportOpenApi"
+    />
+    <HttpSyncSettingsModal
+      v-model:show="syncSettingsOpen"
+      :collection="syncSettingsCollection"
+      :syncing="syncSettingsSyncing"
+      @save="onSyncSettingsSave"
+      @disconnect="onSyncSettingsDisconnect"
+      @sync-now="onSyncSettingsSyncNow"
     />
   </div>
 </template>
