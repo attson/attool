@@ -9,6 +9,7 @@ import type {
   HttpRequestSpec,
   HttpResponseInfo,
   HttpTab,
+  KV,
   TabKind
 } from './types';
 
@@ -57,6 +58,12 @@ interface HttpCollectionRow {
   name: string;
   orderIndex: number;
   updatedAt: number;
+  sourceUrl: string | null;
+  sourceHeadersJson: string | null;
+  syncIntervalSecs: number | null;
+  lastSyncedAt: number | null;
+  lastSyncError: string | null;
+  baseUrl: string | null;
 }
 
 interface HttpCollectionFolderRow {
@@ -77,6 +84,7 @@ interface HttpCollectionRequestRow {
   specJson: string;
   orderIndex: number;
   updatedAt: number;
+  sourceKey: string | null;
 }
 
 function tabFromRow(row: HttpTabRow): HttpTab {
@@ -149,7 +157,37 @@ function envVarFromRow(row: HttpEnvVarRow): HttpEnvVar {
 }
 
 function collectionFromRow(row: HttpCollectionRow): HttpCollection {
-  return { id: row.id, name: row.name, orderIndex: row.orderIndex, updatedAt: row.updatedAt };
+  let sourceHeaders: KV[] | null = null;
+  if (row.sourceHeadersJson) {
+    try { sourceHeaders = JSON.parse(row.sourceHeadersJson) as KV[]; } catch { sourceHeaders = null; }
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    orderIndex: row.orderIndex,
+    updatedAt: row.updatedAt,
+    sourceUrl: row.sourceUrl,
+    sourceHeaders,
+    syncIntervalSecs: row.syncIntervalSecs,
+    lastSyncedAt: row.lastSyncedAt,
+    lastSyncError: row.lastSyncError,
+    baseUrl: row.baseUrl
+  };
+}
+
+function collectionToRow(c: HttpCollection): HttpCollectionRow {
+  return {
+    id: c.id,
+    name: c.name,
+    orderIndex: c.orderIndex,
+    updatedAt: c.updatedAt,
+    sourceUrl: c.sourceUrl ?? null,
+    sourceHeadersJson: c.sourceHeaders ? JSON.stringify(c.sourceHeaders) : null,
+    syncIntervalSecs: c.syncIntervalSecs ?? null,
+    lastSyncedAt: c.lastSyncedAt ?? null,
+    lastSyncError: c.lastSyncError ?? null,
+    baseUrl: c.baseUrl ?? null
+  };
 }
 
 function folderFromRow(row: HttpCollectionFolderRow): HttpCollectionFolder {
@@ -172,7 +210,8 @@ function requestFromRow(row: HttpCollectionRequestRow): HttpCollectionRequest {
     method: row.method as HttpCollectionRequest['method'],
     spec: JSON.parse(row.specJson) as HttpRequestSpec,
     orderIndex: row.orderIndex,
-    updatedAt: row.updatedAt
+    updatedAt: row.updatedAt,
+    sourceKey: row.sourceKey
   };
 }
 
@@ -185,7 +224,8 @@ function requestToRow(row: HttpCollectionRequest): HttpCollectionRequestRow {
     method: row.method,
     specJson: JSON.stringify(row.spec),
     orderIndex: row.orderIndex,
-    updatedAt: row.updatedAt
+    updatedAt: row.updatedAt,
+    sourceKey: row.sourceKey ?? null
   };
 }
 
@@ -220,6 +260,8 @@ export interface HttpApi {
   upsertCollectionRequest(row: HttpCollectionRequest): Promise<void>;
   deleteCollection(id: string): Promise<void>;
   deleteCollectionRequest(id: string): Promise<void>;
+  deleteCollectionFolder(id: string): Promise<void>;
+  fetchOpenApiUrl(url: string, headers: Array<{ key: string; value: string }>): Promise<string>;
 }
 
 export function createHttpApi(invoker = invoke): HttpApi {
@@ -315,7 +357,7 @@ export function createHttpApi(invoker = invoke): HttpApi {
       return rows.map(requestFromRow);
     },
     async upsertCollection(row) {
-      await invoker('upsert_http_collection', { row });
+      await invoker('upsert_http_collection', { row: collectionToRow(row) });
     },
     async upsertCollectionFolder(row) {
       await invoker('upsert_http_collection_folder', { row });
@@ -328,6 +370,12 @@ export function createHttpApi(invoker = invoke): HttpApi {
     },
     async deleteCollectionRequest(id) {
       await invoker('delete_http_collection_request', { id });
+    },
+    async deleteCollectionFolder(id) {
+      await invoker('delete_http_collection_folder', { id });
+    },
+    async fetchOpenApiUrl(url, headers) {
+      return await invoker<string>('fetch_openapi_url', { url, headers });
     }
   };
 }

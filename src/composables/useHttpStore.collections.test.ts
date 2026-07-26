@@ -57,6 +57,8 @@ function makeMockApi(seed?: {
     },
     async deleteCollection(id: string) { calls.push({ fn: 'deleteCollection', args: id }); },
     async deleteCollectionRequest(id: string) { calls.push({ fn: 'deleteCollectionRequest', args: id }); },
+    async deleteCollectionFolder(_id: string) {},
+    async fetchOpenApiUrl(_url: string, _headers: unknown) { return ''; },
     async openStream() {},
     async closeStream() {},
     async sendWsMessage() {},

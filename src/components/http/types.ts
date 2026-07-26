@@ -167,6 +167,12 @@ export interface HttpCollection {
   name: string;
   orderIndex: number;
   updatedAt: number;
+  sourceUrl?: string | null;
+  sourceHeaders?: KV[] | null;
+  syncIntervalSecs?: number | null;
+  lastSyncedAt?: number | null;
+  lastSyncError?: string | null;
+  baseUrl?: string | null;
 }
 
 export interface HttpCollectionFolder {
@@ -187,6 +193,7 @@ export interface HttpCollectionRequest {
   spec: HttpRequestSpec;
   orderIndex: number;
   updatedAt: number;
+  sourceKey?: string | null;
 }
 
 export function makeEmptySpec(): HttpRequestSpec {
