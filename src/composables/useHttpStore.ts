@@ -19,7 +19,8 @@ import { makeEmptySpec, makeEmptySseSpec, makeEmptyWsSpec } from '../components/
 import { applyVarsToSpec, applyVarsToSseSpec, applyVarsToWsSpec, makeVarContext, resolveVars } from '../components/http/variables';
 import { createHttpApi, type HttpApi } from '../components/http/httpApi';
 import { createStreamApi, type StreamApi } from '../components/http/streamApi';
-import type { ImportedOpenApiCollection } from '../components/http/openapiImport';
+import { parseOpenApiToCollection, type ImportedOpenApiCollection } from '../components/http/openapiImport';
+import { mergeIntoCollection } from '../components/http/mergeIntoCollection';
 
 function ulid(): string {
   // 简易 ID：时间戳 + 随机后缀。不追求严格 ULID 结构，够用即可
@@ -115,6 +116,7 @@ function createStore(api: FullApi) {
       state.activeEnvId = active?.id ?? null;
       state.activeEnvVars = active ? await api.listEnvVars(active.id) : [];
       state.ready = true;
+      startSyncScheduler();
       // 保证初始 tab 落库
       for (const t of state.tabs) {
         await api.upsertTab(t).catch(() => {});
@@ -466,9 +468,26 @@ function createStore(api: FullApi) {
     };
   }
 
-  async function importCollection(imported: ImportedOpenApiCollection) {
+  async function importCollection(
+    imported: ImportedOpenApiCollection,
+    opts?: {
+      sourceUrl?: string;
+      sourceHeaders?: Array<{ key: string; value: string; enabled?: boolean }>;
+      syncIntervalSecs?: number;
+      baseUrl?: string;
+    }
+  ) {
     const now = Date.now();
-    const collection: HttpCollection = { ...imported.collection, updatedAt: now };
+    const collection: HttpCollection = {
+      ...imported.collection,
+      updatedAt: now,
+      sourceUrl: opts?.sourceUrl ?? null,
+      sourceHeaders: opts?.sourceHeaders ? normalizeSourceHeaders(opts.sourceHeaders) : null,
+      syncIntervalSecs: opts?.syncIntervalSecs ?? null,
+      lastSyncedAt: opts?.sourceUrl ? now : null,
+      lastSyncError: null,
+      baseUrl: opts?.baseUrl ?? null
+    };
     const folders: HttpCollectionFolder[] = imported.folders.map((f) => ({ ...f, updatedAt: now }));
     const requests: HttpCollectionRequest[] = imported.requests.map((r) => ({ ...r, updatedAt: now }));
 
@@ -479,6 +498,99 @@ function createStore(api: FullApi) {
     await api.upsertCollection(collection);
     for (const folder of folders) await api.upsertCollectionFolder(folder);
     for (const request of requests) await api.upsertCollectionRequest(request);
+  }
+
+  function normalizeSourceHeaders(headers: Array<{ key: string; value: string; enabled?: boolean }>) {
+    return headers.filter((h) => h.key.trim()).map((h) => ({
+      key: h.key,
+      value: h.value,
+      enabled: h.enabled ?? true
+    }));
+  }
+
+  const syncingIds = reactive(new Set<string>());
+  let syncTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function updateCollectionSyncConfig(
+    id: string,
+    patch: Partial<Pick<HttpCollection, 'sourceUrl' | 'sourceHeaders' | 'syncIntervalSecs' | 'baseUrl'>>
+  ) {
+    const col = state.collections.find((c) => c.id === id);
+    if (!col) return;
+    Object.assign(col, patch);
+    col.updatedAt = Date.now();
+    await api.upsertCollection(col).catch(() => {});
+  }
+
+  async function syncCollection(
+    id: string,
+    opts?: { manual?: boolean }
+  ): Promise<{ added: number; updated: number; deleted: number }> {
+    const col = state.collections.find((c) => c.id === id);
+    if (!col || !col.sourceUrl) return { added: 0, updated: 0, deleted: 0 };
+    if (syncingIds.has(id)) return { added: 0, updated: 0, deleted: 0 };
+    syncingIds.add(id);
+    try {
+      const resolvedHeaders = (col.sourceHeaders ?? [])
+        .filter((h) => h.enabled !== false && h.key.trim())
+        .map((h) => ({ key: h.key, value: resolveVars(h.value, varContext.value) }));
+      const resolvedUrl = resolveVars(col.sourceUrl, varContext.value);
+      const body = await api.fetchOpenApiUrl(resolvedUrl, resolvedHeaders);
+      const incoming = parseOpenApiToCollection(body, {
+        baseUrl: col.baseUrl ?? undefined,
+        collectionName: col.name
+      });
+      const existing = {
+        collection: col,
+        folders: state.collectionFolders.filter((f) => f.collectionId === id),
+        requests: state.collectionRequests.filter((r) => r.collectionId === id)
+      };
+      const merged = mergeIntoCollection(existing, incoming);
+      state.collectionFolders = state.collectionFolders
+        .filter((f) => f.collectionId !== id)
+        .concat(merged.folders);
+      state.collectionRequests = state.collectionRequests
+        .filter((r) => r.collectionId !== id)
+        .concat(merged.requests);
+      for (const f of merged.folders) await api.upsertCollectionFolder(f).catch(() => {});
+      for (const r of merged.requests) await api.upsertCollectionRequest(r).catch(() => {});
+      for (const rid of merged.deletedRequestIds) await api.deleteCollectionRequest(rid).catch(() => {});
+      for (const fid of merged.deletedFolderIds) await api.deleteCollectionFolder(fid).catch(() => {});
+      col.lastSyncedAt = Date.now();
+      col.lastSyncError = null;
+      col.updatedAt = Date.now();
+      await api.upsertCollection(col).catch(() => {});
+      return merged.diff;
+    } catch (err) {
+      const msg = String((err as Error).message ?? err);
+      col.lastSyncError = msg;
+      col.updatedAt = Date.now();
+      await api.upsertCollection(col).catch(() => {});
+      if (opts?.manual) throw err;
+      return { added: 0, updated: 0, deleted: 0 };
+    } finally {
+      syncingIds.delete(id);
+    }
+  }
+
+  function startSyncScheduler() {
+    if (syncTimer) return;
+    syncTimer = setInterval(() => {
+      const now = Date.now();
+      for (const c of state.collections) {
+        if (!c.sourceUrl || !c.syncIntervalSecs) continue;
+        if (syncingIds.has(c.id)) continue;
+        const due = (c.lastSyncedAt ?? 0) + c.syncIntervalSecs * 1000;
+        if (now >= due) void syncCollection(c.id);
+      }
+    }, 60_000);
+  }
+
+  function stopSyncScheduler() {
+    if (syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = null;
+    }
   }
 
   async function deleteCollection(id: string) {
@@ -524,6 +636,10 @@ function createStore(api: FullApi) {
     deleteCollection,
     deleteCollectionRequest,
     openCollectionRequest,
+    syncingIds,
+    syncCollection,
+    updateCollectionSyncConfig,
+    stopSyncScheduler,
     openStream,
     closeStream,
     sendWsMessage,
@@ -540,6 +656,7 @@ export function useHttpStore() {
 }
 
 export function _resetHttpStoreForTest(api: FullApi) {
+  _singleton?.stopSyncScheduler?.();
   _singleton = createStore(api);
   return _singleton;
 }
