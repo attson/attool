@@ -109,7 +109,7 @@ describe('useHttpStore collections', () => {
       baseUrl: '{{baseUrl}}',
       collection: { id: 'c1', name: 'Admin API', orderIndex: 0 },
       folders: [{ id: 'f1', collectionId: 'c1', parentId: null, name: 'users', orderIndex: 0 }],
-      requests: [{ id: 'r1', collectionId: 'c1', folderId: 'f1', name: 'GET users', method: 'GET', spec: makeRequest('{{baseUrl}}/users'), orderIndex: 0 }]
+      requests: [{ id: 'r1', collectionId: 'c1', folderId: 'f1', name: 'GET users', method: 'GET', spec: makeRequest('{{baseUrl}}/users'), orderIndex: 0, sourceKey: 'GET /users' }]
     };
 
     await store.importCollection(imported);
