@@ -546,6 +546,10 @@ function createStore(api: FullApi) {
         requests: state.collectionRequests.filter((r) => r.collectionId === id)
       };
       const merged = mergeIntoCollection(existing, incoming);
+      if (!state.collections.some((c) => c.id === id)) {
+        // 集合在同步过程中被删除；放弃写回 state/DB，避免复活已删除的集合
+        return { added: 0, updated: 0, deleted: 0 };
+      }
       state.collectionFolders = state.collectionFolders
         .filter((f) => f.collectionId !== id)
         .concat(merged.folders);
@@ -563,9 +567,11 @@ function createStore(api: FullApi) {
       return merged.diff;
     } catch (err) {
       const msg = String((err as Error).message ?? err);
-      col.lastSyncError = msg;
-      col.updatedAt = Date.now();
-      await api.upsertCollection(col).catch(() => {});
+      if (state.collections.some((c) => c.id === id)) {
+        col.lastSyncError = msg;
+        col.updatedAt = Date.now();
+        await api.upsertCollection(col).catch(() => {});
+      }
       if (opts?.manual) throw err;
       return { added: 0, updated: 0, deleted: 0 };
     } finally {
@@ -597,6 +603,7 @@ function createStore(api: FullApi) {
     state.collections = state.collections.filter((c) => c.id !== id);
     state.collectionFolders = state.collectionFolders.filter((f) => f.collectionId !== id);
     state.collectionRequests = state.collectionRequests.filter((r) => r.collectionId !== id);
+    syncingIds.delete(id);
     await api.deleteCollection(id).catch(() => {});
   }
 

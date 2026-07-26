@@ -70,6 +70,17 @@ function doSave() {
   });
   close();
 }
+
+// 立即同步前先保存，避免同步用到的是未保存的旧值
+function doSyncNow() {
+  emit('save', {
+    url: url.value.trim(),
+    headers: headers.value.filter((h) => h.key.trim()),
+    intervalSecs: intervalSecs.value > 0 ? intervalSecs.value : null,
+    baseUrl: baseUrl.value
+  });
+  emit('sync-now');
+}
 </script>
 
 <template>
@@ -121,7 +132,7 @@ function doSave() {
 
       <div class="actions">
         <n-button quaternary @click="emit('disconnect')">断开同步</n-button>
-        <n-button secondary :loading="syncing" :disabled="!url.trim()" @click="emit('sync-now')">立即同步</n-button>
+        <n-button secondary :loading="syncing" :disabled="!url.trim()" @click="doSyncNow">立即同步</n-button>
         <n-button secondary @click="close">取消</n-button>
         <n-button type="primary" :disabled="!url.trim()" @click="doSave">保存</n-button>
       </div>

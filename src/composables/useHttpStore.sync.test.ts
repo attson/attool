@@ -131,4 +131,29 @@ describe('useHttpStore sync', () => {
     const fetchCalls = calls.filter((c) => c.fn === 'fetchOpenApiUrl');
     expect(fetchCalls).toHaveLength(1);
   });
+
+  it('删除集合后 in-flight sync 不复活', async () => {
+    let resolveFetch: (v: string) => void;
+    const pending = new Promise<string>((res) => { resolveFetch = res; });
+    const { api, calls } = makeMockApi({
+      collections: [{
+        id: 'c1', name: 'A', orderIndex: 0, updatedAt: 1,
+        sourceUrl: 'https://x/o.json', sourceHeaders: [], syncIntervalSecs: 1800,
+        lastSyncedAt: null, lastSyncError: null, baseUrl: null
+      }],
+      fetchResult: () => pending
+    });
+    const store = _resetHttpStoreForTest(api as any);
+    await store.init();
+
+    const p = store.syncCollection('c1', { manual: true });
+    await store.deleteCollection('c1');
+    resolveFetch!(buildOpenApi(['/x']));
+    await p;
+
+    const upserts = calls.filter((c) => c.fn === 'upsertCollection').length;
+    expect(upserts).toBe(0);
+    const upsertReqs = calls.filter((c) => c.fn === 'upsertCollectionRequest').length;
+    expect(upsertReqs).toBe(0);
+  });
 });
