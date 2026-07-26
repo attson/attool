@@ -91,9 +91,9 @@ async fn read_body_capped(
 }
 
 async fn read_body_snippet(resp: reqwest::Response, max_chars: usize) -> Option<String> {
-    let text = resp.text().await.ok()?;
-    let out: String = text.chars().take(max_chars).collect();
-    Some(out)
+    let bytes = read_body_capped(resp, BODY_LIMIT_BYTES).await.ok()?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    Some(text.chars().take(max_chars).collect())
 }
 
 #[cfg(test)]
