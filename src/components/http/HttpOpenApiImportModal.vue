@@ -1,20 +1,48 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NAlert, NButton, NInput, NModal } from 'naive-ui';
+import { NAlert, NButton, NInput, NModal, NSelect } from 'naive-ui';
 import { parseOpenApiToCollection, type ImportedOpenApiCollection } from './openapiImport';
+
+type Source = 'file' | 'url';
+
+interface HeaderRow { key: string; value: string; enabled: boolean }
+
+export interface ImportPayload {
+  imported: ImportedOpenApiCollection;
+  source?: {
+    url: string;
+    headers: HeaderRow[];
+    intervalSecs: number | null;
+    baseUrl: string;
+  };
+}
 
 const props = defineProps<{
   show: boolean;
+  fetchOpenApi: (url: string, headers: Array<{ key: string; value: string }>) => Promise<string>;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:show', v: boolean): void;
-  (e: 'import', v: ImportedOpenApiCollection): void;
+  (e: 'import', v: ImportPayload): void;
 }>();
 
+const source = ref<Source>('file');
 const jsonText = ref('');
 const baseUrl = ref('');
 const collectionName = ref('');
+const sourceUrl = ref('');
+const sourceHeaders = ref<HeaderRow[]>([]);
+const intervalOptions = [
+  { label: '关闭（不自动更新）', value: 0 },
+  { label: '5 分钟', value: 300 },
+  { label: '30 分钟', value: 1800 },
+  { label: '1 小时', value: 3600 },
+  { label: '6 小时', value: 21600 },
+  { label: '24 小时', value: 86400 }
+];
+const intervalSecs = ref(0);
+const fetching = ref(false);
 const error = ref('');
 
 const preview = computed(() => {
@@ -33,12 +61,24 @@ watch(
   () => props.show,
   (show) => {
     if (!show) return;
+    source.value = 'file';
     jsonText.value = '';
     baseUrl.value = '';
     collectionName.value = '';
+    sourceUrl.value = '';
+    sourceHeaders.value = [];
+    intervalSecs.value = 0;
+    fetching.value = false;
     error.value = '';
   }
 );
+
+function addHeader() {
+  sourceHeaders.value.push({ key: '', value: '', enabled: true });
+}
+function removeHeader(idx: number) {
+  sourceHeaders.value.splice(idx, 1);
+}
 
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement;
@@ -58,17 +98,54 @@ async function onFile(e: Event) {
   }
 }
 
+async function doFetch() {
+  const url = sourceUrl.value.trim();
+  if (!url) {
+    error.value = '请填写 JSON URL';
+    return;
+  }
+  fetching.value = true;
+  error.value = '';
+  try {
+    const headers = sourceHeaders.value
+      .filter((h) => h.enabled && h.key.trim())
+      .map((h) => ({ key: h.key, value: h.value }));
+    const body = await props.fetchOpenApi(url, headers);
+    jsonText.value = body;
+    try {
+      const parsed = parseOpenApiToCollection(body);
+      baseUrl.value = baseUrl.value || parsed.baseUrl;
+      collectionName.value = collectionName.value || parsed.collection.name;
+    } catch (parseErr) {
+      error.value = String((parseErr as Error).message ?? parseErr);
+    }
+  } catch (err) {
+    error.value = String((err as Error).message ?? err);
+  } finally {
+    fetching.value = false;
+  }
+}
+
 function close() {
   emit('update:show', false);
 }
 
 function doImport() {
   try {
-    const parsed = parseOpenApiToCollection(jsonText.value, {
+    const imported = parseOpenApiToCollection(jsonText.value, {
       baseUrl: baseUrl.value || undefined,
       collectionName: collectionName.value || undefined
     });
-    emit('import', parsed);
+    const payload: ImportPayload = { imported };
+    if (source.value === 'url' && sourceUrl.value.trim()) {
+      payload.source = {
+        url: sourceUrl.value.trim(),
+        headers: sourceHeaders.value.filter((h) => h.key.trim()),
+        intervalSecs: intervalSecs.value > 0 ? intervalSecs.value : null,
+        baseUrl: baseUrl.value
+      };
+    }
+    emit('import', payload);
     close();
   } catch (err) {
     error.value = String((err as Error).message ?? err);
@@ -86,10 +163,51 @@ function doImport() {
     @update:show="(v: boolean) => emit('update:show', v)"
   >
     <div class="import-modal">
-      <label class="file-pick">
-        <input type="file" accept=".json,application/json" @change="onFile" />
-        <span>选择 openapi.json</span>
-      </label>
+      <div class="source-switch">
+        <button :class="{ active: source === 'file' }" @click="source = 'file'">本地文件</button>
+        <button :class="{ active: source === 'url' }" @click="source = 'url'">URL</button>
+      </div>
+
+      <template v-if="source === 'file'">
+        <label class="file-pick">
+          <input type="file" accept=".json,application/json" @change="onFile" />
+          <span>选择 openapi.json</span>
+        </label>
+      </template>
+
+      <template v-else>
+        <div class="url-block">
+          <label>
+            <span>JSON URL</span>
+            <n-input v-model:value="sourceUrl" size="small" placeholder="https://example.com/openapi.json" />
+          </label>
+          <div class="headers-wrap">
+            <div class="headers-head">
+              <span>请求头（可选，支持 &#123;&#123;var&#125;&#125;）</span>
+              <n-button size="tiny" secondary @click="addHeader">添加</n-button>
+            </div>
+            <div v-for="(h, idx) in sourceHeaders" :key="idx" class="header-row">
+              <n-input v-model:value="h.key" size="small" placeholder="Key" />
+              <n-input v-model:value="h.value" size="small" placeholder="Value" />
+              <n-button size="tiny" quaternary @click="removeHeader(idx)">x</n-button>
+            </div>
+          </div>
+          <div class="interval-row">
+            <label>
+              <span>自动更新</span>
+              <n-select
+                v-model:value="intervalSecs"
+                :options="intervalOptions"
+                size="small"
+                style="width: 200px"
+              />
+            </label>
+            <n-button size="small" :loading="fetching" :disabled="!sourceUrl.trim()" @click="doFetch">
+              拉取并预览
+            </n-button>
+          </div>
+        </div>
+      </template>
 
       <div class="grid">
         <label>
@@ -149,4 +267,46 @@ label { display: grid; gap: 5px; font-size: var(--fs-xs); color: var(--text-mute
 }
 .mono { font-family: var(--font-mono); color: var(--text); }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.source-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+  width: max-content;
+}
+.source-switch button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+}
+.source-switch button.active { background: var(--bg-base); color: var(--text); }
+
+.url-block { display: grid; gap: 10px; }
+.headers-wrap { display: grid; gap: 4px; }
+.headers-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.header-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.interval-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 8px;
+}
 </style>
