@@ -15,10 +15,6 @@ export interface MergeResult {
   diff: { added: number; updated: number; deleted: number };
 }
 
-function defaultNameFromSourceKey(sourceKey: string): string {
-  return sourceKey;
-}
-
 function mergeSpec(
   existing: HttpRequestSpec,
   incoming: HttpRequestSpec
@@ -46,9 +42,6 @@ export function mergeIntoCollection(
 
   const userAdded = existing.requests.filter((r) => !r.sourceKey);
   const managedExisting = existing.requests.filter((r) => !!r.sourceKey);
-
-  const existingByKey = new Map<string, HttpCollectionRequest>();
-  for (const r of managedExisting) existingByKey.set(r.sourceKey!, r);
 
   const folderByName = new Map<string, HttpCollectionFolder>();
   for (const f of existing.folders) folderByName.set(f.name, f);
@@ -90,11 +83,9 @@ export function mergeIntoCollection(
   for (const r of managedExisting) {
     const inc = incomingByKey.get(r.sourceKey!);
     if (inc) {
-      const preservedName =
-        r.name === defaultNameFromSourceKey(r.sourceKey!) ? inc.name : r.name;
       nextRequests.push({
         ...r,
-        name: preservedName,
+        name: inc.name,
         method: inc.method,
         spec: mergeSpec(r.spec, inc.spec),
         updatedAt: now

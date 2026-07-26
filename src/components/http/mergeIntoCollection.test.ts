@@ -76,7 +76,7 @@ describe('mergeIntoCollection', () => {
     expect(result.diff.deleted).toBe(0);
   });
 
-  it('已存在的受管请求：spec 更新，name 若用户改过则保留', () => {
+  it('已存在的受管请求：spec 更新，name 跟着 incoming 覆盖', () => {
     const existing = [
       req({
         id: 'r-1',
@@ -90,14 +90,14 @@ describe('mergeIntoCollection', () => {
       incoming([{ method: 'GET', path: '/users', url: 'https://api/users' }])
     );
     const updated = result.requests.find((r) => r.id === 'r-1')!;
-    expect(updated.name).toBe('我的用户列表');
+    expect(updated.name).toBe('GET /users');
     expect(updated.spec.url).toBe('https://api/users');
     expect(updated.spec.timeoutSeconds).toBe(60);
     expect(updated.spec.saveToHistory).toBe(false);
     expect(result.diff).toEqual({ added: 0, updated: 1, deleted: 0 });
   });
 
-  it('已存在的受管请求：name 未改过（等于默认派生名）→ 跟着 incoming 更新', () => {
+  it('已存在的受管请求：name 总是取自 incoming', () => {
     const existing = [
       req({
         id: 'r-1',
