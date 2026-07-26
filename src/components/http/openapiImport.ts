@@ -59,6 +59,7 @@ export interface ImportedRequest {
   method: HttpMethod;
   spec: HttpRequestSpec;
   orderIndex: number;
+  sourceKey: string;
 }
 
 export interface ImportedOpenApiCollection {
@@ -134,7 +135,8 @@ export function parseOpenApiToCollection(input: string, options: OpenApiImportOp
         name: `${method} ${operation.summary || operation.operationId || path}`.slice(0, 80),
         method,
         spec,
-        orderIndex: requests.length
+        orderIndex: requests.length,
+        sourceKey: `${method} ${path}`
       });
     }
   }
