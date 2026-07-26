@@ -133,6 +133,17 @@ impl HttpStore {
                 )
                 .map_err(|error| format!("迁移 http_tabs.kind 失败：{error}"))?;
         }
+        ensure_columns(&connection, "http_collections", &[
+            ("source_url", "source_url TEXT"),
+            ("source_headers_json", "source_headers_json TEXT"),
+            ("sync_interval_secs", "sync_interval_secs INTEGER"),
+            ("last_synced_at", "last_synced_at INTEGER"),
+            ("last_sync_error", "last_sync_error TEXT"),
+            ("base_url", "base_url TEXT"),
+        ])?;
+        ensure_columns(&connection, "http_collection_requests", &[
+            ("source_key", "source_key TEXT"),
+        ])?;
         Ok(Self {
             conn: Mutex::new(connection),
         })
@@ -434,7 +445,10 @@ impl HttpStore {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, order_index, updated_at FROM http_collections \
+                "SELECT id, name, order_index, updated_at, \
+                        source_url, source_headers_json, sync_interval_secs, \
+                        last_synced_at, last_sync_error, base_url \
+                 FROM http_collections \
                  ORDER BY order_index ASC, updated_at ASC",
             )
             .map_err(err_map)?;
@@ -445,6 +459,12 @@ impl HttpStore {
                     name: row.get(1)?,
                     order_index: row.get(2)?,
                     updated_at: row.get(3)?,
+                    source_url: row.get(4)?,
+                    source_headers_json: row.get(5)?,
+                    sync_interval_secs: row.get(6)?,
+                    last_synced_at: row.get(7)?,
+                    last_sync_error: row.get(8)?,
+                    base_url: row.get(9)?,
                 })
             })
             .map_err(err_map)?
@@ -482,7 +502,7 @@ impl HttpStore {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-                "SELECT id, collection_id, folder_id, name, method, spec_json, order_index, updated_at \
+                "SELECT id, collection_id, folder_id, name, method, spec_json, order_index, updated_at, source_key \
                  FROM http_collection_requests ORDER BY collection_id ASC, folder_id ASC, order_index ASC, updated_at ASC",
             )
             .map_err(err_map)?;
@@ -497,6 +517,7 @@ impl HttpStore {
                     spec_json: row.get(5)?,
                     order_index: row.get(6)?,
                     updated_at: row.get(7)?,
+                    source_key: row.get(8)?,
                 })
             })
             .map_err(err_map)?
@@ -508,9 +529,28 @@ impl HttpStore {
     pub fn upsert_collection(&self, row: HttpCollectionRow) -> Result<(), String> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO http_collections (id, name, order_index, updated_at) VALUES (?1, ?2, ?3, ?4) \
-             ON CONFLICT(id) DO UPDATE SET name=excluded.name, order_index=excluded.order_index, updated_at=excluded.updated_at",
-            params![row.id, row.name, row.order_index, row.updated_at],
+            "INSERT INTO http_collections \
+               (id, name, order_index, updated_at, \
+                source_url, source_headers_json, sync_interval_secs, \
+                last_synced_at, last_sync_error, base_url) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             ON CONFLICT(id) DO UPDATE SET \
+               name=excluded.name, order_index=excluded.order_index, updated_at=excluded.updated_at, \
+               source_url=excluded.source_url, source_headers_json=excluded.source_headers_json, \
+               sync_interval_secs=excluded.sync_interval_secs, last_synced_at=excluded.last_synced_at, \
+               last_sync_error=excluded.last_sync_error, base_url=excluded.base_url",
+            params![
+                row.id,
+                row.name,
+                row.order_index,
+                row.updated_at,
+                row.source_url,
+                row.source_headers_json,
+                row.sync_interval_secs,
+                row.last_synced_at,
+                row.last_sync_error,
+                row.base_url,
+            ],
         )
         .map_err(err_map)?;
         Ok(())
@@ -539,11 +579,11 @@ impl HttpStore {
     pub fn upsert_collection_request(&self, row: HttpCollectionRequestRow) -> Result<(), String> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO http_collection_requests (id, collection_id, folder_id, name, method, spec_json, order_index, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+            "INSERT INTO http_collection_requests (id, collection_id, folder_id, name, method, spec_json, order_index, updated_at, source_key) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
              ON CONFLICT(id) DO UPDATE SET collection_id=excluded.collection_id, folder_id=excluded.folder_id, \
                name=excluded.name, method=excluded.method, spec_json=excluded.spec_json, \
-               order_index=excluded.order_index, updated_at=excluded.updated_at",
+               order_index=excluded.order_index, updated_at=excluded.updated_at, source_key=excluded.source_key",
             params![
                 row.id,
                 row.collection_id,
@@ -553,6 +593,7 @@ impl HttpStore {
                 row.spec_json,
                 row.order_index,
                 row.updated_at,
+                row.source_key,
             ],
         )
         .map_err(err_map)?;
@@ -587,10 +628,63 @@ impl HttpStore {
         .map_err(err_map)?;
         Ok(())
     }
+
+    pub fn delete_collection_folder(&self, id: &str) -> Result<(), String> {
+        let mut conn = self.conn();
+        let tx = conn.transaction().map_err(err_map)?;
+        tx.execute(
+            "DELETE FROM http_collection_requests WHERE folder_id = ?1",
+            params![id],
+        )
+        .map_err(err_map)?;
+        tx.execute(
+            "DELETE FROM http_collection_folders WHERE id = ?1",
+            params![id],
+        )
+        .map_err(err_map)?;
+        tx.commit().map_err(err_map)?;
+        Ok(())
+    }
 }
 
 fn err_map(error: rusqlite::Error) -> String {
     format!("http 数据库错误：{error}")
+}
+
+fn ensure_columns(
+    connection: &Connection,
+    table: &str,
+    add_sql: &[(&str, &str)],
+) -> Result<(), String> {
+    let mut existing = std::collections::HashSet::<String>::new();
+    let mut stmt = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| format!("检查 {table} schema 失败：{error}"))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|error| format!("检查 {table} schema 失败：{error}"))?;
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("检查 {table} schema 失败：{error}"))?
+    {
+        let name: String = row
+            .get(1)
+            .map_err(|error| format!("读取列名失败：{error}"))?;
+        existing.insert(name);
+    }
+    drop(rows);
+    drop(stmt);
+    for (col, ddl) in add_sql {
+        if !existing.contains(*col) {
+            connection
+                .execute(
+                    &format!("ALTER TABLE {table} ADD COLUMN {ddl}"),
+                    [],
+                )
+                .map_err(|error| format!("迁移 {table}.{col} 失败：{error}"))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -619,6 +713,12 @@ mod tests {
                 name: "Admin API".into(),
                 order_index: 0,
                 updated_at: 1,
+                source_url: None,
+                source_headers_json: None,
+                sync_interval_secs: None,
+                last_synced_at: None,
+                last_sync_error: None,
+                base_url: None,
             })
             .expect("upsert collection");
         store
@@ -641,6 +741,7 @@ mod tests {
                 spec_json: r#"{"method":"GET","url":"/users"}"#.into(),
                 order_index: 0,
                 updated_at: 1,
+                source_key: None,
             })
             .expect("upsert request");
 
@@ -652,5 +753,81 @@ mod tests {
         assert!(store.list_collections().expect("collections").is_empty());
         assert!(store.list_collection_folders().expect("folders").is_empty());
         assert!(store.list_collection_requests().expect("requests").is_empty());
+    }
+
+    #[test]
+    fn collection_row_persists_source_and_sync_fields() {
+        let store = make_store();
+        store
+            .upsert_collection(HttpCollectionRow {
+                id: "c1".into(),
+                name: "Admin API".into(),
+                order_index: 0,
+                updated_at: 10,
+                source_url: Some("https://api.example.com/openapi.json".into()),
+                source_headers_json: Some(r#"[{"key":"X-Api-Key","value":"abc"}]"#.into()),
+                sync_interval_secs: Some(1800),
+                last_synced_at: Some(123456),
+                last_sync_error: Some("timeout".into()),
+                base_url: Some("{{apiHost}}".into()),
+            })
+            .expect("upsert");
+        let rows = store.list_collections().expect("list");
+        assert_eq!(rows.len(), 1);
+        let r = &rows[0];
+        assert_eq!(r.source_url.as_deref(), Some("https://api.example.com/openapi.json"));
+        assert_eq!(r.sync_interval_secs, Some(1800));
+        assert_eq!(r.last_synced_at, Some(123456));
+        assert_eq!(r.last_sync_error.as_deref(), Some("timeout"));
+        assert_eq!(r.base_url.as_deref(), Some("{{apiHost}}"));
+    }
+
+    #[test]
+    fn request_row_persists_source_key() {
+        let store = make_store();
+        store
+            .upsert_collection(HttpCollectionRow {
+                id: "c1".into(), name: "A".into(), order_index: 0, updated_at: 1,
+                source_url: None, source_headers_json: None, sync_interval_secs: None,
+                last_synced_at: None, last_sync_error: None, base_url: None,
+            }).expect("upsert col");
+        store
+            .upsert_collection_request(HttpCollectionRequestRow {
+                id: "r1".into(),
+                collection_id: "c1".into(),
+                folder_id: None,
+                name: "GET /users".into(),
+                method: "GET".into(),
+                spec_json: "{}".into(),
+                order_index: 0,
+                updated_at: 1,
+                source_key: Some("GET /users/{id}".into()),
+            }).expect("upsert req");
+        let rows = store.list_collection_requests().expect("list");
+        assert_eq!(rows[0].source_key.as_deref(), Some("GET /users/{id}"));
+    }
+
+    #[test]
+    fn delete_collection_folder_removes_folder_and_its_requests() {
+        let store = make_store();
+        store.upsert_collection(HttpCollectionRow {
+            id: "c1".into(), name: "A".into(), order_index: 0, updated_at: 1,
+            source_url: None, source_headers_json: None, sync_interval_secs: None,
+            last_synced_at: None, last_sync_error: None, base_url: None,
+        }).unwrap();
+        store.upsert_collection_folder(HttpCollectionFolderRow {
+            id: "f1".into(), collection_id: "c1".into(), parent_id: None,
+            name: "users".into(), order_index: 0, updated_at: 1,
+        }).unwrap();
+        store.upsert_collection_request(HttpCollectionRequestRow {
+            id: "r1".into(), collection_id: "c1".into(), folder_id: Some("f1".into()),
+            name: "GET /users".into(), method: "GET".into(), spec_json: "{}".into(),
+            order_index: 0, updated_at: 1, source_key: Some("GET /users".into()),
+        }).unwrap();
+
+        store.delete_collection_folder("f1").expect("delete");
+
+        assert!(store.list_collection_folders().unwrap().is_empty());
+        assert!(store.list_collection_requests().unwrap().is_empty());
     }
 }

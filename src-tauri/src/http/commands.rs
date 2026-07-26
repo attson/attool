@@ -171,3 +171,11 @@ pub fn delete_http_collection_request(
 ) -> Result<(), String> {
     store.delete_collection_request(&id)
 }
+
+#[tauri::command]
+pub fn delete_http_collection_folder(
+    id: String,
+    store: State<'_, HttpStore>,
+) -> Result<(), String> {
+    store.delete_collection_folder(&id)
+}

@@ -145,6 +145,18 @@ pub struct HttpCollectionRow {
     pub name: String,
     pub order_index: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub source_headers_json: Option<String>,
+    #[serde(default)]
+    pub sync_interval_secs: Option<i64>,
+    #[serde(default)]
+    pub last_synced_at: Option<i64>,
+    #[serde(default)]
+    pub last_sync_error: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -169,6 +181,8 @@ pub struct HttpCollectionRequestRow {
     pub spec_json: String,
     pub order_index: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub source_key: Option<String>,
 }
 
 // ---- stream (SSE / WebSocket) ----
