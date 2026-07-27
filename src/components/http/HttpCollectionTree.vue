@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { HttpCollectionFolder, HttpCollectionRequest } from './types';
 import { folderHasVisibleContent, folderRequestCount } from './collectionTree';
+import { isSchemaSpec } from './schemaItem';
 
 // 递归渲染一层 folder 及其子 folder。folder 树通过 parentId 关联,
 // 本组件渲染 parentId === folder.id 的子 folder,从而支持任意深度的 tags 分组。
@@ -96,7 +97,14 @@ function hasVisibleContent(folder: HttpCollectionFolder): boolean {
         @dblclick="emit('request-dblclick', request)"
         @contextmenu="emit('request-context', request, $event)"
       >
-        <span class="method mono">{{ request.method }}</span>
+        <span v-if="isSchemaSpec(request.spec)" class="model-icon" title="数据模型">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 3 7v10l9 5 9-5V7z" />
+            <path d="M3 7l9 5 9-5" />
+            <path d="M12 12v10" />
+          </svg>
+        </span>
+        <span v-else class="method mono">{{ request.method }}</span>
         <span class="req-name">{{ request.name }}</span>
         <div v-if="menuFor === request.id" class="menu" @mouseleave="emit('close-menu')">
           <button @click="emit('open-request', request, 'new'); emit('close-menu')">在新 tab 打开</button>
@@ -180,6 +188,13 @@ function hasVisibleContent(folder: HttpCollectionFolder): boolean {
   white-space: nowrap;
 }
 .method { color: var(--text); font-weight: 600; width: 42px; }
+.model-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  color: var(--accent, #8b5cf6);
+}
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 .menu {
   position: absolute;
