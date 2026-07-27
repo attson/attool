@@ -124,6 +124,57 @@ describe('parseOpenApiToCollection', () => {
     expect(result.requests.find((r) => r.name === 'GET c')!.folderId).toBe(uncategorized.id);
   });
 
+  it('imports components.schemas into a pinned 数据模型 folder', () => {
+    const withSchemas = {
+      openapi: '3.0.3',
+      info: { title: 'WithSchemas' },
+      paths: {
+        '/ping': { get: { tags: ['Ops'], summary: 'ping' } }
+      },
+      components: {
+        schemas: {
+          消息事件: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+          any: {},
+          null: { type: 'null' }
+        }
+      }
+    };
+    const result = parseOpenApiToCollection(JSON.stringify(withSchemas));
+
+    const modelFolder = result.folders.find((f) => f.name === '数据模型')!;
+    expect(modelFolder).toBeTruthy();
+    // 置顶:orderIndex 小于任何接口 folder
+    const opsFolder = result.folders.find((f) => f.name === 'Ops')!;
+    expect(modelFolder.orderIndex).toBeLessThan(opsFolder.orderIndex);
+    expect(modelFolder.parentId).toBeNull();
+
+    const models = result.requests.filter((r) => r.spec.metaKind === 'schema');
+    expect(models.map((m) => m.name).sort()).toEqual(['any', 'null', '消息事件']);
+    for (const m of models) {
+      expect(m.folderId).toBe(modelFolder.id);
+      expect(m.spec.bodyType).toBe('json');
+      expect(m.sourceKey).toBe(`schema:${m.name}`);
+    }
+    // body 是原始结构定义(保留 type/properties),不是展开的示例值
+    const evt = models.find((m) => m.name === '消息事件')!;
+    expect(JSON.parse(evt.spec.body)).toEqual({
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id']
+    });
+  });
+
+  it('does not create 数据模型 folder when there are no schemas', () => {
+    const noSchemas = {
+      openapi: '3.0.3',
+      info: { title: 'NoSchemas' },
+      paths: { '/ping': { get: { tags: ['Ops'], summary: 'ping' } } }
+    };
+    const result = parseOpenApiToCollection(JSON.stringify(noSchemas));
+    expect(result.folders.find((f) => f.name === '数据模型')).toBeUndefined();
+    expect(result.requests.every((r) => r.spec.metaKind !== 'schema')).toBe(true);
+  });
+
   it('rejects unsupported or empty documents', () => {
     expect(() => parseOpenApiToCollection('{}')).toThrow('只支持 OpenAPI 3.x JSON');
     expect(() => parseOpenApiToCollection(JSON.stringify({ openapi: '3.0.0', info: {}, paths: {} })))

@@ -1,5 +1,6 @@
 import type { HttpMethod, HttpRequestSpec } from './types';
 import { makeEmptySpec } from './types';
+import { SCHEMA_FOLDER_NAME, schemaSourceKey } from './schemaItem';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 
@@ -37,6 +38,7 @@ interface OpenApiDocument {
   servers?: Array<{ url?: string }>;
   tags?: Array<{ name?: string }>;
   paths?: Record<string, Record<string, OpenApiOperation | unknown>>;
+  components?: { schemas?: Record<string, JsonSchema> };
 }
 
 // 无 tag 接口归入的默认分组名
@@ -134,6 +136,38 @@ export function parseOpenApiToCollection(input: string, options: OpenApiImportOp
         spec,
         orderIndex: requests.length,
         sourceKey: `${method} ${path}`
+      });
+    }
+  }
+
+  // ---- 数据模型(components.schemas)----
+  const schemas = doc.components?.schemas ?? {};
+  const schemaNames = Object.keys(schemas);
+  if (schemaNames.length > 0) {
+    // 「数据模型」置顶 folder:orderIndex = -1 保证排在所有接口 folder(0..n)之前
+    const modelFolder: ImportedFolder = {
+      id: makeId('fld'),
+      collectionId,
+      parentId: null,
+      name: SCHEMA_FOLDER_NAME,
+      orderIndex: -1
+    };
+    folders.push(modelFolder);
+    for (const name of schemaNames) {
+      const spec = makeEmptySpec();
+      spec.method = 'GET';
+      spec.bodyType = 'json';
+      spec.body = JSON.stringify(schemas[name], null, 2);
+      spec.metaKind = 'schema';
+      requests.push({
+        id: makeId('req'),
+        collectionId,
+        folderId: modelFolder.id,
+        name,
+        method: 'GET',
+        spec,
+        orderIndex: requests.length,
+        sourceKey: schemaSourceKey(name)
       });
     }
   }
