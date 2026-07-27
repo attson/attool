@@ -1254,6 +1254,8 @@ pub fn run() {
             http::commands::upsert_http_collection_request,
             http::commands::delete_http_collection,
             http::commands::delete_http_collection_request,
+            http::commands::delete_http_collection_folder,
+            http::openapi_fetch::fetch_openapi_url,
             http::stream::commands::open_stream,
             http::stream::commands::close_stream,
             http::stream::commands::send_ws_message,

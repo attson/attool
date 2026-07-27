@@ -8,6 +8,7 @@ const props = defineProps<{
   collections: HttpCollection[];
   folders: HttpCollectionFolder[];
   requests: HttpCollectionRequest[];
+  syncingIds: Set<string>;
   collapsed: boolean;
 }>();
 
@@ -17,6 +18,8 @@ const emit = defineEmits<{
   (e: 'delete-collection', id: string): void;
   (e: 'delete-request', id: string): void;
   (e: 'import-openapi'): void;
+  (e: 'sync-collection', id: string): void;
+  (e: 'open-sync-settings', id: string): void;
   (e: 'delete', id: string): void;
   (e: 'clear'): void;
   (e: 'toggle-collapse'): void;
@@ -26,6 +29,7 @@ const mode = ref<'collections' | 'history'>('collections');
 const query = ref('');
 const menuFor = ref<string | null>(null);
 const collectionMenuFor = ref<string | null>(null);
+const collectionRowMenuFor = ref<string | null>(null);
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -55,6 +59,34 @@ function foldersFor(collectionId: string): HttpCollectionFolder[] {
 function requestsFor(collectionId: string, folderId: string | null): HttpCollectionRequest[] {
   const source = query.value.trim() ? collectionMatches.value : props.requests;
   return source.filter((r) => r.collectionId === collectionId && r.folderId === folderId);
+}
+
+function syncTooltip(c: HttpCollection): string {
+  if (c.lastSyncError) return `上次同步失败：${c.lastSyncError}`;
+  const parts: string[] = [];
+  if (c.lastSyncedAt) {
+    const diff = Date.now() - c.lastSyncedAt;
+    if (diff < 60_000) parts.push('刚刚同步');
+    else if (diff < 3_600_000) parts.push(`${Math.floor(diff / 60_000)} 分前`);
+    else if (diff < 86_400_000) parts.push(`${Math.floor(diff / 3_600_000)} 小时前`);
+    else parts.push(`${Math.floor(diff / 86_400_000)} 天前`);
+  } else {
+    parts.push('尚未同步');
+  }
+  if (c.syncIntervalSecs) {
+    const s = c.syncIntervalSecs;
+    if (s < 3600) parts.push(`自动 ${s / 60}m`);
+    else if (s < 86400) parts.push(`自动 ${s / 3600}h`);
+    else parts.push(`自动 ${s / 86400}d`);
+  } else {
+    parts.push('手动');
+  }
+  return parts.join(' · ');
+}
+
+function collectionContextMenu(collection: HttpCollection, ev: MouseEvent) {
+  ev.preventDefault();
+  collectionRowMenuFor.value = collection.id;
 }
 
 function statusClass(s: number | null): string {
@@ -150,9 +182,33 @@ function shortSummary(text: string | null): string {
       <div v-if="mode === 'collections'" class="list">
         <div v-if="collections.length === 0" class="empty">暂无集合</div>
         <div v-for="collection in collections" :key="collection.id" class="collection">
-          <div class="collection-head">
-            <span>{{ collection.name }}</span>
-            <button @click="emit('delete-collection', collection.id)">删除</button>
+          <div
+            class="collection-head"
+            @contextmenu="collectionContextMenu(collection, $event)"
+          >
+            <span class="c-name">{{ collection.name }}</span>
+            <div class="c-actions">
+              <button
+                v-if="collection.sourceUrl"
+                class="sync-btn"
+                :class="{ syncing: syncingIds.has(collection.id), error: !!collection.lastSyncError }"
+                :title="syncTooltip(collection)"
+                @click="emit('sync-collection', collection.id)"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                  <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M3 21v-5h5" />
+                </svg>
+              </button>
+              <button @click="emit('delete-collection', collection.id)">删除</button>
+            </div>
+            <div v-if="collectionRowMenuFor === collection.id" class="menu" @mouseleave="collectionRowMenuFor = null">
+              <button v-if="collection.sourceUrl" @click="emit('sync-collection', collection.id); collectionRowMenuFor = null">立即同步</button>
+              <button @click="emit('open-sync-settings', collection.id); collectionRowMenuFor = null">编辑同步…</button>
+              <button @click="emit('delete-collection', collection.id); collectionRowMenuFor = null">删除集合</button>
+            </div>
           </div>
 
           <div
@@ -268,6 +324,7 @@ function shortSummary(text: string | null): string {
   color: var(--text);
   font-size: var(--fs-xs);
   font-weight: 600;
+  position: relative;
 }
 .collection-head button {
   border: 0;
@@ -353,4 +410,23 @@ function shortSummary(text: string | null): string {
   border-radius: 4px;
 }
 .menu button:hover { background: var(--bg-base); }
+.c-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-actions { display: flex; gap: 6px; align-items: center; }
+.sync-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+}
+.sync-btn:hover { color: var(--accent); background: var(--bg-elev-2); }
+.sync-btn.syncing svg { animation: spin 1s linear infinite; }
+.sync-btn.error { color: #ef4444; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试）。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）。
 
 ## 技术栈
 
