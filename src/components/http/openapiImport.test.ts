@@ -5,9 +5,11 @@ const spec = {
   openapi: '3.0.3',
   info: { title: 'Petstore Admin', version: '1.0.0' },
   servers: [{ url: 'https://api.example.com/v1' }],
+  tags: [{ name: 'Store' }, { name: 'Pet' }],
   paths: {
     '/pets': {
       get: {
+        tags: ['Pet'],
         summary: 'List pets',
         parameters: [
           { name: 'limit', in: 'query', schema: { type: 'integer' } },
@@ -16,6 +18,7 @@ const spec = {
         responses: { '200': { description: 'ok' } }
       },
       post: {
+        tags: ['Pet'],
         operationId: 'createPet',
         requestBody: {
           content: {
@@ -37,6 +40,7 @@ const spec = {
     },
     '/stores/{storeId}/orders': {
       get: {
+        tags: ['Store'],
         summary: 'List store orders',
         parameters: [
           { name: 'storeId', in: 'path', required: true, schema: { type: 'string' } },
@@ -53,12 +57,19 @@ describe('parseOpenApiToCollection', () => {
 
     expect(result.collection.name).toBe('Petstore Admin');
     expect(result.baseUrl).toBe('https://api.example.com/v1');
-    expect(result.folders.map((f) => f.name)).toEqual(['pets', 'stores']);
+    // 分组按 operation.tags[0],顺序遵循文档顶层 tags 定义(Store 在前)
+    expect(result.folders.map((f) => f.name)).toEqual(['Store', 'Pet']);
     expect(result.requests.map((r) => r.name)).toEqual([
       'GET List pets',
       'POST createPet',
       'GET List store orders'
     ]);
+    const petFolder = result.folders.find((f) => f.name === 'Pet')!;
+    const storeFolder = result.folders.find((f) => f.name === 'Store')!;
+    const byName = (n: string) => result.requests.find((r) => r.name === n)!;
+    expect(byName('GET List pets').folderId).toBe(petFolder.id);
+    expect(byName('POST createPet').folderId).toBe(petFolder.id);
+    expect(byName('GET List store orders').folderId).toBe(storeFolder.id);
     expect(result.requests[0].spec.url).toBe('https://api.example.com/v1/pets');
     expect(result.requests[2].spec.url).toBe('https://api.example.com/v1/stores/{{storeId}}/orders');
   });
@@ -80,6 +91,37 @@ describe('parseOpenApiToCollection', () => {
     expect(listOrders.spec.queryParams[0]).toMatchObject({ key: 'status', value: 'open' });
     expect(createPet.spec.bodyType).toBe('json');
     expect(JSON.parse(createPet.spec.body)).toEqual({ name: 'string', age: 0, vaccinated: false });
+  });
+
+  it('splits slash-delimited tags into a nested folder tree', () => {
+    const nested = {
+      openapi: '3.0.3',
+      info: { title: 'Nested' },
+      paths: {
+        '/a': { get: { tags: ['广告平台/Source'], summary: 'a' } },
+        '/b': { get: { tags: ['广告平台/Sink'], summary: 'b' } },
+        '/c': { get: { summary: 'c' } }
+      }
+    };
+    const result = parseOpenApiToCollection(JSON.stringify(nested));
+
+    const byName = (n: string) => result.folders.find((f) => f.name === n)!;
+    const platform = byName('广告平台');
+    const source = byName('Source');
+    const sink = byName('Sink');
+    // 顶层 folder 无 parent,子 folder 指向父
+    expect(platform.parentId).toBeNull();
+    expect(source.parentId).toBe(platform.id);
+    expect(sink.parentId).toBe(platform.id);
+    // 同名父层 “广告平台” 只建一次
+    expect(result.folders.filter((f) => f.name === '广告平台')).toHaveLength(1);
+    // 请求挂在最深层 folder 上
+    expect(result.requests.find((r) => r.name === 'GET a')!.folderId).toBe(source.id);
+    expect(result.requests.find((r) => r.name === 'GET b')!.folderId).toBe(sink.id);
+    // 无 tag 的接口归到默认分组
+    const uncategorized = result.folders.find((f) => f.name === '未分组')!;
+    expect(uncategorized).toBeTruthy();
+    expect(result.requests.find((r) => r.name === 'GET c')!.folderId).toBe(uncategorized.id);
   });
 
   it('rejects unsupported or empty documents', () => {

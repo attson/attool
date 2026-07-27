@@ -24,6 +24,7 @@ interface JsonSchema {
 interface OpenApiOperation {
   operationId?: string;
   summary?: string;
+  tags?: string[];
   parameters?: OpenApiParameter[];
   requestBody?: {
     content?: Record<string, { schema?: JsonSchema; example?: unknown }>;
@@ -34,8 +35,12 @@ interface OpenApiDocument {
   openapi?: string;
   info?: { title?: string };
   servers?: Array<{ url?: string }>;
+  tags?: Array<{ name?: string }>;
   paths?: Record<string, Record<string, OpenApiOperation | unknown>>;
 }
+
+// 无 tag 接口归入的默认分组名
+const UNCATEGORIZED_FOLDER = '未分组';
 
 export interface ImportedCollection {
   id: string;
@@ -102,31 +107,23 @@ export function parseOpenApiToCollection(input: string, options: OpenApiImportOp
   };
   const folders: ImportedFolder[] = [];
   const requests: ImportedRequest[] = [];
-  const folderByName = new Map<string, ImportedFolder>();
+  // key 为 folder 的完整层级路径(如 "广告平台/Source"),用于去重与父层复用
+  const folderByPath = new Map<string, ImportedFolder>();
+
+  // 先按文档顶层 tags 声明顺序预建 folder,让分组顺序与 Swagger 展示一致
+  for (const tag of doc.tags ?? []) {
+    if (tag?.name) ensureFolderPath(tag.name, collectionId, folders, folderByPath);
+  }
 
   for (const [path, pathItem] of Object.entries(doc.paths ?? {})) {
     if (!pathItem || typeof pathItem !== 'object') continue;
-    const folderName = firstPathSegment(path);
-    let folder: ImportedFolder | null = null;
-    if (folderName) {
-      folder = folderByName.get(folderName) ?? null;
-      if (!folder) {
-        folder = {
-          id: makeId('fld'),
-          collectionId,
-          parentId: null,
-          name: folderName,
-          orderIndex: folders.length
-        };
-        folderByName.set(folderName, folder);
-        folders.push(folder);
-      }
-    }
 
     for (const [methodKey, operationRaw] of Object.entries(pathItem as Record<string, unknown>)) {
       const method = methodKey.toUpperCase();
       if (!isHttpMethod(method) || !operationRaw || typeof operationRaw !== 'object') continue;
       const operation = operationRaw as OpenApiOperation;
+      const tag = operation.tags?.find((t) => t && t.trim()) ?? UNCATEGORIZED_FOLDER;
+      const folder = ensureFolderPath(tag, collectionId, folders, folderByPath);
       const spec = operationToSpec(method, baseUrl, path, operation);
       requests.push({
         id: makeId('req'),
@@ -185,8 +182,38 @@ function isHttpMethod(value: string): value is HttpMethod {
   return (METHODS as readonly string[]).includes(value);
 }
 
-function firstPathSegment(path: string): string {
-  return path.split('/').filter(Boolean)[0]?.replace(/[{}]/g, '') ?? '';
+// 按 "/" 把 tag 拆成层级,逐层建立或复用嵌套 folder,返回最深一层 folder。
+// 同名同父路径的 folder 只建一次(以完整路径为 key 去重)。
+function ensureFolderPath(
+  tag: string,
+  collectionId: string,
+  folders: ImportedFolder[],
+  folderByPath: Map<string, ImportedFolder>
+): ImportedFolder | null {
+  const segments = tag.split('/').map((s) => s.trim()).filter(Boolean);
+  if (segments.length === 0) return null;
+
+  let parentId: string | null = null;
+  let current: ImportedFolder | null = null;
+  let pathKey = '';
+  for (const name of segments) {
+    pathKey = pathKey ? `${pathKey}/${name}` : name;
+    let folder = folderByPath.get(pathKey);
+    if (!folder) {
+      folder = {
+        id: makeId('fld'),
+        collectionId,
+        parentId,
+        name,
+        orderIndex: folders.length
+      };
+      folderByPath.set(pathKey, folder);
+      folders.push(folder);
+    }
+    parentId = folder.id;
+    current = folder;
+  }
+  return current;
 }
 
 function replacePathParams(path: string): string {
