@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { nextTick, onUnmounted, ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal } from 'naive-ui';
-import { parseOpenApiToCollection, type ImportedOpenApiCollection } from './openapiImport';
+import type { ImportedOpenApiCollection } from './openapiImport';
+import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
+import { useJsonWorker } from '../../composables/useJsonWorker';
+import CodeEditor from '../json/CodeEditor.vue';
 
 const props = defineProps<{
   show: boolean;
@@ -12,32 +15,77 @@ const emit = defineEmits<{
   (e: 'import', v: ImportedOpenApiCollection): void;
 }>();
 
+const worker = useOpenApiImportWorker();
+const jsonWorker = useJsonWorker();
+
 const jsonText = ref('');
 const baseUrl = ref('');
 const collectionName = ref('');
 const error = ref('');
+const preview = ref<ImportedOpenApiCollection | null>(null);
+const parsing = ref(false);
+const formatting = ref(false);
 
-const preview = computed(() => {
-  if (!jsonText.value.trim()) return null;
-  try {
-    return parseOpenApiToCollection(jsonText.value, {
-      baseUrl: baseUrl.value || undefined,
-      collectionName: collectionName.value || undefined
-    });
-  } catch {
-    return null;
+const PREVIEW_DEBOUNCE_MS = 300;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+// Monotonic guard: every change to the preview intent bumps this. An async
+// parse may only write to the UI if its captured gen still matches — stale
+// results (superseded input, cleared text) are dropped.
+let previewGen = 0;
+
+function schedulePreview() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  const gen = ++previewGen;
+  const text = jsonText.value;
+  if (!text.trim()) {
+    preview.value = null;
+    error.value = '';
+    parsing.value = false;
+    return;
   }
+  parsing.value = true;
+  debounceTimer = setTimeout(() => {
+    void runPreview(text, gen);
+  }, PREVIEW_DEBOUNCE_MS);
+}
+
+async function runPreview(text: string, gen: number) {
+  const outcome = await worker.parse(
+    text,
+    { baseUrl: baseUrl.value || undefined, collectionName: collectionName.value || undefined },
+    'preview',
+  );
+  // Superseded by a newer intent (keystroke, clear, or file pick) — drop it.
+  if (gen !== previewGen || outcome === null) return;
+  parsing.value = false;
+  if (outcome.ok) {
+    preview.value = outcome.result;
+    error.value = '';
+  } else {
+    preview.value = null;
+    // Preview errors stay silent (invalid partial JSON while typing); doImport surfaces them.
+    error.value = '';
+  }
+}
+
+watch([jsonText, baseUrl, collectionName], schedulePreview);
+
+onUnmounted(() => {
+  if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
 });
 
 watch(
   () => props.show,
   (show) => {
     if (!show) return;
+    previewGen++;
     jsonText.value = '';
     baseUrl.value = '';
     collectionName.value = '';
     error.value = '';
-  }
+    preview.value = null;
+    parsing.value = false;
+  },
 );
 
 async function onFile(e: Event) {
@@ -47,12 +95,26 @@ async function onFile(e: Event) {
   try {
     const text = await file.text();
     jsonText.value = text;
-    const parsed = parseOpenApiToCollection(text);
-    baseUrl.value = parsed.baseUrl;
-    collectionName.value = parsed.collection.name;
-    error.value = '';
+    const outcome = await worker.parse(text, {}, 'preview');
+    if (outcome && outcome.ok) {
+      baseUrl.value = outcome.result.baseUrl;
+      collectionName.value = outcome.result.collection.name;
+      preview.value = outcome.result;
+      error.value = '';
+    } else if (outcome && !outcome.ok) {
+      error.value = outcome.error;
+    }
+    // Writing jsonText/baseUrl/collectionName above queued a debounced preview
+    // via the watcher (Vue flushes it on the next microtask). Wait for that
+    // flush, then bump the guard + clear the timer so the redundant re-parse
+    // is dropped and our file result stays authoritative.
+    await nextTick();
+    previewGen++;
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    parsing.value = false;
   } catch (err) {
     error.value = String((err as Error).message ?? err);
+    parsing.value = false;
   } finally {
     input.value = '';
   }
@@ -62,16 +124,42 @@ function close() {
   emit('update:show', false);
 }
 
-function doImport() {
-  try {
-    const parsed = parseOpenApiToCollection(jsonText.value, {
-      baseUrl: baseUrl.value || undefined,
-      collectionName: collectionName.value || undefined
-    });
-    emit('import', parsed);
+async function doImport() {
+  const outcome = await worker.parse(
+    jsonText.value,
+    { baseUrl: baseUrl.value || undefined, collectionName: collectionName.value || undefined },
+    'import',
+  );
+  if (!outcome) return;
+  if (outcome.ok) {
+    emit('import', outcome.result);
     close();
-  } catch (err) {
-    error.value = String((err as Error).message ?? err);
+  } else {
+    error.value = outcome.error;
+  }
+}
+
+// 在 worker 里解析+重新缩进,避免大文档在主线程 JSON.parse/stringify 卡顿。
+async function doFormat() {
+  if (formatting.value || !jsonText.value.trim()) return;
+  formatting.value = true;
+  try {
+    const parsed = await jsonWorker.parse(jsonText.value, 'import-format:parse');
+    if (!parsed) return; // 被更新的同 tag 请求取代
+    if (parsed.error) {
+      error.value = parsed.error.message ?? 'JSON 解析失败,无法格式化';
+      return;
+    }
+    const out = await jsonWorker.serialize(parsed.value, 'format', 2, 'import-format:serialize');
+    if (!out) return;
+    if (out.ok) {
+      jsonText.value = out.text;
+      error.value = '';
+    } else {
+      error.value = out.error;
+    }
+  } finally {
+    formatting.value = false;
   }
 }
 </script>
@@ -103,16 +191,23 @@ function doImport() {
       </div>
 
       <label class="json-box">
-        <span>JSON 内容</span>
-        <n-input
-          v-model:value="jsonText"
-          type="textarea"
-          :autosize="{ minRows: 10, maxRows: 16 }"
-          placeholder="{ &quot;openapi&quot;: &quot;3.0.0&quot;, ... }"
-        />
+        <span class="json-box-head">
+          <span>JSON 内容</span>
+          <n-button
+            text
+            size="tiny"
+            :disabled="!jsonText.trim() || formatting"
+            :loading="formatting"
+            @click="doFormat"
+          >
+            格式化
+          </n-button>
+        </span>
+        <CodeEditor v-model="jsonText" language="json" :height="260" />
       </label>
 
       <n-alert v-if="error" type="error" :bordered="false">{{ error }}</n-alert>
+      <div v-else-if="parsing" class="preview">解析中…</div>
       <div v-else-if="preview" class="preview">
         将导入 {{ preview.requests.length }} 个请求、{{ preview.folders.length }} 个目录到集合
         <span class="mono">{{ preview.collection.name }}</span>
@@ -138,7 +233,7 @@ function doImport() {
 .file-pick input { display: none; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 label { display: grid; gap: 5px; font-size: var(--fs-xs); color: var(--text-muted); }
-.json-box :deep(textarea) { font-family: var(--font-mono); }
+.json-box-head { display: flex; align-items: center; justify-content: space-between; }
 .preview {
   padding: 8px 10px;
   border: 1px solid var(--line);

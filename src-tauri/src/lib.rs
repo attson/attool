@@ -2,6 +2,8 @@ mod bilibili;
 mod clipboard;
 mod updater;
 mod douyin;
+#[cfg(target_os = "linux")]
+mod gpu_linux;
 pub mod ecommerce;
 pub mod http;
 pub mod imaging;
@@ -1100,6 +1102,11 @@ fn show_main_window(app: &AppHandle) {
 }
 
 pub fn run() {
+    // Linux/WebKitGTK: 启动前探测 GPU 环境,必要时兜底禁用 DMABUF 渲染器,
+    // 避免驱动版本不一致等场景下 WebKit 在 C 层 SIGABRT。见 gpu_linux 模块。
+    #[cfg(target_os = "linux")]
+    gpu_linux::maybe_disable_dmabuf();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
