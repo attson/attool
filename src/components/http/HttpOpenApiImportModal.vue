@@ -3,6 +3,8 @@ import { nextTick, onUnmounted, ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal } from 'naive-ui';
 import type { ImportedOpenApiCollection } from './openapiImport';
 import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
+import { useJsonWorker } from '../../composables/useJsonWorker';
+import CodeEditor from '../json/CodeEditor.vue';
 
 const props = defineProps<{
   show: boolean;
@@ -14,6 +16,7 @@ const emit = defineEmits<{
 }>();
 
 const worker = useOpenApiImportWorker();
+const jsonWorker = useJsonWorker();
 
 const jsonText = ref('');
 const baseUrl = ref('');
@@ -21,6 +24,7 @@ const collectionName = ref('');
 const error = ref('');
 const preview = ref<ImportedOpenApiCollection | null>(null);
 const parsing = ref(false);
+const formatting = ref(false);
 
 const PREVIEW_DEBOUNCE_MS = 300;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +138,30 @@ async function doImport() {
     error.value = outcome.error;
   }
 }
+
+// 在 worker 里解析+重新缩进,避免大文档在主线程 JSON.parse/stringify 卡顿。
+async function doFormat() {
+  if (formatting.value || !jsonText.value.trim()) return;
+  formatting.value = true;
+  try {
+    const parsed = await jsonWorker.parse(jsonText.value, 'import-format:parse');
+    if (!parsed) return; // 被更新的同 tag 请求取代
+    if (parsed.error) {
+      error.value = parsed.error.message ?? 'JSON 解析失败,无法格式化';
+      return;
+    }
+    const out = await jsonWorker.serialize(parsed.value, 'format', 2, 'import-format:serialize');
+    if (!out) return;
+    if (out.ok) {
+      jsonText.value = out.text;
+      error.value = '';
+    } else {
+      error.value = out.error;
+    }
+  } finally {
+    formatting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -163,13 +191,19 @@ async function doImport() {
       </div>
 
       <label class="json-box">
-        <span>JSON 内容</span>
-        <n-input
-          v-model:value="jsonText"
-          type="textarea"
-          :rows="12"
-          placeholder="{ &quot;openapi&quot;: &quot;3.0.0&quot;, ... }"
-        />
+        <span class="json-box-head">
+          <span>JSON 内容</span>
+          <n-button
+            text
+            size="tiny"
+            :disabled="!jsonText.trim() || formatting"
+            :loading="formatting"
+            @click="doFormat"
+          >
+            格式化
+          </n-button>
+        </span>
+        <CodeEditor v-model="jsonText" language="json" :height="260" />
       </label>
 
       <n-alert v-if="error" type="error" :bordered="false">{{ error }}</n-alert>
@@ -199,7 +233,7 @@ async function doImport() {
 .file-pick input { display: none; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 label { display: grid; gap: 5px; font-size: var(--fs-xs); color: var(--text-muted); }
-.json-box :deep(textarea) { font-family: var(--font-mono); }
+.json-box-head { display: flex; align-items: center; justify-content: space-between; }
 .preview {
   padding: 8px 10px;
   border: 1px solid var(--line);
