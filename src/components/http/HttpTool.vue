@@ -4,7 +4,7 @@ import { NButton, NSelect, useMessage } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useHttpStore } from '../../composables/useHttpStore';
 import { useSidebarWidth } from '../../composables/useSidebarWidth';
-import type { HttpCollection, HttpEnvVar, HttpRequestSpec, TabKind } from './types';
+import type { HttpCollection, HttpCollectionRequest, HttpEnvVar, HttpRequestSpec, TabKind } from './types';
 import { toCurl } from './curl';
 import HttpSidebar from './HttpSidebar.vue';
 import HttpTabBar from './HttpTabBar.vue';
@@ -13,6 +13,8 @@ import HttpResponseView from './HttpResponseView.vue';
 import HttpEnvModal from './HttpEnvModal.vue';
 import HttpOpenApiImportModal from './HttpOpenApiImportModal.vue';
 import type { ImportPayload } from './HttpOpenApiImportModal.vue';
+import HttpSchemaPreviewModal from './HttpSchemaPreviewModal.vue';
+import { isSchemaSpec } from './schemaItem';
 import HttpSyncSettingsModal from './HttpSyncSettingsModal.vue';
 import SseTool from './SseTool.vue';
 import WsTool from './WsTool.vue';
@@ -22,6 +24,21 @@ const store = useHttpStore();
 const message = useMessage();
 const httpApi = createHttpApi();
 const collapsed = ref(false);
+
+// ---- 数据模型只读预览 ----
+const schemaPreviewOpen = ref(false);
+const schemaPreviewName = ref('');
+const schemaPreviewBody = ref('');
+
+function onOpenCollectionRequest(request: HttpCollectionRequest, mode: 'active' | 'new') {
+  if (isSchemaSpec(request.spec)) {
+    schemaPreviewName.value = request.name;
+    schemaPreviewBody.value = request.spec.body;
+    schemaPreviewOpen.value = true;
+    return;
+  }
+  store.openCollectionRequest(request, mode);
+}
 
 // ---- 集合面板宽度拖拽 ----
 const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
@@ -222,7 +239,7 @@ onBeforeUnmount(() => {
       :width="sidebarWidth"
       :dragging="draggingSidebar"
       @load="onLoadHistory"
-      @open-request="store.openCollectionRequest"
+      @open-request="onOpenCollectionRequest"
       @delete-collection="store.deleteCollection"
       @delete-request="store.deleteCollectionRequest"
       @import-openapi="openApiImportOpen = true"
@@ -306,6 +323,11 @@ onBeforeUnmount(() => {
       v-model:show="openApiImportOpen"
       :fetch-open-api="fetchOpenApi"
       @import="onImportOpenApi"
+    />
+    <HttpSchemaPreviewModal
+      v-model:show="schemaPreviewOpen"
+      :name="schemaPreviewName"
+      :body="schemaPreviewBody"
     />
     <HttpSyncSettingsModal
       v-model:show="syncSettingsOpen"
