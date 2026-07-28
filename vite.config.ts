@@ -14,6 +14,9 @@ export default defineConfig({
   define: {
     global: 'globalThis'
   },
+  optimizeDeps: {
+    exclude: ['monaco-editor']
+  },
   build: {
     target: 'es2022',
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
