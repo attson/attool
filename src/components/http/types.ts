@@ -36,6 +36,8 @@ export interface HttpRequestSpec {
   followRedirects: boolean;
   verifySsl: boolean;
   saveToHistory: boolean;
+  /** 标记该条目为数据模型(OpenAPI schema),而非可发送请求 */
+  metaKind?: 'schema';
 }
 
 export interface HttpResponseInfo {

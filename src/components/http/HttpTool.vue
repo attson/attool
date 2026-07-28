@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NButton, NSelect, useMessage } from 'naive-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useHttpStore } from '../../composables/useHttpStore';
-import type { HttpCollection, HttpEnvVar, HttpRequestSpec, TabKind } from './types';
+import { useSidebarWidth } from '../../composables/useSidebarWidth';
+import type { HttpCollection, HttpCollectionRequest, HttpEnvVar, HttpRequestSpec, TabKind } from './types';
 import { toCurl } from './curl';
 import HttpSidebar from './HttpSidebar.vue';
 import HttpTabBar from './HttpTabBar.vue';
@@ -12,6 +13,8 @@ import HttpResponseView from './HttpResponseView.vue';
 import HttpEnvModal from './HttpEnvModal.vue';
 import HttpOpenApiImportModal from './HttpOpenApiImportModal.vue';
 import type { ImportPayload } from './HttpOpenApiImportModal.vue';
+import HttpSchemaPreviewModal from './HttpSchemaPreviewModal.vue';
+import { isSchemaSpec } from './schemaItem';
 import HttpSyncSettingsModal from './HttpSyncSettingsModal.vue';
 import SseTool from './SseTool.vue';
 import WsTool from './WsTool.vue';
@@ -21,6 +24,50 @@ const store = useHttpStore();
 const message = useMessage();
 const httpApi = createHttpApi();
 const collapsed = ref(false);
+
+// ---- 数据模型只读预览 ----
+const schemaPreviewOpen = ref(false);
+const schemaPreviewName = ref('');
+const schemaPreviewBody = ref('');
+
+function onOpenCollectionRequest(request: HttpCollectionRequest, mode: 'active' | 'new') {
+  if (isSchemaSpec(request.spec)) {
+    schemaPreviewName.value = request.name;
+    schemaPreviewBody.value = request.spec.body;
+    schemaPreviewOpen.value = true;
+    return;
+  }
+  store.openCollectionRequest(request, mode);
+}
+
+// ---- 集合面板宽度拖拽 ----
+const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
+const draggingSidebar = ref(false);
+let dragStartX = 0;
+let dragStartWidth = 0;
+
+function onSidebarResizeStart(ev: MouseEvent) {
+  ev.preventDefault();
+  draggingSidebar.value = true;
+  dragStartX = ev.clientX;
+  dragStartWidth = sidebarWidth.value;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  window.addEventListener('mousemove', onSidebarResizeMove);
+  window.addEventListener('mouseup', onSidebarResizeEnd);
+}
+
+function onSidebarResizeMove(ev: MouseEvent) {
+  setSidebarWidth(dragStartWidth + (ev.clientX - dragStartX));
+}
+
+function onSidebarResizeEnd() {
+  draggingSidebar.value = false;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  window.removeEventListener('mousemove', onSidebarResizeMove);
+  window.removeEventListener('mouseup', onSidebarResizeEnd);
+}
 const envModalOpen = ref(false);
 const envModalTab = ref<'env' | 'vars'>('vars');
 const openApiImportOpen = ref(false);
@@ -174,6 +221,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
   window.removeEventListener('attool:http-open-vars', onOpenVarsEvent);
+  window.removeEventListener('mousemove', onSidebarResizeMove);
+  window.removeEventListener('mouseup', onSidebarResizeEnd);
   void store.flushDirtyNow();
 });
 </script>
@@ -187,8 +236,10 @@ onBeforeUnmount(() => {
       :requests="store.state.collectionRequests"
       :syncing-ids="store.syncingIds"
       :collapsed="collapsed"
+      :width="sidebarWidth"
+      :dragging="draggingSidebar"
       @load="onLoadHistory"
-      @open-request="store.openCollectionRequest"
+      @open-request="onOpenCollectionRequest"
       @delete-collection="store.deleteCollection"
       @delete-request="store.deleteCollectionRequest"
       @import-openapi="openApiImportOpen = true"
@@ -198,6 +249,13 @@ onBeforeUnmount(() => {
       @clear="() => store.clearHistory()"
       @toggle-collapse="collapsed = !collapsed"
     />
+    <div
+      v-if="!collapsed"
+      class="sidebar-resizer"
+      :class="{ active: draggingSidebar }"
+      title="拖拽调整宽度"
+      @mousedown="onSidebarResizeStart"
+    ></div>
     <div class="main">
       <div class="topbar">
         <div class="topbar-left">
@@ -266,6 +324,11 @@ onBeforeUnmount(() => {
       :fetch-open-api="fetchOpenApi"
       @import="onImportOpenApi"
     />
+    <HttpSchemaPreviewModal
+      v-model:show="schemaPreviewOpen"
+      :name="schemaPreviewName"
+      :body="schemaPreviewBody"
+    />
     <HttpSyncSettingsModal
       v-model:show="syncSettingsOpen"
       :collection="syncSettingsCollection"
@@ -283,6 +346,21 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   background: var(--bg-base);
+}
+.sidebar-resizer {
+  flex: none;
+  width: 5px;
+  margin-left: -3px;
+  margin-right: -2px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 5;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer.active {
+  background: var(--accent);
 }
 .main {
   flex: 1;

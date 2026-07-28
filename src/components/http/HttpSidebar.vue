@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue';
 import { NButton, NInput } from 'naive-ui';
 import type { HttpCollection, HttpCollectionFolder, HttpCollectionRequest, HttpHistoryItem } from './types';
+import HttpCollectionTree from './HttpCollectionTree.vue';
+import { useCollapsedFolders } from '../../composables/useCollapsedFolders';
 
 const props = defineProps<{
   items: HttpHistoryItem[];
@@ -10,6 +12,8 @@ const props = defineProps<{
   requests: HttpCollectionRequest[];
   syncingIds: Set<string>;
   collapsed: boolean;
+  width?: number;
+  dragging?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -51,6 +55,14 @@ const collectionMatches = computed(() => {
     r.spec.url.toLowerCase().includes(q)
   );
 });
+
+const { isCollapsed, toggle: toggleFolder } = useCollapsedFolders();
+
+// 搜索时强制展开所有分组,避免命中项藏在折叠的分组里看不到
+function isFolderCollapsed(id: string): boolean {
+  if (query.value.trim()) return false;
+  return isCollapsed(id);
+}
 
 function foldersFor(collectionId: string): HttpCollectionFolder[] {
   return props.folders.filter((f) => f.collectionId === collectionId && !f.parentId);
@@ -157,7 +169,11 @@ function shortSummary(text: string | null): string {
 </script>
 
 <template>
-  <aside class="http-sidebar" :class="{ collapsed }">
+  <aside
+    class="http-sidebar"
+    :class="{ collapsed, dragging }"
+    :style="collapsed ? undefined : { width: (width ?? 240) + 'px' }"
+  >
     <div class="head">
       <n-button size="tiny" quaternary @click="emit('toggle-collapse')">
         <span class="mono">{{ collapsed ? '▶' : '◀' }}</span>
@@ -229,26 +245,24 @@ function shortSummary(text: string | null): string {
             </div>
           </div>
 
-          <div v-for="folder in foldersFor(collection.id)" :key="folder.id" class="folder">
-            <div class="folder-title">{{ folder.name }}</div>
-            <div
-              v-for="request in requestsFor(collection.id, folder.id)"
-              :key="request.id"
-              class="request-row"
-              @mousedown.left="onRequestClick(request, $event)"
-              @mousedown.middle="onRequestClick(request, $event)"
-              @dblclick="emit('open-request', request, 'new')"
-              @contextmenu="onRequestContext(request, $event)"
-            >
-              <span class="method mono">{{ request.method }}</span>
-              <span class="req-name">{{ request.name }}</span>
-              <div v-if="collectionMenuFor === request.id" class="menu" @mouseleave="collectionMenuFor = null">
-                <button @click="emit('open-request', request, 'new'); collectionMenuFor = null">在新 tab 打开</button>
-                <button @click="emit('open-request', request, 'active'); collectionMenuFor = null">回填当前 tab</button>
-                <button @click="emit('delete-request', request.id); collectionMenuFor = null">删除</button>
-              </div>
-            </div>
-          </div>
+          <HttpCollectionTree
+            v-for="folder in foldersFor(collection.id)"
+            :key="folder.id"
+            :collection-id="collection.id"
+            :folder="folder"
+            :depth="0"
+            :all-folders="folders"
+            :requests-for="requestsFor"
+            :menu-for="collectionMenuFor"
+            :is-collapsed="isFolderCollapsed"
+            @request-click="onRequestClick"
+            @request-dblclick="(r: HttpCollectionRequest) => emit('open-request', r, 'new')"
+            @request-context="onRequestContext"
+            @open-request="(r: HttpCollectionRequest, mode: 'active' | 'new') => emit('open-request', r, mode)"
+            @delete-request="(id: string) => emit('delete-request', id)"
+            @toggle-folder="toggleFolder"
+            @close-menu="collectionMenuFor = null"
+          />
         </div>
       </div>
 
@@ -288,12 +302,15 @@ function shortSummary(text: string | null): string {
 <style scoped>
 .http-sidebar {
   width: 240px;
+  flex: none;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
   transition: width 0.15s ease;
 }
+/* 拖拽调整宽度时关闭过渡,避免跟手延迟 */
+.http-sidebar.dragging { transition: none; }
 .http-sidebar.collapsed { width: 32px; }
 .head { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); }
 .head .n-input { flex: 1; }
@@ -332,14 +349,6 @@ function shortSummary(text: string | null): string {
   color: var(--text-faint);
   cursor: pointer;
   font-size: var(--fs-xxs);
-}
-.folder { padding-left: 8px; }
-.folder-title {
-  padding: 6px 10px 3px;
-  color: var(--text-faint);
-  font-size: var(--fs-xxs);
-  font-weight: 600;
-  text-transform: uppercase;
 }
 .request-row {
   display: grid;
