@@ -8,7 +8,7 @@ export type JsonPathOutcome =
   | { ok: true; matches: JsonValue[]; text: string; elapsedMs: number }
   | { ok: false; error: string };
 export type DiffOutcome = {
-  equal: boolean; delta: unknown | null; html: string | null; elapsedMs: number;
+  equal: boolean; delta: unknown | null; changeCount: number; leftText: string; rightText: string; html: string | null; elapsedMs: number;
   leftError?: string; rightError?: string;
 };
 export type ConvertOutcome = { ok: true; text: string; elapsedMs: number } | { ok: false; error: string };
@@ -117,13 +117,14 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
         (res) => {
           if (res.kind !== 'diff') return null;
           if (res.ok) return {
-            equal: res.equal, delta: res.delta, html: res.html,
+            equal: res.equal, delta: res.delta, changeCount: res.changeCount,
+            leftText: res.leftText, rightText: res.rightText, html: res.html,
             elapsedMs: res.elapsedMs, leftError: res.leftError, rightError: res.rightError,
           } satisfies DiffOutcome;
           // Worker threw — surface as leftError so DiffPane's error branch shows it.
           const errorMsg = (res.error as { message: string }).message;
           return {
-            equal: false, delta: null, html: null, elapsedMs: 0,
+            equal: false, delta: null, changeCount: 0, leftText: '', rightText: '', html: null, elapsedMs: 0,
             leftError: errorMsg,
           } satisfies DiffOutcome;
         }) as Promise<DiffOutcome | null>;

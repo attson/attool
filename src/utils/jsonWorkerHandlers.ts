@@ -2,7 +2,7 @@ import { JSONPath } from 'jsonpath-plus';
 import type { JsonParseError, JsonValue } from '../types/json';
 import type { ConvertFormat } from '../types/json';
 import { parseJson, formatValue, minifyValue, sortValue } from './jsonFormat';
-import { diffJson, diffJsonHtml } from './jsondiff';
+import { diffJsonHtml, prepareJsonDiffView } from './jsondiff';
 import { convert as convertFormats } from './jsonConvert';
 
 type Ok<T> = T & { ok: true };
@@ -77,16 +77,22 @@ export function handleDiff(
 ): {
   equal: boolean;
   delta: unknown | null;
+  changeCount: number;
+  leftText: string;
+  rightText: string;
   html: string | null;
   elapsedMs: number;
   leftError?: string;
   rightError?: string;
 } {
   const start = performance.now();
-  const r = diffJson(leftText || '{}', rightText || '{}');
+  const r = prepareJsonDiffView(leftText || '{}', rightText || '{}');
   const result = {
     equal: false,
     delta: null as unknown | null,
+    changeCount: 0,
+    leftText: '',
+    rightText: '',
     html: null as string | null,
     leftError: r.leftError,
     rightError: r.rightError,
@@ -98,11 +104,16 @@ export function handleDiff(
   }
   if (r.delta === null) {
     result.equal = true;
+    result.leftText = r.leftText;
+    result.rightText = r.rightText;
     result.elapsedMs = Math.round(performance.now() - start);
     return result;
   }
   result.equal = false;
   result.delta = r.delta;
+  result.changeCount = r.changeCount;
+  result.leftText = r.leftText;
+  result.rightText = r.rightText;
   if (withHtml) result.html = diffJsonHtml(leftText || '{}', rightText || '{}');
   result.elapsedMs = Math.round(performance.now() - start);
   return result;

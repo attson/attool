@@ -17,7 +17,7 @@ export type WorkerRes =
   | { id: number; ok: true;  kind: 'parse';     value: JsonValue; elapsedMs: number }
   | { id: number; ok: true;  kind: 'serialize'; text: string; elapsedMs: number }
   | { id: number; ok: true;  kind: 'jsonpath';  matches: JsonValue[]; text: string; elapsedMs: number }
-  | { id: number; ok: true;  kind: 'diff';      equal: boolean; delta: unknown | null; html: string | null; elapsedMs: number; leftError?: string; rightError?: string }
+  | { id: number; ok: true;  kind: 'diff';      equal: boolean; delta: unknown | null; changeCount: number; leftText: string; rightText: string; html: string | null; elapsedMs: number; leftError?: string; rightError?: string }
   | { id: number; ok: true;  kind: 'convert';   text: string; elapsedMs: number }
   | { id: number; ok: false; kind: WorkerReq['kind']; error: JsonParseError | { message: string } };
 

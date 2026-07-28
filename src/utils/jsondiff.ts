@@ -1,5 +1,7 @@
 import { DiffPatcher } from 'jsondiffpatch';
 import { format as formatHtml } from 'jsondiffpatch/formatters/html';
+import type { JsonValue } from '../types/json';
+import { sortValue } from './jsonFormat';
 
 const patcher = new DiffPatcher({
   objectHash: (item: unknown, index?: number) => {
@@ -12,6 +14,16 @@ const patcher = new DiffPatcher({
 
 export interface DiffResult {
   delta: unknown | null;
+  leftError?: string;
+  rightError?: string;
+}
+
+export interface JsonDiffView {
+  equal: boolean;
+  delta: unknown | null;
+  changeCount: number;
+  leftText: string;
+  rightText: string;
   leftError?: string;
   rightError?: string;
 }
@@ -45,6 +57,42 @@ export function diffJsonHtml(left: string, right: string): string {
     return '';
   }
   return formatHtml(result.delta as Parameters<typeof formatHtml>[0], leftValue) ?? '';
+}
+
+export function prepareJsonDiffView(left: string, right: string): JsonDiffView {
+  const result = diffJson(left, right);
+  const view: JsonDiffView = {
+    equal: result.delta === null && !result.leftError && !result.rightError,
+    delta: result.delta,
+    changeCount: countJsonDiffChanges(result.delta),
+    leftText: '',
+    rightText: '',
+    leftError: result.leftError,
+    rightError: result.rightError,
+  };
+  if (result.leftError || result.rightError) return view;
+
+  view.leftText = formatSortedJson(left);
+  view.rightText = formatSortedJson(right);
+  return view;
+}
+
+export function countJsonDiffChanges(delta: unknown): number {
+  if (delta === null || delta === undefined) return 0;
+  if (Array.isArray(delta)) return 1;
+  if (typeof delta !== 'object') return 0;
+
+  let count = 0;
+  for (const [key, value] of Object.entries(delta as Record<string, unknown>)) {
+    if (key === '_t') continue;
+    count += countJsonDiffChanges(value);
+  }
+  return count;
+}
+
+function formatSortedJson(text: string): string {
+  const value = JSON.parse(text) as JsonValue;
+  return JSON.stringify(sortValue(value), null, 2);
 }
 
 function errorMessage(error: unknown): string {
