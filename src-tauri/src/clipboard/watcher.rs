@@ -10,13 +10,14 @@ use std::{
 };
 
 use image::{ImageBuffer, ImageFormat, Rgba};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewWindow};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use super::{models::DEFAULT_CLIPBOARD_SHORTCUT, storage::ClipboardStore};
 
 const CLIPBOARD_EVENT: &str = "clipboard-history-updated";
+const CLIPBOARD_STRIP_HEIGHT: f64 = 260.0;
 
 /// 当前已注册的剪贴板快捷键字符串(Tauri 格式)。用于修改时先注销旧的。
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -150,14 +151,40 @@ fn install_clipboard_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), 
         .on_shortcut(shortcut, move |_app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
                 if let Some(window) = handle.get_webview_window("clipboard-history") {
+                    let _ = position_history_strip(&handle, &window);
                     let _ = window.show();
                     let _ = window.set_focus();
-                    let _ = window.center();
                     let _ = handle.emit("clipboard-history-opened", ());
                 }
             }
         })
         .map_err(|error| format!("注册剪贴板快捷键失败：{error}"))
+}
+
+fn position_history_strip(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    let monitor = app
+        .primary_monitor()
+        .map_err(|error| format!("获取主显示器失败：{error}"))?
+        .ok_or_else(|| "未找到主显示器".to_string())?;
+    let scale = monitor.scale_factor();
+    let physical_size = monitor.size();
+    let physical_pos = monitor.position();
+    let logical_width = physical_size.width as f64 / scale;
+    let logical_height = physical_size.height as f64 / scale;
+    let logical_x = physical_pos.x as f64 / scale;
+    let logical_y = physical_pos.y as f64 / scale;
+    let strip_height = CLIPBOARD_STRIP_HEIGHT.min(logical_height);
+
+    window
+        .set_size(LogicalSize::new(logical_width, strip_height))
+        .map_err(|error| format!("调整剪贴板窗口尺寸失败：{error}"))?;
+    window
+        .set_position(LogicalPosition::new(
+            logical_x,
+            logical_y + logical_height - strip_height,
+        ))
+        .map_err(|error| format!("移动剪贴板窗口失败：{error}"))?;
+    Ok(())
 }
 
 fn emit_update_and_enforce_retention(app: &AppHandle, store: &ClipboardStore) {

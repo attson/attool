@@ -84,7 +84,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
-  padding: 18px;
+  padding: 12px 14px;
   background: var(--bg-base);
   color: var(--text);
 }
@@ -94,7 +94,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .clipboard-window__title {
@@ -105,7 +105,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 }
 
 .clipboard-window__hint {
-  margin: 6px 0 0;
+  display: none;
 }
 
 .clipboard-window__rail {
@@ -130,7 +130,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   display: flex;
   flex: 0 0 clamp(180px, 25vw, 240px);
   flex-direction: column;
-  height: 148px;
+  height: 132px;
 }
 
 .clipboard-window__list :deep(.clipboard-card__preview) {
@@ -139,8 +139,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 }
 
 .clipboard-window__list :deep(.clipboard-card__actions) {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .clipboard-kind-select { width: 140px; }
+
+.clipboard-window :deep(.clipboard-toolbar) {
+  margin-bottom: 8px;
+}
 </style>
