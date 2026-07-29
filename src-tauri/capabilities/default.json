@@ -5,6 +5,7 @@
   "windows": [
     "main",
     "clipboard-history",
+    "clipboard-preview",
     "capture-overlay",
     "capture-pin-*"
   ],

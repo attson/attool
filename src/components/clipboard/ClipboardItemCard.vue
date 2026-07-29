@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { NModal, NButton } from 'naive-ui';
 import type { ClipboardHistoryItem } from '../../types/clipboard';
 
 const props = defineProps<{ item: ClipboardHistoryItem }>();
@@ -9,34 +8,13 @@ const emit = defineEmits<{
   restore: [item: ClipboardHistoryItem];
   delete: [id: string];
   pin: [id: string, isPinned: boolean];
-  previewOpen: [];
-  previewClose: [];
+  preview: [item: ClipboardHistoryItem];
 }>();
 
 const imageSrc = computed(() => props.item.assetUrl ?? (props.item.assetPath ? convertFileSrc(props.item.assetPath) : null));
 
-const showImagePreview = ref(false);
-
 function openPreview() {
-  showImagePreview.value = true;
-  emit('previewOpen');
-}
-
-function handleImagePreviewShow(show: boolean) {
-  showImagePreview.value = show;
-  emit(show ? 'previewOpen' : 'previewClose');
-}
-
-const showTextPreview = ref(false);
-const createdAtText = computed(() => props.item.createdAt.slice(0, 16).replace('T', ' '));
-const charCount = computed(() => [...props.item.contentText].length);
-
-function openTextPreview() {
-  showTextPreview.value = true;
-}
-
-function copyText() {
-  emit('restore', props.item);
+  emit('preview', props.item);
 }
 
 const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
@@ -81,7 +59,7 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
         <span
           class="clipboard-card__zoom"
           title="查看完整内容"
-          @click.stop="openTextPreview"
+          @click.stop="openPreview"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
@@ -98,48 +76,6 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
       <span @click.stop="emit('delete', props.item.id)">删除</span>
     </div>
   </button>
-
-  <n-modal
-    v-if="props.item.kind === 'text'"
-    v-model:show="showTextPreview"
-    preset="card"
-    title="剪贴板文本"
-    class="clipboard-text-modal"
-    :auto-focus="false"
-    :bordered="false"
-  >
-    <pre class="clipboard-text-modal__body">{{ props.item.contentText }}</pre>
-    <template #footer>
-      <div class="clipboard-text-modal__footer">
-        <span class="clipboard-text-modal__info">{{ charCount }} 字 · {{ createdAtText }}</span>
-        <n-button size="small" type="primary" @click="copyText">复制到剪贴板</n-button>
-      </div>
-    </template>
-  </n-modal>
-
-  <n-modal
-    v-if="props.item.kind === 'image' && imageSrc"
-    v-model:show="showImagePreview"
-    preset="card"
-    title="剪贴板图片"
-    class="clipboard-image-modal"
-    :auto-focus="false"
-    :bordered="false"
-    @update:show="handleImagePreviewShow"
-  >
-    <div class="clipboard-image-modal__body">
-      <img :src="imageSrc" alt="剪贴板图片预览" class="clipboard-image-modal__image" />
-    </div>
-    <template #footer>
-      <div class="clipboard-image-modal__footer">
-        <span class="clipboard-text-modal__info">{{ createdAtText }}</span>
-        <div class="clipboard-image-modal__actions">
-          <n-button size="small" secondary @click="handleImagePreviewShow(false)">关闭</n-button>
-          <n-button size="small" type="primary" @click="copyText">复制到剪贴板</n-button>
-        </div>
-      </div>
-    </template>
-  </n-modal>
 </template>
 
 <style scoped>
@@ -184,73 +120,4 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
 
 .clipboard-card__actions { margin-top: 12px; }
 .clipboard-card__actions span:not(:first-child) { color: var(--accent); }
-</style>
-
-<style>
-/* 文本预览弹窗(NModal teleport 到 body,需非 scoped) */
-.clipboard-text-modal {
-  width: 640px;
-  max-width: 90vw;
-}
-
-.clipboard-text-modal__body {
-  margin: 0;
-  max-height: 60vh;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: var(--fs-sm, 13px);
-  line-height: 1.6;
-}
-
-.clipboard-text-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.clipboard-text-modal__info {
-  color: var(--n-text-color-3, rgba(255, 255, 255, 0.52));
-  font-size: var(--fs-sm, 13px);
-}
-
-.clipboard-image-modal {
-  width: calc(100vw - 32px);
-  max-width: 1480px;
-}
-
-.clipboard-image-modal .n-card__content {
-  padding: 0;
-}
-
-.clipboard-image-modal__body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: calc(100vh - 150px);
-  min-height: 360px;
-  overflow: hidden;
-  background: var(--bg-base);
-}
-
-.clipboard-image-modal__image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.clipboard-image-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.clipboard-image-modal__actions {
-  display: flex;
-  gap: 8px;
-}
 </style>

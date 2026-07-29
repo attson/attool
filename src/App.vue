@@ -18,6 +18,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import TemplateTool from './components/ecommerce/TemplateTool.vue';
 import ClipboardHistoryWindow from './components/clipboard/ClipboardHistoryWindow.vue';
+import ClipboardPreviewWindow from './components/clipboard/ClipboardPreviewWindow.vue';
 import ClipboardTool from './components/clipboard/ClipboardTool.vue';
 import AppShell from './components/shell/AppShell.vue';
 import ShortcutErrorNotifier from './components/shell/ShortcutErrorNotifier.vue';
@@ -66,6 +67,7 @@ const tools: Tool[] = [
 
 const currentWindow = getCurrentWindow();
 const isClipboardHistoryWindow = currentWindow.label === 'clipboard-history';
+const isClipboardPreviewWindow = currentWindow.label === 'clipboard-preview';
 const isCaptureOverlayWindow = currentWindow.label === 'capture-overlay';
 const isCapturePinWindow = currentWindow.label.startsWith('capture-pin-');
 const CaptureOverlay = defineAsyncComponent(() => import('./components/image/CaptureOverlay.vue'));
@@ -463,13 +465,14 @@ async function clearCompleted() {
   <n-config-provider :theme="naiveTheme" :theme-overrides="naiveOverrides">
     <n-message-provider>
       <ShortcutErrorNotifier
-        v-if="!isCaptureOverlayWindow && !isCapturePinWindow && !isClipboardHistoryWindow"
+        v-if="!isCaptureOverlayWindow && !isCapturePinWindow && !isClipboardHistoryWindow && !isClipboardPreviewWindow"
       />
       <CaptureOverlay v-if="isCaptureOverlayWindow" />
       <CapturePinWindow v-else-if="isCapturePinWindow" />
       <ClipboardHistoryWindow v-else-if="isClipboardHistoryWindow" />
+      <ClipboardPreviewWindow v-else-if="isClipboardPreviewWindow" />
       <AppShell
-        v-else-if="!isClipboardHistoryWindow && !isCapturePinWindow"
+        v-else-if="!isClipboardHistoryWindow && !isClipboardPreviewWindow && !isCapturePinWindow"
         :tools="tools"
         :active-id="selectedToolId"
         :collapsed="sidebarCollapsed"

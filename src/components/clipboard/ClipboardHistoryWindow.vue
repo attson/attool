@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emitTo, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { NButton, NInput, NSelect, useMessage } from 'naive-ui';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
@@ -11,9 +12,6 @@ const history = useClipboardHistory();
 const message = useMessage();
 const currentWindow = getCurrentWindow();
 const listRef = ref<HTMLElement | null>(null);
-const previewExpanded = ref(false);
-const STRIP_HEIGHT = 260;
-const PREVIEW_MIN_HEIGHT = 640;
 let unlistenOpened: UnlistenFn | null = null;
 
 async function getPrimaryLogicalBounds() {
@@ -28,25 +26,24 @@ async function getPrimaryLogicalBounds() {
   };
 }
 
-async function resizeWindowToBottom(height: number) {
+async function openPreviewWindow(item: ClipboardHistoryItem) {
   const bounds = await getPrimaryLogicalBounds();
+  const previewWindow = await WebviewWindow.getByLabel('clipboard-preview');
+  if (!previewWindow) return;
   if (!bounds) return;
-  const nextHeight = Math.min(height, bounds.height);
-  await currentWindow.setSize(new LogicalSize(bounds.width, nextHeight));
-  await currentWindow.setPosition(new LogicalPosition(bounds.x, bounds.y + bounds.height - nextHeight));
-}
-
-async function expandWindowForPreview() {
-  const bounds = await getPrimaryLogicalBounds();
-  if (!bounds) return;
-  previewExpanded.value = true;
-  await resizeWindowToBottom(Math.min(bounds.height, Math.max(PREVIEW_MIN_HEIGHT, bounds.height * 0.82)));
-  await currentWindow.setFocus();
-}
-
-async function restoreStripWindow() {
-  previewExpanded.value = false;
-  await resizeWindowToBottom(STRIP_HEIGHT);
+  const width = Math.min(Math.max(bounds.width * 0.78, 900), bounds.width);
+  const height = Math.min(Math.max(bounds.height * 0.76, 620), bounds.height);
+  await previewWindow.setSize(new LogicalSize(width, height));
+  await previewWindow.setPosition(new LogicalPosition(
+    bounds.x + (bounds.width - width) / 2,
+    bounds.y + (bounds.height - height) / 2,
+  ));
+  await previewWindow.show();
+  await previewWindow.setFocus();
+  await emitTo('clipboard-preview', 'clipboard-preview-opened', item);
+  setTimeout(() => {
+    emitTo('clipboard-preview', 'clipboard-preview-opened', item).catch(() => undefined);
+  }, 120);
 }
 
 async function restore(item: ClipboardHistoryItem) {
@@ -61,12 +58,10 @@ async function restore(item: ClipboardHistoryItem) {
 }
 
 async function closeWindow() {
-  await restoreStripWindow();
   await currentWindow.hide();
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && previewExpanded.value) return;
   if (event.key === 'Escape') closeWindow();
 }
 
@@ -131,8 +126,7 @@ onUnmounted(() => {
           @restore="restore"
           @delete="history.deleteItem"
           @pin="history.setPinned"
-          @preview-open="expandWindowForPreview"
-          @preview-close="restoreStripWindow"
+          @preview="openPreviewWindow"
         />
       </div>
     </section>
