@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
 import { NButton, NInput, NSelect, useMessage } from 'naive-ui';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
@@ -10,6 +10,42 @@ const history = useClipboardHistory();
 const message = useMessage();
 const currentWindow = getCurrentWindow();
 const listRef = ref<HTMLElement | null>(null);
+const previewExpanded = ref(false);
+const STRIP_HEIGHT = 260;
+const PREVIEW_MIN_HEIGHT = 640;
+
+async function getPrimaryLogicalBounds() {
+  const monitor = await primaryMonitor();
+  if (!monitor) return null;
+  const scale = monitor.scaleFactor;
+  return {
+    x: monitor.position.x / scale,
+    y: monitor.position.y / scale,
+    width: monitor.size.width / scale,
+    height: monitor.size.height / scale,
+  };
+}
+
+async function resizeWindowToBottom(height: number) {
+  const bounds = await getPrimaryLogicalBounds();
+  if (!bounds) return;
+  const nextHeight = Math.min(height, bounds.height);
+  await currentWindow.setSize(new LogicalSize(bounds.width, nextHeight));
+  await currentWindow.setPosition(new LogicalPosition(bounds.x, bounds.y + bounds.height - nextHeight));
+}
+
+async function expandWindowForPreview() {
+  const bounds = await getPrimaryLogicalBounds();
+  if (!bounds) return;
+  previewExpanded.value = true;
+  await resizeWindowToBottom(Math.min(bounds.height, Math.max(PREVIEW_MIN_HEIGHT, bounds.height * 0.82)));
+  await currentWindow.setFocus();
+}
+
+async function restoreStripWindow() {
+  previewExpanded.value = false;
+  await resizeWindowToBottom(STRIP_HEIGHT);
+}
 
 async function restore(item: ClipboardHistoryItem) {
   try {
@@ -23,10 +59,12 @@ async function restore(item: ClipboardHistoryItem) {
 }
 
 async function closeWindow() {
+  await restoreStripWindow();
   await currentWindow.hide();
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && previewExpanded.value) return;
   if (event.key === 'Escape') closeWindow();
 }
 
@@ -80,6 +118,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
           @restore="restore"
           @delete="history.deleteItem"
           @pin="history.setPinned"
+          @preview-open="expandWindowForPreview"
+          @preview-close="restoreStripWindow"
         />
       </div>
     </section>

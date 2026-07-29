@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, h, ref, Fragment } from 'vue';
+import { computed, ref } from 'vue';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { NImage, NModal, NButton } from 'naive-ui';
-import type { ImageInst, ImageRenderToolbarProps } from 'naive-ui';
+import { NModal, NButton } from 'naive-ui';
 import type { ClipboardHistoryItem } from '../../types/clipboard';
 
 const props = defineProps<{ item: ClipboardHistoryItem }>();
@@ -10,14 +9,22 @@ const emit = defineEmits<{
   restore: [item: ClipboardHistoryItem];
   delete: [id: string];
   pin: [id: string, isPinned: boolean];
+  previewOpen: [];
+  previewClose: [];
 }>();
 
 const imageSrc = computed(() => props.item.assetUrl ?? (props.item.assetPath ? convertFileSrc(props.item.assetPath) : null));
 
-const imageRef = ref<ImageInst | null>(null);
+const showImagePreview = ref(false);
 
 function openPreview() {
-  imageRef.value?.showPreview();
+  showImagePreview.value = true;
+  emit('previewOpen');
+}
+
+function handleImagePreviewShow(show: boolean) {
+  showImagePreview.value = show;
+  emit(show ? 'previewOpen' : 'previewClose');
 }
 
 const showTextPreview = ref(false);
@@ -30,38 +37,6 @@ function openTextPreview() {
 
 function copyText() {
   emit('restore', props.item);
-}
-
-// 在 NImage 内置工具栏后追加“复制到剪贴板”按钮
-function renderToolbar({ nodes }: ImageRenderToolbarProps) {
-  const copyNode = h(
-    'div',
-    {
-      class: 'clipboard-preview__toolbar-copy',
-      role: 'button',
-      title: '复制到剪贴板',
-      onClick: () => emit('restore', props.item),
-    },
-    h(
-      'svg',
-      { viewBox: '0 0 24 24', width: 20, height: 20, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-      [
-        h('rect', { x: 9, y: 9, width: 11, height: 11, rx: 2 }),
-        h('path', { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' }),
-      ],
-    ),
-  );
-  return h(Fragment, null, [
-    nodes.prev,
-    nodes.next,
-    nodes.rotateCounterclockwise,
-    nodes.rotateClockwise,
-    nodes.resizeToOriginalSize,
-    nodes.zoomOut,
-    nodes.zoomIn,
-    copyNode,
-    nodes.close,
-  ]);
 }
 
 const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
@@ -96,13 +71,6 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
             <line x1="8" y1="11" x2="14" y2="11" />
           </svg>
         </span>
-        <!-- 仅借用 NImage 的预览层(工具栏含缩放/旋转 + 复制),缩略图本身隐藏 -->
-        <n-image
-          ref="imageRef"
-          :src="imageSrc"
-          :render-toolbar="renderToolbar"
-          class="clipboard-card__previewer"
-        />
       </div>
       <template v-else-if="props.item.kind === 'files'">
         <strong>{{ props.item.preview }}</strong><br />
@@ -148,6 +116,30 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
       </div>
     </template>
   </n-modal>
+
+  <n-modal
+    v-if="props.item.kind === 'image' && imageSrc"
+    v-model:show="showImagePreview"
+    preset="card"
+    title="剪贴板图片"
+    class="clipboard-image-modal"
+    :auto-focus="false"
+    :bordered="false"
+    @update:show="handleImagePreviewShow"
+  >
+    <div class="clipboard-image-modal__body">
+      <img :src="imageSrc" alt="剪贴板图片预览" class="clipboard-image-modal__image" />
+    </div>
+    <template #footer>
+      <div class="clipboard-image-modal__footer">
+        <span class="clipboard-text-modal__info">{{ createdAtText }}</span>
+        <div class="clipboard-image-modal__actions">
+          <n-button size="small" secondary @click="handleImagePreviewShow(false)">关闭</n-button>
+          <n-button size="small" type="primary" @click="copyText">复制到剪贴板</n-button>
+        </div>
+      </div>
+    </template>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -183,9 +175,6 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
 
 .clipboard-card:hover .clipboard-card__zoom { opacity: 1; }
 
-/* 只借用 NImage 的预览层,隐藏它自身的缩略图占位 */
-.clipboard-card__previewer { display: none; }
-
 /* 文本卡:相对定位以容纳右上角悬浮的“查看”图标 */
 .clipboard-card__text { position: relative; }
 
@@ -198,20 +187,6 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
 </style>
 
 <style>
-/* 预览工具栏内的复制按钮:与 NImage 内置工具栏图标风格保持一致(非 scoped,作用于 teleport 到 body 的预览层) */
-.clipboard-preview__toolbar-copy {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 12px;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-
-.clipboard-preview__toolbar-copy:hover {
-  color: var(--n-toolbar-icon-color-hover, #fff);
-}
-
 /* 文本预览弹窗(NModal teleport 到 body,需非 scoped) */
 .clipboard-text-modal {
   width: 640px;
@@ -239,5 +214,43 @@ const KIND_LABEL: Record<ClipboardHistoryItem['kind'], string> = {
 .clipboard-text-modal__info {
   color: var(--n-text-color-3, rgba(255, 255, 255, 0.52));
   font-size: var(--fs-sm, 13px);
+}
+
+.clipboard-image-modal {
+  width: calc(100vw - 32px);
+  max-width: 1480px;
+}
+
+.clipboard-image-modal .n-card__content {
+  padding: 0;
+}
+
+.clipboard-image-modal__body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100vh - 150px);
+  min-height: 360px;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.clipboard-image-modal__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.clipboard-image-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clipboard-image-modal__actions {
+  display: flex;
+  gap: 8px;
 }
 </style>
