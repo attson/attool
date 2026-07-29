@@ -13,11 +13,8 @@ const message = useMessage();
 const currentWindow = getCurrentWindow();
 const listRef = ref<HTMLElement | null>(null);
 let unlistenOpened: UnlistenFn | null = null;
-const HISTORY_STRIP_HEIGHT = 260;
-const PREVIEW_GAP = 12;
-const PREVIEW_EDGE_MARGIN = 12;
 const PREVIEW_MIN_WIDTH = 900;
-const PREVIEW_MIN_HEIGHT = 420;
+const PREVIEW_MIN_HEIGHT = 620;
 
 async function getPrimaryLogicalBounds() {
   const monitor = await primaryMonitor();
@@ -36,22 +33,17 @@ async function openPreviewWindow(item: ClipboardHistoryItem) {
   const previewWindow = await WebviewWindow.getByLabel('clipboard-preview');
   if (!previewWindow) return;
   if (!bounds) return;
-  const maxWidth = Math.max(bounds.width - PREVIEW_EDGE_MARGIN * 2, PREVIEW_MIN_WIDTH);
-  const maxHeight = Math.max(
-    bounds.height - HISTORY_STRIP_HEIGHT - PREVIEW_GAP - PREVIEW_EDGE_MARGIN,
-    PREVIEW_MIN_HEIGHT,
-  );
-  const width = Math.min(Math.max(bounds.width * 0.78, PREVIEW_MIN_WIDTH), maxWidth);
-  const height = Math.min(Math.max(bounds.height * 0.7, PREVIEW_MIN_HEIGHT), maxHeight);
+  const width = Math.min(Math.max(bounds.width * 0.78, PREVIEW_MIN_WIDTH), bounds.width);
+  const height = Math.min(Math.max(bounds.height * 0.76, PREVIEW_MIN_HEIGHT), bounds.height);
   const x = bounds.x + (bounds.width - width) / 2;
-  const y = Math.max(
-    bounds.y + PREVIEW_EDGE_MARGIN,
-    bounds.y + bounds.height - HISTORY_STRIP_HEIGHT - PREVIEW_GAP - height,
-  );
+  const y = bounds.y + (bounds.height - height) / 2;
   await previewWindow.setSize(new LogicalSize(width, height));
   await previewWindow.setPosition(new LogicalPosition(x, y));
+  await currentWindow.setAlwaysOnTop(false);
+  await previewWindow.setAlwaysOnTop(true);
   await previewWindow.show();
   await previewWindow.setFocus();
+  await previewWindow.setAlwaysOnTop(true);
   await emitTo('clipboard-preview', 'clipboard-preview-opened', item);
   setTimeout(() => {
     emitTo('clipboard-preview', 'clipboard-preview-opened', item).catch(() => undefined);

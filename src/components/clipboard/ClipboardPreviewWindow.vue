@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { NButton, useMessage } from 'naive-ui';
 import type { ClipboardHistoryItem } from '../../types/clipboard';
 
@@ -28,7 +29,11 @@ const createdAtText = computed(() => item.value?.createdAt.slice(0, 16).replace(
 const charCount = computed(() => item.value ? [...item.value.contentText].length : 0);
 
 async function closeWindow() {
+  await currentWindow.setAlwaysOnTop(false);
   await currentWindow.hide();
+  const historyWindow = await WebviewWindow.getByLabel('clipboard-history');
+  await historyWindow?.setAlwaysOnTop(true);
+  await historyWindow?.setFocus();
 }
 
 async function copyItem() {
