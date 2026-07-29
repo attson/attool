@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useMessage } from 'naive-ui';
 
 interface WindowRect {
   owner: string;
@@ -56,6 +57,7 @@ const bgSrc = ref('');
 const screenW = ref(1);
 const screenH = ref(1);
 const scale = ref(1);
+const message = useMessage();
 
 const selection = ref<Rect | null>(null);
 const isSelecting = ref(false);
@@ -747,7 +749,10 @@ async function composeCanvas(): Promise<HTMLCanvasElement | null> {
 }
 
 async function saveToFile() {
-  const canvas = await composeCanvas();
+  const canvas = await composeCanvas().catch((err) => {
+    message.error(`截图合成失败：${String(err)}`);
+    return null;
+  });
   if (!canvas) return;
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const target = await saveDialog({
@@ -757,9 +762,13 @@ async function saveToFile() {
   if (!target) return;
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
-  await invoke('write_binary_file', { path: target, base64 }).catch((err) => {
+  try {
+    await invoke('write_binary_file', { path: target, base64 });
+  } catch (err) {
     console.warn('[capture] save failed', err);
-  });
+    message.error(`保存失败：${String(err)}`);
+    return;
+  }
   await invoke('close_capture_overlay').catch(() => {});
   resetState();
 }
@@ -790,25 +799,39 @@ function resetState() {
 }
 
 async function confirm() {
-  const canvas = await composeCanvas();
+  const canvas = await composeCanvas().catch((err) => {
+    message.error(`截图合成失败：${String(err)}`);
+    return null;
+  });
   if (!canvas) return;
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
   // Rust side saves file AND writes clipboard image — one round trip, no flaky JS Image.fromBytes.
-  await invoke('commit_capture_overlay', { request: { pngBase64: base64 } }).catch((err) => {
+  try {
+    await invoke('commit_capture_overlay', { request: { pngBase64: base64 } });
+  } catch (err) {
     console.warn('[capture] commit failed', err);
-  });
+    message.error(`提交失败：${String(err)}`);
+    return;
+  }
   resetState();
 }
 
 async function pinIt() {
-  const canvas = await composeCanvas();
+  const canvas = await composeCanvas().catch((err) => {
+    message.error(`截图合成失败：${String(err)}`);
+    return null;
+  });
   if (!canvas) return;
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
-  await invoke('pin_capture_overlay', { request: { pngBase64: base64 } }).catch((err) => {
+  try {
+    await invoke('pin_capture_overlay', { request: { pngBase64: base64 } });
+  } catch (err) {
     console.warn('[capture] pin failed', err);
-  });
+    message.error(`钉图失败：${String(err)}`);
+    return;
+  }
   resetState();
 }
 

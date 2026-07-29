@@ -11,6 +11,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
+const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -153,8 +154,7 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(120));
 
     // Snap the whole desktop silently, no cursor.
-    // Use BMP (uncompressed) instead of PNG: this is a throwaway background frame,
-    // and PNG deflate on an 8MP frame takes ~2s while BMP is ~8ms.
+    // Keep this in a WebView-supported format because the overlay renders it with <img>.
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -164,7 +164,9 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "无法确定缓存目录".to_string())?;
     let dir = cache_root.join("attool").join("captures");
     fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
-    let image_path = dir.join(format!("attool-desktop-{ts}.bmp"));
+    let image_path = dir.join(format!(
+        "attool-desktop-{ts}.{OVERLAY_DESKTOP_FRAME_EXTENSION}"
+    ));
 
     capture_fullscreen_silent(&image_path)?;
     if !image_path.is_file() {
@@ -249,7 +251,7 @@ fn bgra_bytes_to_rgba_image(
     image::RgbaImage::from_raw(width, height, rgba).ok_or_else(|| "截图像素转换失败".to_string())
 }
 
-/// 把主屏静默截取为 BMP 存到 path。macOS 用 CoreGraphics(不含鼠标);
+/// 把主屏静默截取为 PNG 存到 path。macOS 用 CoreGraphics(不含鼠标);
 /// 其他平台用 xcap(X11/Windows 可用,Wayland 尽力而为)。
 #[cfg(target_os = "macos")]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
@@ -492,5 +494,17 @@ mod tests {
         let image = bgra_bytes_to_rgba_image(&raw, 1, 2, 8).unwrap();
 
         assert_eq!(image.as_raw(), &[30, 20, 10, 255, 60, 50, 40, 128]);
+    }
+
+    #[test]
+    fn overlay_desktop_frame_uses_a_webview_supported_image_format() {
+        assert!(
+            matches!(OVERLAY_DESKTOP_FRAME_EXTENSION, "png" | "jpg" | "jpeg" | "webp"),
+            "overlay background must use a WebView-supported image format"
+        );
+        assert_ne!(
+            OVERLAY_DESKTOP_FRAME_EXTENSION, "bmp",
+            "WKWebView does not reliably render BMP, which leaves the capture overlay blank"
+        );
     }
 }
