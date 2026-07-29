@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
 import { NButton, NInput, NSelect, useMessage } from 'naive-ui';
 import ClipboardItemCard from './ClipboardItemCard.vue';
@@ -13,6 +14,7 @@ const listRef = ref<HTMLElement | null>(null);
 const previewExpanded = ref(false);
 const STRIP_HEIGHT = 260;
 const PREVIEW_MIN_HEIGHT = 640;
+let unlistenOpened: UnlistenFn | null = null;
 
 async function getPrimaryLogicalBounds() {
   const monitor = await primaryMonitor();
@@ -79,10 +81,21 @@ function handleWheel(event: WheelEvent) {
 
 onMounted(() => {
   history.refresh();
+  listen('clipboard-history-opened', () => {
+    history.refresh();
+  }).then((unlisten) => {
+    unlistenOpened = unlisten;
+  });
   window.addEventListener('keydown', handleKeydown);
 });
 
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  if (unlistenOpened) {
+    unlistenOpened();
+    unlistenOpened = null;
+  }
+  window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
