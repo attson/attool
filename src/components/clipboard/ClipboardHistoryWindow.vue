@@ -61,22 +61,29 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
       <n-button secondary @click="history.refresh">刷新</n-button>
     </div>
     <p v-if="history.error.value" class="clipboard-muted">{{ history.error.value }}</p>
-    <div class="clipboard-grid">
-      <ClipboardItemCard
-        v-for="item in history.filteredItems.value"
-        :key="item.id"
-        :item="item"
-        @restore="restore"
-        @delete="history.deleteItem"
-        @pin="history.setPinned"
-      />
-    </div>
+    <section class="clipboard-window__rail" aria-label="剪贴板历史列表">
+      <div class="clipboard-window__list">
+        <ClipboardItemCard
+          v-for="item in history.filteredItems.value"
+          :key="item.id"
+          :item="item"
+          @restore="restore"
+          @delete="history.deleteItem"
+          @pin="history.setPinned"
+        />
+      </div>
+    </section>
   </main>
 </template>
 
 <style scoped>
 .clipboard-window {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   padding: 18px;
   background: var(--bg-base);
   color: var(--text);
@@ -99,6 +106,40 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
 .clipboard-window__hint {
   margin: 6px 0 0;
+}
+
+.clipboard-window__rail {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.clipboard-window__list {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 10px;
+  scrollbar-gutter: stable;
+}
+
+.clipboard-window__list :deep(.clipboard-card) {
+  display: flex;
+  flex: 0 0 clamp(180px, 25vw, 240px);
+  flex-direction: column;
+  height: 148px;
+}
+
+.clipboard-window__list :deep(.clipboard-card__preview) {
+  flex: 1;
+  overflow: hidden;
+}
+
+.clipboard-window__list :deep(.clipboard-card__actions) {
+  margin-top: 10px;
 }
 
 .clipboard-kind-select { width: 140px; }
