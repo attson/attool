@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { NButton, NInput, NSelect, useMessage } from 'naive-ui';
 import ClipboardItemCard from './ClipboardItemCard.vue';
@@ -9,6 +9,7 @@ import type { ClipboardHistoryItem } from '../../types/clipboard';
 const history = useClipboardHistory();
 const message = useMessage();
 const currentWindow = getCurrentWindow();
+const listRef = ref<HTMLElement | null>(null);
 
 async function restore(item: ClipboardHistoryItem) {
   try {
@@ -29,6 +30,15 @@ function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeWindow();
 }
 
+function handleWheel(event: WheelEvent) {
+  const list = listRef.value;
+  if (!list) return;
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (delta === 0) return;
+  event.preventDefault();
+  list.scrollLeft += delta;
+}
+
 onMounted(() => {
   history.refresh();
   window.addEventListener('keydown', handleKeydown);
@@ -38,7 +48,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
-  <main class="clipboard-window">
+  <main class="clipboard-window" @wheel="handleWheel">
     <header class="clipboard-window__header">
       <div>
         <h1 class="clipboard-window__title">剪贴板历史</h1>
@@ -62,7 +72,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
     </div>
     <p v-if="history.error.value" class="clipboard-muted">{{ history.error.value }}</p>
     <section class="clipboard-window__rail" aria-label="剪贴板历史列表">
-      <div class="clipboard-window__list">
+      <div ref="listRef" class="clipboard-window__list">
         <ClipboardItemCard
           v-for="item in history.filteredItems.value"
           :key="item.id"
