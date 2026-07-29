@@ -65,8 +65,8 @@ onUnmounted(() => {
 
 <template>
   <main class="clipboard-preview-window">
-    <header class="clipboard-preview-window__header">
-      <div>
+    <header class="clipboard-preview-window__header" data-tauri-drag-region>
+      <div data-tauri-drag-region>
         <h1 class="clipboard-preview-window__title">{{ title }}</h1>
         <p v-if="item" class="clipboard-muted clipboard-preview-window__meta">
           {{ createdAtText }}<template v-if="item.kind === 'text'"> · {{ charCount }} 字</template>
@@ -119,6 +119,8 @@ onUnmounted(() => {
 
 .clipboard-preview-window__header {
   margin-bottom: 12px;
+  cursor: move;
+  user-select: none;
 }
 
 .clipboard-preview-window__title {
