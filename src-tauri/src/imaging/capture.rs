@@ -255,7 +255,21 @@ fn bgra_bytes_to_rgba_image(
 /// 其他平台用 xcap(X11/Windows 可用,Wayland 尽力而为)。
 #[cfg(target_os = "macos")]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
+    use core_graphics::access::ScreenCaptureAccess;
     use core_graphics::display::CGDisplay;
+
+    // 未授予录屏权限时,CGDisplay::image() 仍会返回一张只含壁纸和本进程自己窗口的
+    // 图片(不会返回 None),表现为“只截到自己”。所以要主动 preflight。
+    let access = ScreenCaptureAccess::default();
+    if !access.preflight() {
+        // 尝试触发系统权限授权面板(仅首次调用会弹出)。
+        // 权限授予后本进程仍需重启才生效,因此无论结果都提示用户重启。
+        access.request();
+        return Err(
+            "桌面截图失败：AT Tool 尚未获得“屏幕录制”权限。请在“系统设置 → 隐私与安全性 → 屏幕录制”中勾选 AT Tool,然后重启应用后再试。"
+                .to_string(),
+        );
+    }
 
     let image = CGDisplay::main()
         .image()

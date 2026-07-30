@@ -2,6 +2,9 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { NAlert, NButton, NInput, NInputNumber, NPopconfirm, NSelect, NSwitch, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
+import { emitTo } from '@tauri-apps/api/event';
+import { LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import Panel from '../ui/Panel.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
@@ -39,6 +42,36 @@ async function restore(item: ClipboardHistoryItem) {
   } catch (error) {
     message.error(`复制失败：${error}`);
   }
+}
+
+const PREVIEW_MIN_WIDTH = 900;
+const PREVIEW_MIN_HEIGHT = 620;
+
+async function openPreview(item: ClipboardHistoryItem) {
+  const previewWindow = await WebviewWindow.getByLabel('clipboard-preview');
+  if (!previewWindow) return;
+  const monitor = await primaryMonitor();
+  if (monitor) {
+    const scale = monitor.scaleFactor;
+    const boundsWidth = monitor.size.width / scale;
+    const boundsHeight = monitor.size.height / scale;
+    const boundsX = monitor.position.x / scale;
+    const boundsY = monitor.position.y / scale;
+    const width = Math.min(Math.max(boundsWidth * 0.78, PREVIEW_MIN_WIDTH), boundsWidth);
+    const height = Math.min(Math.max(boundsHeight * 0.76, PREVIEW_MIN_HEIGHT), boundsHeight);
+    const x = boundsX + (boundsWidth - width) / 2;
+    const y = boundsY + (boundsHeight - height) / 2;
+    await previewWindow.setSize(new LogicalSize(width, height));
+    await previewWindow.setPosition(new LogicalPosition(x, y));
+  }
+  await previewWindow.setAlwaysOnTop(true);
+  await previewWindow.show();
+  await previewWindow.setFocus();
+  await emitTo('clipboard-preview', 'clipboard-preview-opened', item);
+  // 首次监听可能未就绪,延时再发一次兜底。
+  setTimeout(() => {
+    emitTo('clipboard-preview', 'clipboard-preview-opened', item).catch(() => undefined);
+  }, 120);
 }
 
 async function loadSettings() {
@@ -209,6 +242,7 @@ onMounted(() => {
           @restore="restore"
           @delete="history.deleteItem"
           @pin="history.setPinned"
+          @preview="openPreview"
         />
       </div>
     </Panel>
