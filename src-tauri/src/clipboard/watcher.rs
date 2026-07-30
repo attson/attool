@@ -167,12 +167,12 @@ fn position_history_strip(app: &AppHandle, window: &WebviewWindow) -> Result<(),
         .map_err(|error| format!("获取主显示器失败：{error}"))?
         .ok_or_else(|| "未找到主显示器".to_string())?;
     let scale = monitor.scale_factor();
-    let physical_size = monitor.size();
-    let physical_pos = monitor.position();
-    let logical_width = physical_size.width as f64 / scale;
-    let logical_height = physical_size.height as f64 / scale;
-    let logical_x = physical_pos.x as f64 / scale;
-    let logical_y = physical_pos.y as f64 / scale;
+    // work_area 排除了 macOS 的菜单栏和 Dock、Windows 的任务栏,避免条状面板被遮挡。
+    let work_area = monitor.work_area();
+    let logical_width = work_area.size.width as f64 / scale;
+    let logical_height = work_area.size.height as f64 / scale;
+    let logical_x = work_area.position.x as f64 / scale;
+    let logical_y = work_area.position.y as f64 / scale;
     let strip_height = CLIPBOARD_STRIP_HEIGHT.min(logical_height);
 
     window
