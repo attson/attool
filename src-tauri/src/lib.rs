@@ -4,6 +4,7 @@ mod updater;
 mod douyin;
 #[cfg(target_os = "linux")]
 mod gpu_linux;
+pub mod ai;
 pub mod ecommerce;
 pub mod http;
 pub mod imaging;
