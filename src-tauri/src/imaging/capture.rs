@@ -215,82 +215,33 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn bgra_bytes_to_rgba_image(
-    raw: &[u8],
-    width: u32,
-    height: u32,
-    bytes_per_row: usize,
-) -> Result<image::RgbaImage, String> {
-    let row_len = width
-        .checked_mul(4)
-        .map(|v| v as usize)
-        .ok_or_else(|| "截图尺寸过大".to_string())?;
-    if bytes_per_row < row_len {
-        return Err("截图像素行数据异常".to_string());
-    }
-    let height_usize = height as usize;
-    let required_len = if height_usize == 0 {
-        0
-    } else {
-        bytes_per_row
-            .checked_mul(height_usize - 1)
-            .and_then(|v| v.checked_add(row_len))
-            .ok_or_else(|| "截图像素数据过大".to_string())?
-    };
-    if raw.len() < required_len {
-        return Err("截图像素数据不完整".to_string());
-    }
-
-    let mut rgba = Vec::with_capacity(row_len * height_usize);
-    for y in 0..height_usize {
-        let offset = y * bytes_per_row;
-        for px in raw[offset..offset + row_len].chunks_exact(4) {
-            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
-        }
-    }
-    image::RgbaImage::from_raw(width, height, rgba).ok_or_else(|| "截图像素转换失败".to_string())
-}
-
-/// 把主屏静默截取为 PNG 存到 path。macOS 用 CoreGraphics(不含鼠标);
+/// 把主屏静默截取为 PNG 存到 path。macOS 用系统自带的 screencapture(不含鼠标);
 /// 其他平台用 xcap(X11/Windows 可用,Wayland 尽力而为)。
 #[cfg(target_os = "macos")]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
-    use core_graphics::access::ScreenCaptureAccess;
-    use core_graphics::display::CGDisplay;
-
-    // 未授予录屏权限时,CGDisplay::image() 仍会返回一张只含壁纸和本进程自己窗口的
-    // 图片(不会返回 None),表现为“只截到自己”。所以要主动 preflight。
-    let access = ScreenCaptureAccess::default();
-    if !access.preflight() {
-        // 尝试触发系统权限授权面板(仅首次调用会弹出)。
-        // 权限授予后本进程仍需重启才生效,因此无论结果都提示用户重启。
-        access.request();
-        return Err(
-            "桌面截图失败：AT Tool 尚未获得“屏幕录制”权限。请在“系统设置 → 隐私与安全性 → 屏幕录制”中勾选 AT Tool,然后重启应用后再试。"
-                .to_string(),
-        );
-    }
-
-    let image = CGDisplay::main()
-        .image()
-        .ok_or_else(|| "桌面截图失败：请确认已授予录屏权限并重启 AT Tool".to_string())?;
-    if image.bits_per_pixel() != 32 {
+    // 为什么不用 CGDisplayCreateImage:
+    // AT Tool 采用 ad-hoc 签名(tauri.conf.json 的 signingIdentity: "-"),
+    // 在 macOS Sonoma/Sequoia 上,TCC 对 ad-hoc 签名的 App 会“记不住”
+    // 屏幕录制授权——每次重启都当作新进程再弹一次系统权限窗,即便用户
+    // 已在“系统设置 → 隐私与安全性 → 屏幕录制”里勾选了 AT Tool。
+    // /usr/sbin/screencapture 是 Apple 签名的系统二进制,子进程调用它
+    // 可以拿到完整桌面而不会触发 TCC 反复弹窗。
+    let status = Command::new("/usr/sbin/screencapture")
+        .arg("-x") // 静默,不播放快门音
+        .arg("-t")
+        .arg("png")
+        .arg(path)
+        .status()
+        .map_err(|error| format!("启动 screencapture 失败：{error}"))?;
+    if !status.success() {
         return Err(format!(
-            "不支持的截图像素格式：{} bits/pixel",
-            image.bits_per_pixel()
+            "桌面截图失败:screencapture 退出码 {}",
+            status.code().unwrap_or(-1)
         ));
     }
-
-    let data = image.data();
-    let rgba = bgra_bytes_to_rgba_image(
-        data.bytes(),
-        image.width() as u32,
-        image.height() as u32,
-        image.bytes_per_row(),
-    )?;
-    image::DynamicImage::ImageRgba8(rgba)
-        .save(path)
-        .map_err(|error| format!("保存截图失败：{error}"))?;
+    if !path.is_file() {
+        return Err("桌面截图失败:未生成截图文件".to_string());
+    }
     Ok(())
 }
 
@@ -500,15 +451,6 @@ pub fn capture_screen(mode: &str, delay_seconds: u32) -> Result<PathBuf, String>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn bgra_stride_rows_are_converted_to_rgba_pixels() {
-        let raw = [10, 20, 30, 255, 0, 0, 0, 0, 40, 50, 60, 128, 0, 0, 0, 0];
-
-        let image = bgra_bytes_to_rgba_image(&raw, 1, 2, 8).unwrap();
-
-        assert_eq!(image.as_raw(), &[30, 20, 10, 255, 60, 50, 40, 128]);
-    }
 
     #[test]
     fn overlay_desktop_frame_uses_a_webview_supported_image_format() {
