@@ -74,11 +74,14 @@ function removeAttachment(i: number) {
 
 async function doSend() {
   const t = text.value.trim();
-  const atts = attachments.value;
-  text.value = '';
-  attachments.value = [];
+  const atts = attachments.value.slice();
   try {
     await chat.sendMessage(t, atts);
+    // Only clear the draft once the send actually succeeds, so a rejected
+    // ai_send (missing session/model, provider error, DB error) leaves the
+    // user's text and attachment chips intact for retry.
+    text.value = '';
+    attachments.value = [];
   } catch (err) {
     message.error(errText(err));
   }
