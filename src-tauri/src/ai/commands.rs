@@ -194,11 +194,13 @@ fn spawn_chat_stream(
         AiCancelHandle { tx: cancel_tx, cancelled: cancelled.clone() },
     );
 
-    // 转发任务：把 provider 吐出的增量文本落库并广播给前端。
+    // 转发任务：把 provider 吐出的增量文本落库并广播给前端。持有 JoinHandle
+    // 是因为主任务必须等它把 channel 排空、所有 delta 都落库/emit 完，才能
+    // 发 done 事件——否则前端按“收到 done 就停止监听”处理时会截断正文。
     let store_fwd = store.clone();
     let app_fwd = app.clone();
     let msg_id_fwd = assistant_id.clone();
-    tokio::spawn(async move {
+    let forwarder = tokio::spawn(async move {
         while let Some(ChatDelta::Text(t)) = delta_rx.recv().await {
             let _ = store_fwd.append_message_delta(&msg_id_fwd, &t);
             let _ = app_fwd.emit(
@@ -220,6 +222,10 @@ fn spawn_chat_stream(
             Provider::Anthropic(p) => p.stream_chat(req, delta_tx, cancel_rx).await,
             Provider::Ollama(p) => p.stream_chat(req, delta_tx, cancel_rx).await,
         };
+        // stream_chat 消费了 delta_tx（其内部持有的发送端在函数返回时被
+        // drop），所以此刻 channel 的发送端已经没有别的持有者了；等待
+        // forwarder 退出即可保证所有已入队的 delta 都已处理完毕。
+        let _ = forwarder.await;
         let now = now_ms();
         let (status, err_msg, prompt_tok, completion_tok) = if cancelled_final.load(Ordering::SeqCst)
         {
@@ -255,6 +261,23 @@ fn spawn_chat_stream(
     Ok(())
 }
 
+/// `spawn_chat_stream` can fail before any task is spawned (e.g. unknown
+/// provider `kind`, or a bad `content_json` row). At that point the
+/// assistant placeholder is already sitting in the DB as `status="streaming"`
+/// with no cancel handle and no finalizer task — nothing will ever move it
+/// out of that state. Call this from every `spawn_chat_stream` call site's
+/// error branch so the row (and the frontend listening for it) converges.
+fn finalize_message_error(store: &AiStore, message_id: &str, error: &str) {
+    let _ = store.update_message_status(
+        message_id,
+        "error",
+        Some(error.to_string()),
+        None,
+        None,
+        Some(now_ms()),
+    );
+}
+
 // ---- providers ----
 
 #[tauri::command]
@@ -262,11 +285,24 @@ pub fn ai_list_providers(store: State<'_, Arc<AiStore>>) -> Result<Vec<ProviderR
     store.list_providers()
 }
 
+const KNOWN_PROVIDER_KINDS: [&str; 3] = ["openai", "anthropic", "ollama"];
+
+fn validate_provider_kind(kind: &str) -> Result<(), String> {
+    if KNOWN_PROVIDER_KINDS.contains(&kind) {
+        Ok(())
+    } else {
+        Err(format!("未知 provider kind: {kind}"))
+    }
+}
+
 #[tauri::command]
 pub fn ai_upsert_provider(
     provider: ProviderRow,
     store: State<'_, Arc<AiStore>>,
 ) -> Result<ProviderRow, String> {
+    // 提前拒绝未知 kind：否则要等到某个会话真正 ai_send 时才会在
+    // build_provider 里失败，把失败面从"保存配置时"推迟到"聊天时"。
+    validate_provider_kind(&provider.kind)?;
     store.upsert_provider(provider)
 }
 
@@ -425,11 +461,11 @@ pub async fn ai_send(
     })?;
     store.touch_session(&session_id)?;
 
-    spawn_chat_stream(
+    if let Err(error) = spawn_chat_stream(
         store.inner().clone(),
         session_state.inner().clone(),
         client.inner().clone(),
-        app,
+        app.clone(),
         session_id,
         assistant_id.clone(),
         vec![assistant_id.clone()],
@@ -438,7 +474,16 @@ pub async fn ai_send(
         model.temperature,
         model.max_tokens,
         provider_row,
-    )?;
+    ) {
+        // 没有任何后台任务被启动，assistant 行会永远卡在 streaming——必须
+        // 在这里就地收尾，否则前端等不到 done 事件，用户看到的是永久转圈。
+        finalize_message_error(&store, &assistant_id, &error);
+        let _ = app.emit(
+            &format!("ai-chat-done-{assistant_id}"),
+            serde_json::json!({ "status": "error", "error": error }),
+        );
+        return Err(error);
+    }
 
     Ok(assistant_id)
 }
@@ -490,11 +535,11 @@ pub async fn ai_retry(
     })?;
     store.touch_session(&old.session_id)?;
 
-    spawn_chat_stream(
+    if let Err(error) = spawn_chat_stream(
         store.inner().clone(),
         session_state.inner().clone(),
         client.inner().clone(),
-        app,
+        app.clone(),
         old.session_id,
         new_id.clone(),
         // 新消息本身，以及被重试的旧 assistant 消息都不应进入上下文。
@@ -504,7 +549,14 @@ pub async fn ai_retry(
         model.temperature,
         model.max_tokens,
         provider_row,
-    )?;
+    ) {
+        finalize_message_error(&store, &new_id, &error);
+        let _ = app.emit(
+            &format!("ai-chat-done-{new_id}"),
+            serde_json::json!({ "status": "error", "error": error }),
+        );
+        return Err(error);
+    }
 
     Ok(new_id)
 }
@@ -662,5 +714,56 @@ mod tests {
             }
             _ => panic!("expected image"),
         }
+    }
+
+    #[test]
+    fn validate_provider_kind_rejects_unknown() {
+        assert!(validate_provider_kind("openai").is_ok());
+        assert!(validate_provider_kind("anthropic").is_ok());
+        assert!(validate_provider_kind("ollama").is_ok());
+        assert!(validate_provider_kind("gemini").is_err());
+    }
+
+    /// Regression test for the "stuck streaming forever" bug (review
+    /// finding 1): if `spawn_chat_stream` fails before any task is
+    /// spawned, the assistant placeholder must be moved out of
+    /// `status="streaming"` — otherwise no cancel handle and no finalizer
+    /// task exist, and the row (and any frontend awaiting its done event)
+    /// never converges.
+    #[test]
+    fn finalize_message_error_moves_streaming_row_to_error() {
+        let store = AiStore::new_in_memory().unwrap();
+        store
+            .create_session(SessionRow {
+                id: "s1".into(),
+                title: "t".into(),
+                system_prompt: "".into(),
+                current_model_id: None,
+                created_at: 0,
+                updated_at: 0,
+            })
+            .unwrap();
+        store
+            .insert_message(MessageRow {
+                id: "m1".into(),
+                session_id: "s1".into(),
+                role: "assistant".into(),
+                content_json: "[]".into(),
+                model_id: None,
+                status: "streaming".into(),
+                error_message: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                created_at: 0,
+                finished_at: None,
+            })
+            .unwrap();
+
+        finalize_message_error(&store, "m1", "未知 provider kind: gemini");
+
+        let got = store.get_message("m1").unwrap().unwrap();
+        assert_eq!(got.status, "error");
+        assert_eq!(got.error_message.as_deref(), Some("未知 provider kind: gemini"));
+        assert!(got.finished_at.is_some());
     }
 }
