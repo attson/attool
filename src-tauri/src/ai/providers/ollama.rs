@@ -17,8 +17,6 @@ impl OllamaProvider {
         delta_tx: mpsc::UnboundedSender<ChatDelta>,
         mut cancel_rx: oneshot::Receiver<()>,
     ) -> Result<ChatFinal, ProviderError> {
-        use base64::Engine;
-
         let mut messages = Vec::new();
         if let Some(sp) = &req.system_prompt {
             if !sp.is_empty() {
@@ -33,8 +31,7 @@ impl OllamaProvider {
                 match p {
                     ContentPart::Text(t) => text.push_str(t),
                     ContentPart::Image { path, .. } => {
-                        let bytes = std::fs::read(path.trim_start_matches("file://")).unwrap_or_default();
-                        images.push(base64::engine::general_purpose::STANDARD.encode(&bytes));
+                        images.push(crate::ai::providers::read_image_base64(path).await?);
                     }
                 }
             }
@@ -76,7 +73,7 @@ impl OllamaProvider {
         }
 
         let mut stream = resp.bytes_stream();
-        let mut buf = String::new();
+        let mut buf: Vec<u8> = Vec::new();
         let mut fin = ChatFinal::default();
         loop {
             tokio::select! {
@@ -84,10 +81,9 @@ impl OllamaProvider {
                 chunk = stream.next() => {
                     let Some(chunk) = chunk else { break };
                     let bytes = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
-                    buf.push_str(&String::from_utf8_lossy(&bytes));
+                    buf.extend_from_slice(&bytes);
                     // NDJSON: 每行一个 JSON 对象，按单个 '\n' 切分。
-                    while let Some(pos) = buf.find('\n') {
-                        let line: String = buf.drain(..pos + 1).collect();
+                    for line in crate::ai::providers::assemble_utf8_frames(&mut buf, b"\n") {
                         match parse_ollama_line(&line) {
                             ParsedOllamaLine::Text(t) => {
                                 let _ = delta_tx.send(ChatDelta::Text(t));

@@ -1201,7 +1201,11 @@ pub fn run() {
             );
             app.manage(ai_store);
             app.manage(std::sync::Arc::new(ai::session::AiSessionState::new()));
-            app.manage(reqwest::Client::builder().build().unwrap());
+            let ai_http_client = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, format!("build reqwest client: {error}")))?;
+            app.manage(ai_http_client);
 
             let updater_stage_dir = app
                 .path()

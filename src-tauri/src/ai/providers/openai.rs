@@ -26,18 +26,16 @@ impl OpenAiProvider {
             }
         }
         for m in &req.messages {
-            let parts: Vec<serde_json::Value> = m
-                .content
-                .iter()
-                .map(|p| match p {
-                    ContentPart::Text(t) => serde_json::json!({"type":"text","text":t}),
+            let mut parts: Vec<serde_json::Value> = Vec::with_capacity(m.content.len());
+            for p in &m.content {
+                match p {
+                    ContentPart::Text(t) => parts.push(serde_json::json!({"type":"text","text":t})),
                     ContentPart::Image { path, mime } => {
-                        let data = crate::ai::providers::read_and_encode_image(path, mime)
-                            .unwrap_or_else(|_| String::new());
-                        serde_json::json!({"type":"image_url","image_url":{"url":data}})
+                        let data = crate::ai::providers::read_image_data_url(path, mime).await?;
+                        parts.push(serde_json::json!({"type":"image_url","image_url":{"url":data}}));
                     }
-                })
-                .collect();
+                }
+            }
             // 若只有一段 text 就退回字符串形式(老 OpenAI 模型不支持数组)
             let content = if parts.len() == 1 && parts[0]["type"] == "text" {
                 parts[0]["text"].clone()
@@ -78,7 +76,7 @@ impl OpenAiProvider {
         }
 
         let mut stream = resp.bytes_stream();
-        let mut buf = String::new();
+        let mut buf: Vec<u8> = Vec::new();
         let mut fin = ChatFinal::default();
         loop {
             tokio::select! {
@@ -86,9 +84,8 @@ impl OpenAiProvider {
                 chunk = stream.next() => {
                     let Some(chunk) = chunk else { break };
                     let bytes = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
-                    buf.push_str(&String::from_utf8_lossy(&bytes));
-                    while let Some(pos) = buf.find("\n\n") {
-                        let event: String = buf.drain(..pos + 2).collect();
+                    buf.extend_from_slice(&bytes);
+                    for event in crate::ai::providers::assemble_utf8_frames(&mut buf, b"\n\n") {
                         for line in event.lines() {
                             match parse_sse_frame(line) {
                                 ParsedOpenAiFrame::Text(t) => { let _ = delta_tx.send(ChatDelta::Text(t)); }

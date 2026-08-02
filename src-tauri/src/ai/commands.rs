@@ -724,8 +724,8 @@ mod tests {
         assert!(validate_provider_kind("gemini").is_err());
     }
 
-    /// Regression test for the "stuck streaming forever" bug (review
-    /// finding 1): if `spawn_chat_stream` fails before any task is
+    /// Regression test for the "stuck streaming forever" bug: if
+    /// `spawn_chat_stream` fails before any task is
     /// spawned, the assistant placeholder must be moved out of
     /// `status="streaming"` — otherwise no cancel handle and no finalizer
     /// task exist, and the row (and any frontend awaiting its done event)

@@ -19,30 +19,23 @@ impl AnthropicProvider {
         mut cancel_rx: oneshot::Receiver<()>,
     ) -> Result<ChatFinal, ProviderError> {
         // system prompt 是顶层字段，不放进 messages 数组
-        let messages: Vec<serde_json::Value> = req
-            .messages
-            .iter()
-            .map(|m| {
-                let parts: Vec<serde_json::Value> = m
-                    .content
-                    .iter()
-                    .map(|p| match p {
-                        ContentPart::Text(t) => serde_json::json!({"type":"text","text":t}),
-                        ContentPart::Image { path, mime } => {
-                            use base64::Engine;
-                            let bytes =
-                                std::fs::read(path.trim_start_matches("file://")).unwrap_or_default();
-                            let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                            serde_json::json!({
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": mime, "data": data},
-                            })
-                        }
-                    })
-                    .collect();
-                serde_json::json!({"role": m.role, "content": parts})
-            })
-            .collect();
+        let mut messages: Vec<serde_json::Value> = Vec::with_capacity(req.messages.len());
+        for m in &req.messages {
+            let mut parts: Vec<serde_json::Value> = Vec::with_capacity(m.content.len());
+            for p in &m.content {
+                match p {
+                    ContentPart::Text(t) => parts.push(serde_json::json!({"type":"text","text":t})),
+                    ContentPart::Image { path, mime } => {
+                        let data = crate::ai::providers::read_image_base64(path).await?;
+                        parts.push(serde_json::json!({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mime, "data": data},
+                        }));
+                    }
+                }
+            }
+            messages.push(serde_json::json!({"role": m.role, "content": parts}));
+        }
 
         // Anthropic 要求 max_tokens 必填，默认给 4096
         let mut body = serde_json::json!({
@@ -79,7 +72,7 @@ impl AnthropicProvider {
         }
 
         let mut stream = resp.bytes_stream();
-        let mut buf = String::new();
+        let mut buf: Vec<u8> = Vec::new();
         let mut fin = ChatFinal::default();
         loop {
             tokio::select! {
@@ -87,9 +80,8 @@ impl AnthropicProvider {
                 chunk = stream.next() => {
                     let Some(chunk) = chunk else { break };
                     let bytes = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
-                    buf.push_str(&String::from_utf8_lossy(&bytes));
-                    while let Some(pos) = buf.find("\n\n") {
-                        let event: String = buf.drain(..pos + 2).collect();
+                    buf.extend_from_slice(&bytes);
+                    for event in crate::ai::providers::assemble_utf8_frames(&mut buf, b"\n\n") {
                         let mut event_type = "";
                         let mut data = String::new();
                         for line in event.lines() {

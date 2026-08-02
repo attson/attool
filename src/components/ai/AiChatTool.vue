@@ -46,11 +46,11 @@ onMounted(async () => {
   background: var(--bg-base);
   color: var(--text);
 }
-.ai-chat__sidebar { border-right: 1px solid var(--border); min-height: 0; overflow: hidden; }
+.ai-chat__sidebar { border-right: 1px solid var(--line); min-height: 0; overflow: hidden; }
 .ai-chat__main { display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__header {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: var(--space-3);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px;
 }
 </style>
