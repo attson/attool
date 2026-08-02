@@ -212,10 +212,17 @@ async function importSelectedModels() {
   if (!provider || !syncCandidates.value) return;
   const toImport = syncCandidates.value.filter((m) => syncSelected.value.has(m.id));
   const now = Date.now();
+  // 按 (providerId, modelId) 复用已有行的 id：ai_models 的唯一约束在 id 上，不在
+  // (provider_id, model_id) 上，重新同步时若每次都发新 id 会插出重复行。
+  const existingByModelId = new Map<string, string>();
+  for (const existing of models.value) {
+    if (existing.providerId === provider.id) existingByModelId.set(existing.modelId, existing.id);
+  }
   try {
     for (const m of toImport) {
+      const rowId = existingByModelId.get(m.id) ?? crypto.randomUUID();
       await api.upsertModel({
-        id: crypto.randomUUID(), providerId: provider.id,
+        id: rowId, providerId: provider.id,
         modelId: m.id, displayName: m.displayName || m.id,
         capabilities: JSON.stringify(['text']), temperature: null, maxTokens: null,
         sortOrder: modelDrafts.value.length, createdAt: now, updatedAt: now,
@@ -270,7 +277,15 @@ async function doImport() {
 // ---- modal lifecycle ----
 
 watch(() => props.show, async (v) => {
-  if (!v) return;
+  if (!v) {
+    // 关闭时清掉未保存/一次性状态，避免 T13 反复 toggle show 时旧草稿重新浮现。
+    draftProvider.value = null;
+    syncCandidates.value = null;
+    syncSelected.value = new Set();
+    importText.value = '';
+    exportText.value = '';
+    return;
+  }
   try {
     await loadProviders();
     await loadModels();
