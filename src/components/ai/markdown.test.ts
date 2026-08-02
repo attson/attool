@@ -17,6 +17,10 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('```\n<div>\n```');
     expect(html).toContain('&lt;div&gt;');
   });
+  it('adds a copy button after the code fence content', () => {
+    const html = renderMarkdown('```ts\nconst a = 1\n```');
+    expect(html).toContain('</code><button class="md-copy-btn" type="button">复制</button></pre>');
+  });
   it('renders inline code', () => {
     expect(renderMarkdown('use `x` here')).toBe('<p>use <code>x</code> here</p>');
   });

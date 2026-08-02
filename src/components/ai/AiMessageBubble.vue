@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { NButton, NTag } from 'naive-ui';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { renderMarkdown } from './markdown';
 import { parseContent } from '../../types/ai';
 import type { AiMessage } from '../../types/ai';
@@ -32,6 +33,21 @@ const tokensLabel = computed(() => {
   const c = props.message.completionTokens ?? '?';
   return `${p} → ${c} tokens`;
 });
+
+// v-html'd markdown has no Vue event bindings, so code-block copy buttons
+// (emitted by markdown.ts as plain <button class="md-copy-btn">) are wired
+// via delegated click on the container rather than per-element listeners.
+async function onMarkdownClick(ev: MouseEvent) {
+  const target = ev.target as HTMLElement | null;
+  const btn = target?.closest('.md-copy-btn') as HTMLButtonElement | null;
+  if (!btn) return;
+  const code = btn.closest('pre')?.querySelector('code')?.textContent ?? '';
+  await writeText(code);
+  const original = btn.textContent;
+  btn.textContent = '已复制';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1000);
+}
 </script>
 
 <template>
@@ -46,7 +62,7 @@ const tokensLabel = computed(() => {
     <div class="bubble assistant-bubble">
       <div v-if="isThinking" class="thinking">思考中…</div>
       <template v-else>
-        <div class="markdown" v-html="renderedHtml"></div>
+        <div class="markdown" v-html="renderedHtml" @click="onMarkdownClick"></div>
         <span v-if="isStreaming" class="cursor">▂</span>
       </template>
 
@@ -92,12 +108,26 @@ const tokensLabel = computed(() => {
 .markdown :deep(p) { margin: 0 0 8px; }
 .markdown :deep(p:last-child) { margin-bottom: 0; }
 .markdown :deep(pre) {
+  position: relative;
   background: var(--bg-elev-2);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   overflow-x: auto;
   font-size: var(--fs-xs);
 }
+.markdown :deep(.md-copy-btn) {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.markdown :deep(.md-copy-btn:hover) { color: var(--text); border-color: var(--line-strong); }
 .markdown :deep(code) {
   font-family: var(--font-mono);
   font-size: 0.92em;

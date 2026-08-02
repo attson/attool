@@ -46,12 +46,25 @@ watch(() => chat.currentSessionId.value, async () => {
   scrollToBottom();
 });
 
-watch(() => chat.currentSession.value?.messages.length, async (_len, prevLen) => {
-  if (prevLen === undefined) return;
-  const shouldFollow = isNearBottom();
-  await nextTick();
-  if (shouldFollow) scrollToBottom();
+// Streaming deltas re-open the session (see useAiChat.sendMessage's onDelta),
+// replacing `currentSession.value` with a same-length messages array — only
+// the trailing assistant message's content grows. Watching `messages.length`
+// alone therefore only fires once per turn (the initial +1) and misses every
+// delta after it, so we also track the last message's serialized content
+// length to catch streaming growth.
+const trailingContentLength = computed(() => {
+  const msgs = chat.currentSession.value?.messages ?? [];
+  return msgs.length ? msgs[msgs.length - 1].contentJson.length : 0;
 });
+
+watch(
+  [trailingContentLength, () => chat.currentSession.value?.messages.length ?? 0],
+  async () => {
+    const shouldFollow = isNearBottom();
+    await nextTick();
+    if (shouldFollow) scrollToBottom();
+  },
+);
 </script>
 
 <template>
