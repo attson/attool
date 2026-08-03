@@ -18,6 +18,7 @@
 | **生成器** | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 |
 | **时间** | Unix 时间戳、时区转换、Cron、时间差 |
 | **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 请求集合目录树 / OpenAPI JSON 导入（可配置 base URL 或 `{{baseUrl}}`）/ 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E）。v0.8.9 起 tab 分 **HTTP / SSE / WebSocket** 三种：SSE 覆盖 AI 流式接口调试（自定义 Header + Bearer Token）；WebSocket 支持双向收发 + 发送模板；长连接切走 tab 不断线，`{{var}}` 展开也适用于 SSE / WS 的 URL / Header / 发送内容 |
+| **AI 对话** | 多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换 |
 
 截图支持全平台：macOS 用系统 `screencapture`，Linux / Windows 用 xcap。
 
@@ -46,6 +47,7 @@
 | `aria2c` | 下载工具调用 | `brew install aria2` / `apt install aria2` / `choco install aria2` |
 | `python3` + `psd-tools` | PSD 模板解析 | `python3 -m pip install --user psd-tools` |
 | `pkexec` | Linux in-app 升级提权（一般随桌面环境自带） | `apt install policykit-1` |
+| `ollama serve`（可选） | 本地 AI 对话 provider | https://ollama.com/download |
 
 ## 开发
 

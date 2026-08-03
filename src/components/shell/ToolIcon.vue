@@ -99,6 +99,13 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
     </template>
+
+    <!-- chat -->
+    <template v-else-if="name === 'chat'">
+      <path d="M4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v9c0 .83-.67 1.5-1.5 1.5H9.5L5.5 20v-4H5.5A1.5 1.5 0 0 1 4 14.5v-9Z" />
+      <path d="M8 9.5h8" />
+      <path d="M8 12.5h5" />
+    </template>
   </svg>
 </template>
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 12 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 13 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）、AI 对话（多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换）。
 
 ## 技术栈
 
@@ -63,13 +63,17 @@ src/
 │   ├── time/                    # 时间：时间戳/时区/Cron/Duration
 │   ├── network/                 # 网络：URL 分解/Ping/端口/DNS
 │   ├── douyin/                  # 视频链接抽取（抖音，后端另支持 B站/小红书/YouTube）
-│   └── http/                    # HTTP 请求：三栏（Sidebar + TabBar + kind-branch 内容区）
-│                                #   HTTP：RequestEditor + ResponseView（一次请求 → 响应）
-│                                #   SSE：SseTool + SseRequestEditor（长连接事件流）
-│                                #   WS：WsTool + WsRequestEditor（长连接 + 发送框 + 模板）
-│                                #   共用：StreamMessageList / EnvModal
-│                                #   + curl.ts / variables.ts / httpApi.ts / streamApi.ts
-│                                #   / streamMessageTone.ts / types.ts（带测试）
+│   ├── http/                    # HTTP 请求：三栏（Sidebar + TabBar + kind-branch 内容区）
+│   │                            #   HTTP：RequestEditor + ResponseView（一次请求 → 响应）
+│   │                            #   SSE：SseTool + SseRequestEditor（长连接事件流）
+│   │                            #   WS：WsTool + WsRequestEditor（长连接 + 发送框 + 模板）
+│   │                            #   共用：StreamMessageList / EnvModal
+│   │                            #   + curl.ts / variables.ts / httpApi.ts / streamApi.ts
+│   │                            #   / streamMessageTone.ts / types.ts（带测试）
+│   └── ai/                      # AI 对话：AiChatTool（容器）+ AiSessionList + AiMessageList
+│                                #   / AiMessageBubble + AiComposer + AiModelPicker
+│                                #   / AiSettingsModal + AiSystemPromptDrawer
+│                                #   + aiApi.ts / markdown.ts（手写渲染器）/ useAiChat.ts（带测试）
 ├── types/                       # tool.ts / download.ts / ecommerceTemplate.ts / clipboard.ts
 └── utils/                       # ecommerceTemplate.ts / clipboardHistory.ts 等
 
@@ -91,6 +95,8 @@ src-tauri/
 ├── src/updater/                 # 自研 updater：mod / check / verify / download / keys / state
 │                                #   / commands / apply/{macos,windows,linux}
 │                                #   + scripts/{install-linux.sh, update-windows.bat}（embed）
+├── src/ai/                      # AI 对话：mod / models / storage(SQLite) / session（cancel handle）
+│                                #   / commands / providers/{openai,anthropic,ollama}（统一 trait）
 ├── src/{qrcode,douyin,bilibili,xhs,youtube}.rs  # 单文件模块
 └── tauri.conf.json              # 打包配置（5 个窗口 / 插件 / 无 updater plugin，走自研）
 

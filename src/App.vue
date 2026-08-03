@@ -49,6 +49,7 @@ const TextTool = defineAsyncComponent(() => import('./components/text/TextTool.v
 const GeneratorTool = defineAsyncComponent(() => import('./components/generator/GeneratorTool.vue'));
 const TimeTool = defineAsyncComponent(() => import('./components/time/TimeTool.vue'));
 const HttpTool = defineAsyncComponent(() => import('./components/http/HttpTool.vue'));
+const AiChatTool = defineAsyncComponent(() => import('./components/ai/AiChatTool.vue'));
 
 const tools: Tool[] = [
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download',  group: 'download' },
@@ -62,7 +63,8 @@ const tools: Tool[] = [
   { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash',      group: 'network' },
   { id: 'generator', name: '生成器',         description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',  status: 'ready', icon: 'dice',      group: 'utility' },
   { id: 'time',      name: '时间工具',       description: '时间戳 / 时区 / Cron / Duration',      status: 'ready', icon: 'clock',     group: 'utility' },
-  { id: 'http',      name: 'HTTP 请求',      description: 'GET/POST/... + headers / body / 响应',   status: 'ready', icon: 'send',      group: 'network' }
+  { id: 'http',      name: 'HTTP 请求',      description: 'GET/POST/... + headers / body / 响应',   status: 'ready', icon: 'send',      group: 'network' },
+  { id: 'ai-chat', name: 'AI 对话', description: '多提供商多模型 AI 助手（OpenAI 兼容 / Claude / Ollama）', status: 'ready', icon: 'chat', group: 'utility' }
 ];
 
 const currentWindow = getCurrentWindow();
@@ -651,6 +653,10 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'http'">
           <HttpTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'ai-chat'">
+          <AiChatTool />
         </template>
       </AppShell>
 

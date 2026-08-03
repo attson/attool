@@ -14,7 +14,8 @@ export type ToolIconId =
   | 'image'
   | 'dice'
   | 'clock'
-  | 'send';
+  | 'send'
+  | 'chat';
 
 export interface Tool {
   id: string;

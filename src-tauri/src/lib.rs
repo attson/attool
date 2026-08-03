@@ -4,6 +4,7 @@ mod updater;
 mod douyin;
 #[cfg(target_os = "linux")]
 mod gpu_linux;
+pub mod ai;
 pub mod ecommerce;
 pub mod http;
 pub mod imaging;
@@ -1189,6 +1190,23 @@ pub fn run() {
             app.manage(http::cancel::HttpCancelState::new());
             app.manage(std::sync::Arc::new(http::stream::session::HttpStreamState::new()));
 
+            let ai_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("ai");
+            let ai_store = std::sync::Arc::new(
+                ai::storage::AiStore::new(ai_dir)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?,
+            );
+            app.manage(ai_store);
+            app.manage(std::sync::Arc::new(ai::session::AiSessionState::new()));
+            let ai_http_client = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, format!("build reqwest client: {error}")))?;
+            app.manage(ai_http_client);
+
             let updater_stage_dir = app
                 .path()
                 .app_cache_dir()
@@ -1260,6 +1278,25 @@ pub fn run() {
             http::stream::commands::close_stream,
             http::stream::commands::send_ws_message,
             http::stream::commands::list_stream_messages,
+            ai::commands::ai_list_providers,
+            ai::commands::ai_upsert_provider,
+            ai::commands::ai_delete_provider,
+            ai::commands::ai_list_models,
+            ai::commands::ai_upsert_model,
+            ai::commands::ai_delete_model,
+            ai::commands::ai_fetch_provider_models,
+            ai::commands::ai_list_sessions,
+            ai::commands::ai_create_session,
+            ai::commands::ai_get_session,
+            ai::commands::ai_update_session,
+            ai::commands::ai_delete_session,
+            ai::commands::ai_send,
+            ai::commands::ai_cancel,
+            ai::commands::ai_retry,
+            ai::commands::ai_export_session,
+            ai::commands::ai_export_config,
+            ai::commands::ai_import_config,
+            ai::commands::ai_save_attachment,
             updater::commands::updater_get_state,
             updater::commands::updater_check,
             updater::commands::updater_download,
