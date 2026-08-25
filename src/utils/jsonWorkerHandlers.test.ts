@@ -66,6 +66,13 @@ describe('handleDiff', () => {
     const r = handleDiff('{"a":1}', '{"a":2}', false);
     expect(r.html).toBeNull();
   });
+  it('passes key-only options to the diff preparation', () => {
+    const r = handleDiff('{"a":1}', '{"a":2}', false, { keyOnly: true });
+    expect(r.equal).toBe(true);
+    expect(r.changeCount).toBe(0);
+    expect(r.leftText).toBe('{}');
+    expect(r.rightText).toBe('{}');
+  });
   it('surfaces left parse error', () => {
     const r = handleDiff('{oops', '{}', true);
     expect(r.leftError).toBeDefined();

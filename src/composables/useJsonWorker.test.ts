@@ -106,4 +106,42 @@ describe('createJsonWorkerClient', () => {
     mock.reply({ id: req.id, ok: true, kind: 'jsonpath', matches: [1], text: '[1]', elapsedMs: 1 });
     await expect(p).resolves.toEqual({ ok: true, matches: [1], text: '[1]', elapsedMs: 1 });
   });
+
+  it('posts both JSON diff options to the worker', async () => {
+    const mock = makeMockWorker();
+    const client = createJsonWorkerClient(() => mock.w);
+    const p = client.diff(
+      '{"a":1}',
+      '{"a":2}',
+      false,
+      { keyOnly: true, parseNestedJsonStrings: true },
+      'diff:compare',
+    );
+    const req = mock.posted[0] as {
+      id: number;
+      kind: string;
+      keyOnly?: boolean;
+      parseNestedJsonStrings?: boolean;
+    };
+
+    expect(req).toMatchObject({
+      kind: 'diff',
+      keyOnly: true,
+      parseNestedJsonStrings: true,
+    });
+
+    mock.reply({
+      id: req.id,
+      ok: true,
+      kind: 'diff',
+      equal: true,
+      delta: null,
+      changeCount: 0,
+      leftText: '{}',
+      rightText: '{}',
+      html: null,
+      elapsedMs: 1,
+    });
+    await expect(p).resolves.toMatchObject({ equal: true, changeCount: 0 });
+  });
 });
