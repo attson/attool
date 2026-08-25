@@ -32,3 +32,6 @@ docs/superpowers/
 .claude/settings.local.json
 *.local
 *.local.*
+
+# ad-workflow task drafts
+docs/tasks/

@@ -136,6 +136,7 @@
 - **预览弹窗**：剪贴板图片用 `NImage` 预览层（缩放 / 旋转 / 复制工具栏），文本用 `NModal` 全文弹窗；均以悬浮图标触发，不劫持卡片点击。
 - **多窗口**：截图浮层（`capture-overlay`，透明全屏，选区 + 标注）、截图钉图窗（`capture-pin-*`）、剪贴板历史独立浮窗（`clipboard-history`）都是独立 Tauri 窗口，共用同一套 token / 主题。
 - **多 tab 工作区**（HTTP 工具的做法）：浏览器风格 tab 条 + 中键关闭 + 拖拽排序 + 每个 tab 自动持久化（无显式"保存"按钮，也无未保存状态）；左侧栏在请求集合树和历史列表之间切换，集合可从 OpenAPI JSON 导入，历史按时间倒序搜索 / 右键回填 / 新 tab 打开。v0.8.9 起 tab 分 http / sse / ws 三种类型，`+` 按钮为 NDropdown（新建 HTTP / SSE / WebSocket），tab 方法字段按类型分色（HTTP 方法名默认色 / `SSE` 紫 `#8b5cf6` / `WS` 青 `#06b6d4`）。
+- **JSON 多工作页**：顶部工作页栏使用 `JSON N` 单调编号，支持 `+`、关闭按钮、中键、`⌘/Ctrl+T` 与 `⌘/Ctrl+W`；溢出时栏内横向滚动并让活动页自动进入可视区。每个工作页独立保存当前功能 tab，格式化 / 查询 / 对比 / 转换 pane 首次访问后只隐藏不卸载；工作页与输入仅在当前应用运行期间保留，不做持久化。
 - **变量高亮**：URL / KV 输入 里的 `{{var}}` 用 `<VarText>` / `<VarInput>` 组件在文本上方叠一层 span，命中的变量画 emerald `--accent-soft` 底纹，未定义画 `--error` 底纹（透明度 22%）；不引 Monaco，只靠 CSS + 一层 overlay 实现。
 - **长连接消息流**（SSE / WS）：`StreamMessageList` 时间戳 mono 字体 + 消息内容 `<pre>` `whitespace: pre-wrap`；按 `messageTone(msg)` 分色：Open `rgba(16,185,129,.06)` 淡绿、BufferTruncated `rgba(245,158,11,.08)` 淡黄、Error `rgba(239,68,68,.08)` 淡红、WsBinary `rgba(59,130,246,.06)` 淡蓝、Closed 走 `--text-muted`、SseEvent / WsText 默认；顶部横条显示条数 + "自动滚动"复选框；发送 / 接收方向用 `↑` / `↓` 前缀标记。
 

@@ -74,7 +74,7 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 | 工具（id） | 能力 | 后端 |
 |---|---|---|
 | 剪贴板（`clipboard`） | 历史记录、图片/文本预览、Paste 风格恢复、快捷键自定义、独立浮窗 | `clipboard/`（SQLite + 系统剪贴板监听） |
-| JSON（`json`） | 格式化、JSONPath 查询、对比、YAML/CSV/XML 转换 | 纯前端（Monaco） |
+| JSON（`json`） | 格式化、JSONPath 查询、对比、YAML/CSV/XML 转换；浏览器式多工作页，运行期间保留各页内容与功能 pane 状态 | 纯前端（Monaco） |
 | 视频链接抽取（`douyin`） | 抖音 / B站 / 小红书 / YouTube 链接与文案解析 | `douyin/bilibili/xhs/youtube.rs` |
 | 图片（`image`） | 压缩、格式转换、EXIF、跨平台截图、标注、OCR | `imaging/`（含 xcap 截图） |
 | 文本（`text`） | 整理、排序、大小写、拆合、正则抽取、对比 | 纯前端 |
