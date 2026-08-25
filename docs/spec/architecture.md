@@ -60,7 +60,7 @@
 
 | 层 | 存储 | 例 |
 |---|---|---|
-| UI session | Vue ref | 当前选中工具、表单值、loading flags |
+| UI session | Vue ref | 当前选中工具、表单值、loading flags、JSON 工作页及各功能 pane 输入（应用退出即清） |
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
 | 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections** |
 | updater 缓存 | 文件（`app_cache_dir/updater/`） | 已下载但未 apply 的 archive stage |
