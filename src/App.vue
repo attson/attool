@@ -172,6 +172,7 @@ const initialToolId = (() => {
   return t && t.status === 'ready' ? id : null;
 })();
 const selectedToolId = ref<string | null>(initialToolId);
+const jsonToolVisited = ref(initialToolId === 'json');
 
 let unlistenProgress: Promise<UnlistenFn> | undefined;
 let unlistenCaptureFail: Promise<UnlistenFn> | undefined;
@@ -265,6 +266,7 @@ function selectTool(id: string) {
   const tool = tools.find((t) => t.id === id);
   if (!tool || tool.status !== 'ready') return;
   selectedToolId.value = id;
+  if (id === 'json') jsonToolVisited.value = true;
   rememberLastTool(id);
   if (id === 'aria2') aria2Handoff.drainInto(url);
 }
@@ -503,6 +505,12 @@ async function clearCompleted() {
           </template>
         </template>
 
+        <JsonTool
+          v-if="jsonToolVisited"
+          v-show="selectedTool?.id === 'json'"
+          :active="selectedTool?.id === 'json'"
+        />
+
         <Dashboard
           v-if="!selectedTool"
           :tools="tools"
@@ -617,10 +625,6 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'clipboard'">
           <ClipboardTool />
-        </template>
-
-        <template v-else-if="selectedTool.id === 'json'">
-          <JsonTool />
         </template>
 
         <template v-else-if="selectedTool.id === 'video-link'">
