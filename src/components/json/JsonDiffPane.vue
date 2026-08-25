@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { NSwitch } from 'naive-ui';
 import CodeEditor from './CodeEditor.vue';
 import JsonDiffViewer from './JsonDiffViewer.vue';
 import { useJsonWorker } from '../../composables/useJsonWorker';
@@ -17,15 +18,29 @@ const changeCount = ref(0);
 const elapsedMs = ref(0);
 const resultLeft = ref('');
 const resultRight = ref('');
+const keyOnly = ref(false);
+const parseNestedJsonStrings = ref(false);
+let compareRun = 0;
 
 async function compare() {
   if (!left.value.trim() && !right.value.trim()) {
     return;
   }
   comparing.value = true;
+  const run = ++compareRun;
   leftError.value = null;
   rightError.value = null;
-  const res = await worker.diff(left.value || '{}', right.value || '{}', false, 'diff:compare');
+  const res = await worker.diff(
+    left.value || '{}',
+    right.value || '{}',
+    false,
+    {
+      keyOnly: keyOnly.value,
+      parseNestedJsonStrings: parseNestedJsonStrings.value,
+    },
+    'diff:compare',
+  );
+  if (run !== compareRun) return;
   comparing.value = false;
   if (res === null) return;
   leftError.value = res.leftError ?? null;
@@ -43,7 +58,23 @@ async function compare() {
 }
 
 function backToInput() {
+  compareRun++;
+  comparing.value = false;
   viewMode.value = 'input';
+}
+
+function setKeyOnly(value: boolean) {
+  keyOnly.value = value;
+  refreshResult();
+}
+
+function setParseNestedJsonStrings(value: boolean) {
+  parseNestedJsonStrings.value = value;
+  refreshResult();
+}
+
+function refreshResult() {
+  if (viewMode.value === 'result') void compare();
 }
 
 const status = computed(() => {
@@ -54,6 +85,11 @@ const status = computed(() => {
 });
 
 const resultStatus = computed(() => {
+  if (comparing.value) return '重新对比中...';
+  if (keyOnly.value) {
+    if (equal.value) return `两侧 Key 结构等价 · ${elapsedMs.value} ms`;
+    return `发现 ${changeCount.value} 处 Key 差异 · ${elapsedMs.value} ms`;
+  }
   if (equal.value) return `两侧内容等价 · ${elapsedMs.value} ms`;
   return `发现 ${changeCount.value} 处差异 · ${elapsedMs.value} ms`;
 });
@@ -68,14 +104,30 @@ const resultStatus = computed(() => {
       </div>
       <div class="footer">
         <span class="status">{{ status }}</span>
-        <button
-          type="button"
-          class="primary-btn"
-          :disabled="comparing || (!left.trim() && !right.trim())"
-          @click="compare"
-        >
-          {{ comparing ? '对比中...' : '开始对比' }}
-        </button>
+        <div class="footer-actions">
+          <div class="diff-options">
+            <label class="diff-option">
+              <span>只看 Key</span>
+              <n-switch size="small" :value="keyOnly" @update:value="setKeyOnly" />
+            </label>
+            <label class="diff-option">
+              <span>解析嵌套 JSON 字符串</span>
+              <n-switch
+                size="small"
+                :value="parseNestedJsonStrings"
+                @update:value="setParseNestedJsonStrings"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            class="primary-btn"
+            :disabled="comparing || (!left.trim() && !right.trim())"
+            @click="compare"
+          >
+            {{ comparing ? '对比中...' : '开始对比' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -84,6 +136,20 @@ const resultStatus = computed(() => {
         <div class="result-title">
           <strong>对比结果</strong>
           <span>{{ resultStatus }}</span>
+        </div>
+        <div class="diff-options">
+          <label class="diff-option">
+            <span>只看 Key</span>
+            <n-switch size="small" :value="keyOnly" @update:value="setKeyOnly" />
+          </label>
+          <label class="diff-option">
+            <span>解析嵌套 JSON 字符串</span>
+            <n-switch
+              size="small"
+              :value="parseNestedJsonStrings"
+              @update:value="setParseNestedJsonStrings"
+            />
+          </label>
         </div>
         <button type="button" class="secondary-btn" @click="backToInput">重新编辑</button>
       </div>
@@ -105,6 +171,7 @@ const resultStatus = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .footer { min-height: 34px; }
 .toolbar {
@@ -113,6 +180,28 @@ const resultStatus = computed(() => {
 }
 .status,
 .result-title span { color: var(--text-muted); font-size: var(--fs-xs); }
+.status { flex: 1 1 180px; }
+.footer-actions,
+.diff-options,
+.diff-option {
+  display: flex;
+  align-items: center;
+}
+.footer-actions {
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.diff-options {
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diff-option {
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
 .result-title {
   display: flex;
   align-items: center;

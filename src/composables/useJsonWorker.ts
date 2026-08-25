@@ -1,6 +1,7 @@
 import type { WorkerReq, WorkerRes } from '../workers/jsonWorker';
 import type { JsonValue, JsonParseError, ConvertFormat } from '../types/json';
 import type { SerializeMode } from '../utils/jsonWorkerHandlers';
+import type { JsonDiffOptions } from '../utils/jsondiff';
 
 export type ParseOutcome = { value: JsonValue | null; error?: JsonParseError; elapsedMs: number };
 export type SerializeOutcome = { ok: true; text: string; elapsedMs: number } | { ok: false; error: string };
@@ -25,7 +26,7 @@ export interface JsonWorkerClient {
   parse(text: string, tag?: string): Promise<ParseOutcome | null>;
   serialize(value: JsonValue, mode: SerializeMode, indent?: number, tag?: string): Promise<SerializeOutcome | null>;
   jsonpath(value: JsonValue, expr: string, tag?: string): Promise<JsonPathOutcome | null>;
-  diff(leftText: string, rightText: string, withHtml: boolean, tag?: string): Promise<DiffOutcome | null>;
+  diff(leftText: string, rightText: string, withHtml: boolean, options?: JsonDiffOptions, tag?: string): Promise<DiffOutcome | null>;
   convert(text: string, from: ConvertFormat, to: ConvertFormat, tag?: string): Promise<ConvertOutcome | null>;
   dispose(): void;
 }
@@ -110,9 +111,17 @@ export function createJsonWorkerClient(workerFactory: () => WorkerLike): JsonWor
           return { ok: false, error: (res.error as { message: string }).message } satisfies JsonPathOutcome;
         }) as Promise<JsonPathOutcome | null>;
     },
-    diff(leftText, rightText, withHtml, tag) {
+    diff(leftText, rightText, withHtml, options = {}, tag) {
       return issue('diff',
-        (id) => ({ id, kind: 'diff', leftText, rightText, withHtml }),
+        (id) => ({
+          id,
+          kind: 'diff',
+          leftText,
+          rightText,
+          withHtml,
+          keyOnly: options.keyOnly,
+          parseNestedJsonStrings: options.parseNestedJsonStrings,
+        }),
         tag,
         (res) => {
           if (res.kind !== 'diff') return null;

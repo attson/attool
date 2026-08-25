@@ -49,6 +49,124 @@ describe('diffJsonHtml', () => {
 });
 
 describe('prepareJsonDiffView', () => {
+  it('ignores value changes in key-only mode', () => {
+    const view = prepareJsonDiffView(
+      '{"event":"request_detail","level":"INFO"}',
+      '{"event":"response_detail","level":"ERROR"}',
+      { keyOnly: true },
+    );
+
+    expect(view.equal).toBe(true);
+    expect(view.changeCount).toBe(0);
+    expect(view.leftText).toBe('{}');
+    expect(view.rightText).toBe('{}');
+  });
+
+  it('returns key skeletons for nested added and removed properties', () => {
+    const view = prepareJsonDiffView(
+      '{"shared":{"same":1,"leftOnly":{"deep":2}}}',
+      '{"shared":{"same":9,"rightOnly":3}}',
+      { keyOnly: true },
+    );
+
+    expect(view.equal).toBe(false);
+    expect(view.changeCount).toBe(3);
+    expect(view.leftText).toBe([
+      '{',
+      '  "shared": {',
+      '    "leftOnly": {',
+      '      "deep": null',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n'));
+    expect(view.rightText).toBe([
+      '{',
+      '  "shared": {',
+      '    "rightOnly": null',
+      '  }',
+      '}',
+    ].join('\n'));
+  });
+
+  it('expands nested JSON strings in regular diff mode', () => {
+    const view = prepareJsonDiffView(
+      '{"request_body":"{\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hello\\"}]}"}',
+      '{"request_body":"{\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"world\\"}]}"}',
+      { parseNestedJsonStrings: true },
+    );
+
+    expect(view.equal).toBe(false);
+    expect(view.changeCount).toBe(1);
+    expect(JSON.parse(view.leftText)).toEqual({
+      request_body: { messages: [{ content: 'hello', role: 'user' }] },
+    });
+    expect(JSON.parse(view.rightText)).toEqual({
+      request_body: { messages: [{ content: 'world', role: 'user' }] },
+    });
+  });
+
+  it('returns only nested string key differences when both options are enabled', () => {
+    const view = prepareJsonDiffView(
+      '{"request_body":"{\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hello\\",\\"leftOnly\\":1}]}"}',
+      '{"request_body":"{\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"world\\",\\"rightOnly\\":2}]}"}',
+      { keyOnly: true, parseNestedJsonStrings: true },
+    );
+
+    expect(view.equal).toBe(false);
+    expect(view.changeCount).toBe(2);
+    expect(JSON.parse(view.leftText)).toEqual({
+      request_body: { messages: [{ leftOnly: null }] },
+    });
+    expect(JSON.parse(view.rightText)).toEqual({
+      request_body: { messages: [{ rightOnly: null }] },
+    });
+  });
+
+  it('keeps nested strings unchanged when either side is invalid or scalar JSON', () => {
+    const invalid = prepareJsonDiffView(
+      '{"payload":"{oops"}',
+      '{"payload":"{\\"a\\":1}"}',
+      { parseNestedJsonStrings: true },
+    );
+    const scalar = prepareJsonDiffView(
+      '{"payload":"1"}',
+      '{"payload":"2"}',
+      { parseNestedJsonStrings: true },
+    );
+
+    expect(JSON.parse(invalid.leftText)).toEqual({ payload: '{oops' });
+    expect(JSON.parse(invalid.rightText)).toEqual({ payload: '{"a":1}' });
+    expect(JSON.parse(scalar.leftText)).toEqual({ payload: '1' });
+    expect(JSON.parse(scalar.rightText)).toEqual({ payload: '2' });
+  });
+
+  it('ignores array length and scalar changes in key-only mode', () => {
+    const view = prepareJsonDiffView(
+      '{"items":[{"same":1},{"leftOnly":2}],"values":[1,2]}',
+      '{"items":[{"same":9}],"values":[3]}',
+      { keyOnly: true },
+    );
+
+    expect(view.equal).toBe(true);
+    expect(view.changeCount).toBe(0);
+    expect(view.leftText).toBe('{}');
+    expect(view.rightText).toBe('{}');
+  });
+
+  it('reports nested keys when a common property changes between object and scalar', () => {
+    const view = prepareJsonDiffView(
+      '{"payload":{"nested":1}}',
+      '{"payload":"plain text"}',
+      { keyOnly: true },
+    );
+
+    expect(view.equal).toBe(false);
+    expect(view.changeCount).toBe(1);
+    expect(JSON.parse(view.leftText)).toEqual({ payload: { nested: null } });
+    expect(JSON.parse(view.rightText)).toEqual({ payload: null });
+  });
+
   it('returns sorted formatted texts for the read-only diff editor', () => {
     const view = prepareJsonDiffView('{"b":2,"a":1}', '{"b":3,"a":1,"c":4}');
 

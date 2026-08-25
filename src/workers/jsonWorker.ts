@@ -5,12 +5,13 @@ import {
   handleParse, handleSerialize, handleJsonpath, handleDiff, handleConvert,
   type SerializeMode,
 } from '../utils/jsonWorkerHandlers';
+import type { JsonDiffOptions } from '../utils/jsondiff';
 
 export type WorkerReq =
   | { id: number; kind: 'parse'; text: string }
   | { id: number; kind: 'serialize'; value: JsonValue; mode: SerializeMode; indent?: number }
   | { id: number; kind: 'jsonpath'; value: JsonValue; expr: string }
-  | { id: number; kind: 'diff'; leftText: string; rightText: string; withHtml: boolean }
+  | { id: number; kind: 'diff'; leftText: string; rightText: string; withHtml: boolean; keyOnly?: boolean; parseNestedJsonStrings?: boolean }
   | { id: number; kind: 'convert'; text: string; from: ConvertFormat; to: ConvertFormat };
 
 export type WorkerRes =
@@ -56,7 +57,11 @@ function dispatch(req: WorkerReq): WorkerRes {
       return { id: req.id, ok: false, kind: 'jsonpath', error: r.error };
     }
     case 'diff': {
-      const r = handleDiff(req.leftText, req.rightText, req.withHtml);
+      const options: JsonDiffOptions = {
+        keyOnly: req.keyOnly,
+        parseNestedJsonStrings: req.parseNestedJsonStrings,
+      };
+      const r = handleDiff(req.leftText, req.rightText, req.withHtml, options);
       return { id: req.id, ok: true, kind: 'diff', ...r };
     }
     case 'convert': {
