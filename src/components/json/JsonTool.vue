@@ -12,16 +12,16 @@ const tab = ref('format');
 <template>
   <div class="json-tool">
     <n-tabs v-model:value="tab" type="line" animated>
-      <n-tab-pane name="format" tab="格式化">
+      <n-tab-pane name="format" tab="格式化" display-directive="show:lazy">
         <div class="pane-wrap"><JsonFormatPane /></div>
       </n-tab-pane>
-      <n-tab-pane name="query" tab="查询">
+      <n-tab-pane name="query" tab="查询" display-directive="show:lazy">
         <div class="pane-wrap"><JsonQueryPane /></div>
       </n-tab-pane>
-      <n-tab-pane name="diff" tab="对比">
+      <n-tab-pane name="diff" tab="对比" display-directive="show:lazy">
         <div class="pane-wrap"><JsonDiffPane /></div>
       </n-tab-pane>
-      <n-tab-pane name="convert" tab="转换">
+      <n-tab-pane name="convert" tab="转换" display-directive="show:lazy">
         <div class="pane-wrap"><JsonConvertPane /></div>
       </n-tab-pane>
     </n-tabs>
