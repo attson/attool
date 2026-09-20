@@ -4,10 +4,17 @@ import { createAiApi, subscribeAiDelta, type AiApi } from './aiApi';
 import type {
   AiContentPart, AiModel, AiProvider, AiSession, AiSessionSummary,
 } from '../../types/ai';
+import type { KVStorage } from '../../composables/useSidebarState';
 
 type Subscribe = typeof subscribeAiDelta;
+const PREFERRED_MODEL_KEY = 'attool.ai.preferredModelId';
 
-export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
+function resolvePreferredModelId(models: readonly AiModel[], storage?: KVStorage): string | undefined {
+  const stored = storage?.getItem(PREFERRED_MODEL_KEY);
+  return models.find((model) => model.id === stored)?.id ?? models[0]?.id;
+}
+
+export function _createAiChatState(api: AiApi, subscribe: Subscribe, storage?: KVStorage) {
   const providers = ref<AiProvider[]>([]);
   const models = ref<AiModel[]>([]);
   const sessions = ref<AiSession[]>([]);
@@ -15,6 +22,10 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
   const currentSession = shallowRef<AiSessionSummary | null>(null);
   const streamingMessageId = ref<string | null>(null);
   let unsubscribe: (() => void) | null = null;
+
+  function rememberPreferredModel(modelId: string) {
+    storage?.setItem(PREFERRED_MODEL_KEY, modelId);
+  }
 
   async function loadProviders() { providers.value = await api.listProviders(); }
   async function loadModels() {
@@ -35,19 +46,22 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
     currentSessionId.value = id;
     let summary = await api.getSession(id);
     const selectedModelId = summary.session.currentModelId;
-    const defaultModelId = models.value[0]?.id;
+    const defaultModelId = resolvePreferredModelId(models.value, storage);
     if (
       defaultModelId
       && (!selectedModelId || !models.value.some((model) => model.id === selectedModelId))
     ) {
       await api.updateSession(id, { modelId: defaultModelId });
+      rememberPreferredModel(defaultModelId);
       summary = await api.getSession(id);
     }
     currentSession.value = summary;
   }
 
   async function newSession(): Promise<string> {
-    const s = await api.createSession(undefined, models.value[0]?.id);
+    const defaultModelId = resolvePreferredModelId(models.value, storage);
+    const s = await api.createSession(undefined, defaultModelId);
+    if (defaultModelId) rememberPreferredModel(defaultModelId);
     await loadSessions();
     await openSession(s.id);
     return s.id;
@@ -75,6 +89,7 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
 
   async function switchSessionModel(sessionId: string, modelId: string) {
     await api.updateSession(sessionId, { modelId });
+    rememberPreferredModel(modelId);
     if (currentSessionId.value === sessionId) await openSession(sessionId);
   }
 
@@ -137,7 +152,7 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
 let _singleton: ReturnType<typeof _createAiChatState> | null = null;
 
 export function useAiChat() {
-  if (!_singleton) _singleton = _createAiChatState(createAiApi(), subscribeAiDelta);
+  if (!_singleton) _singleton = _createAiChatState(createAiApi(), subscribeAiDelta, localStorage);
   return _singleton;
 }
 

@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { _createAiChatState } from './useAiChat';
+import type { KVStorage } from '../../composables/useSidebarState';
+
+function fakeStorage(initial: Record<string, string> = {}) {
+  const data = { ...initial };
+  const storage: KVStorage = {
+    getItem: (key) => data[key] ?? null,
+    setItem: (key, value) => { data[key] = value; },
+  };
+  return { storage, data };
+}
 
 function makeFakeApi() {
   const state = { sessions: [] as any[], models: [] as any[], messages: {} as Record<string, any[]> };
@@ -20,8 +30,8 @@ function makeFakeApi() {
       })),
       updateSession: vi.fn().mockImplementation(async (id: string, patch: any) => {
         const s = state.sessions.find(x => x.id === id)!;
-        if (patch.title !== null) s.title = patch.title;
-        if (patch.modelId !== null) s.currentModelId = patch.modelId;
+        if (patch.title != null) s.title = patch.title;
+        if (patch.modelId != null) s.currentModelId = patch.modelId;
         return s;
       }),
       deleteSession: vi.fn().mockImplementation(async (id: string) => {
@@ -71,6 +81,46 @@ describe('useAiChat', () => {
 
     expect(api.createSession).toHaveBeenCalledWith(undefined, 'm1');
     expect(s.currentSession.value?.session.currentModelId).toBe('m1');
+  });
+
+  it('remembers the manually selected model for later sessions', async () => {
+    const { api, subscribe, state } = makeFakeApi();
+    const { storage, data } = fakeStorage();
+    state.models = [{ id: 'm1' }, { id: 'm2' }];
+    const s = _createAiChatState(api as any, subscribe as any, storage);
+    await s.loadModels();
+    const firstSessionId = await s.newSession();
+
+    await s.switchSessionModel(firstSessionId, 'm2');
+    await s.newSession();
+
+    expect(data['attool.ai.preferredModelId']).toBe('m2');
+    expect(api.createSession).toHaveBeenLastCalledWith(undefined, 'm2');
+  });
+
+  it('uses the persisted model preference after state recreation', async () => {
+    const { api, subscribe, state } = makeFakeApi();
+    const { storage } = fakeStorage({ 'attool.ai.preferredModelId': 'm2' });
+    state.models = [{ id: 'm1' }, { id: 'm2' }];
+    const s = _createAiChatState(api as any, subscribe as any, storage);
+
+    await s.loadModels();
+    await s.newSession();
+
+    expect(api.createSession).toHaveBeenCalledWith(undefined, 'm2');
+  });
+
+  it('replaces a deleted model preference with the first available model', async () => {
+    const { api, subscribe, state } = makeFakeApi();
+    const { storage, data } = fakeStorage({ 'attool.ai.preferredModelId': 'deleted-model' });
+    state.models = [{ id: 'm1' }];
+    const s = _createAiChatState(api as any, subscribe as any, storage);
+
+    await s.loadModels();
+    await s.newSession();
+
+    expect(api.createSession).toHaveBeenCalledWith(undefined, 'm1');
+    expect(data['attool.ai.preferredModelId']).toBe('m1');
   });
 
   it('openSession repairs a missing or deleted model selection', async () => {
