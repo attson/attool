@@ -483,7 +483,7 @@ function updateSyncShow(visible: boolean) {
     :mask-closable="false"
     @update:show="updateShow"
   >
-    <section class="settings-modal" aria-label="AI 设置">
+    <div class="settings-modal" role="dialog" aria-modal="true" aria-label="AI 设置">
       <header class="modal-header">
         <div class="modal-title">
           <h1>AI 设置</h1>
@@ -817,7 +817,7 @@ function updateSyncShow(visible: boolean) {
           </div>
         </main>
       </div>
-    </section>
+    </div>
   </n-modal>
 
   <n-modal
