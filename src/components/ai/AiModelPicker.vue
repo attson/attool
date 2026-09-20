@@ -69,6 +69,7 @@ async function onExport(key: string) {
       :options="modelOptions"
       :disabled="selectDisabled"
       size="small"
+      filterable
       placeholder="选择模型"
       class="model-select"
       @update:value="onModelChange"

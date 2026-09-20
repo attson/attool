@@ -17,16 +17,37 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe) {
   let unsubscribe: (() => void) | null = null;
 
   async function loadProviders() { providers.value = await api.listProviders(); }
-  async function loadModels() { models.value = await api.listModels(); }
+  async function loadModels() {
+    models.value = await api.listModels();
+    const sid = currentSessionId.value;
+    const selectedModelId = currentSession.value?.session.currentModelId;
+    if (
+      sid
+      && currentSession.value
+      && (!selectedModelId || !models.value.some((model) => model.id === selectedModelId))
+    ) {
+      await openSession(sid);
+    }
+  }
   async function loadSessions(search?: string) { sessions.value = await api.listSessions(search); }
 
   async function openSession(id: string) {
     currentSessionId.value = id;
-    currentSession.value = await api.getSession(id);
+    let summary = await api.getSession(id);
+    const selectedModelId = summary.session.currentModelId;
+    const defaultModelId = models.value[0]?.id;
+    if (
+      defaultModelId
+      && (!selectedModelId || !models.value.some((model) => model.id === selectedModelId))
+    ) {
+      await api.updateSession(id, { modelId: defaultModelId });
+      summary = await api.getSession(id);
+    }
+    currentSession.value = summary;
   }
 
   async function newSession(): Promise<string> {
-    const s = await api.createSession(undefined, undefined);
+    const s = await api.createSession(undefined, models.value[0]?.id);
     await loadSessions();
     await openSession(s.id);
     return s.id;
