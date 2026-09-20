@@ -41,6 +41,7 @@ const kindOptions: { label: string; value: AiProviderKind }[] = [
 const capabilityLabels: Record<AiCapability, string> = {
   text: '文本', image: '图片', audio: '音频', video: '视频',
 };
+const defaultCapabilities: AiCapability[] = ['text', 'image', 'audio', 'video'];
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -226,7 +227,7 @@ function addModelDraft() {
   if (!selectedProvider.value || isDraftProvider.value) return;
   const now = Date.now();
   const draft: ModelDraft = {
-    id: crypto.randomUUID(), modelId: '', displayName: '', capabilities: ['text'],
+    id: crypto.randomUUID(), modelId: '', displayName: '', capabilities: [...defaultCapabilities],
     temperature: null, maxTokens: null, sortOrder: modelDrafts.value.length,
     createdAt: now, updatedAt: now, persisted: false,
   };
@@ -366,7 +367,7 @@ async function importSelectedModels() {
         providerId: provider.id,
         modelId: candidate.id,
         displayName: candidate.displayName || candidate.id,
-        capabilities: JSON.stringify(['text']),
+        capabilities: JSON.stringify(defaultCapabilities),
         temperature: null,
         maxTokens: null,
         sortOrder: baseSortOrder + index,
