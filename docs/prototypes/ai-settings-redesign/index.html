@@ -387,6 +387,54 @@
     .drawer-copy { margin: 0 0 12px; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
     .drawer-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 
+    .sync-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      place-items: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.34);
+    }
+    .sync-backdrop.open { display: grid; }
+    .sync-dialog {
+      width: min(520px, calc(100vw - 40px));
+      max-height: min(620px, calc(100vh - 40px));
+      display: grid;
+      grid-template-rows: 56px auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--bg-overlay);
+      box-shadow: var(--shadow-pop);
+      animation: sync-in var(--motion-mid);
+    }
+    @keyframes sync-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .sync-head { display: flex; align-items: center; justify-content: space-between; padding: 0 14px 0 18px; border-bottom: 1px solid var(--line); }
+    .sync-head h2 { margin: 0; font-size: 15px; }
+    .sync-summary { margin: 0; padding: 12px 18px; color: var(--text-muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+    .sync-list { min-height: 0; overflow-y: auto; }
+    .sync-row {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 52px;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .sync-row:hover { background: var(--bg-elev-2); }
+    .sync-row.existing { cursor: default; color: var(--text-muted); }
+    .sync-row input { width: 14px; height: 14px; accent-color: var(--accent); }
+    .sync-copy { min-width: 0; display: grid; gap: 3px; }
+    .sync-copy strong, .sync-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sync-copy span { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+    .sync-badge { padding: 2px 6px; border-radius: var(--radius-sm); color: var(--accent); background: var(--accent-soft); font-size: 10px; }
+    .sync-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+    .spinning svg { animation: spin 700ms linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     .toast-region { position: fixed; top: 18px; right: 18px; z-index: 40; display: grid; gap: 8px; }
     .toast {
       min-width: 240px;
@@ -415,7 +463,7 @@
 
     @media (max-width: 820px) {
       body { padding: 0; overflow: auto; }
-      .app-window { width: 100vw; height: 100vh; min-height: 640px; border: 0; border-radius: 0; }
+      .app-window { width: 100%; height: 100vh; min-height: 640px; border: 0; border-radius: 0; }
       .workspace { grid-template-columns: 200px minmax(0, 1fr); }
       .models-panel { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 42%) minmax(0, 1fr); }
       .models-browser { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -541,7 +589,10 @@
                   <span id="searchIcon"></span>
                   <input id="modelSearch" type="search" placeholder="搜索模型" autocomplete="off" />
                 </div>
-                <button id="addModel" class="icon-button" type="button" title="新增模型" aria-label="新增模型"></button>
+                <div class="toolbar-actions">
+                  <button id="syncModels" class="icon-button" type="button" title="从服务器同步" aria-label="从服务器同步"></button>
+                  <button id="addModel" class="icon-button" type="button" title="新增模型" aria-label="新增模型"></button>
+                </div>
               </div>
               <div id="modelList" class="model-list"></div>
             </div>
@@ -584,6 +635,21 @@
     </aside>
   </div>
 
+  <div id="syncDialog" class="sync-backdrop" aria-hidden="true">
+    <section class="sync-dialog" role="dialog" aria-modal="true" aria-labelledby="syncDialogTitle">
+      <header class="sync-head">
+        <h2 id="syncDialogTitle">从服务器同步模型</h2>
+        <button id="closeSync" class="icon-button" type="button" title="关闭" aria-label="关闭"></button>
+      </header>
+      <p id="syncSummary" class="sync-summary"></p>
+      <div id="syncList" class="sync-list"></div>
+      <footer class="sync-foot">
+        <button id="cancelSync" class="button" type="button">取消</button>
+        <button id="importSyncedModels" class="button primary" type="button"></button>
+      </footer>
+    </section>
+  </div>
+
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
   <script>
@@ -597,7 +663,8 @@
       search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>',
       trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"></path></svg>',
       eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
-      activity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h3l2-6 4 11 2-5h5"></path></svg>'
+      activity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h3l2-6 4 11 2-5h5"></path></svg>',
+      refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5"></path><path d="M18.2 11a7 7 0 0 0-11.9-4L5 8M5.8 13a7 7 0 0 0 11.9 4L19 16"></path></svg>'
     };
 
     const kindLabels = { openai: 'OpenAI 兼容', anthropic: 'Anthropic', ollama: 'Ollama' };
@@ -605,6 +672,8 @@
     const state = {
       activeTab: 'models',
       configTab: 'export',
+      syncCandidates: [],
+      syncProviderId: null,
       selectedProviderId: 'p1',
       selectedModelId: 'm1',
       providers: [
@@ -695,6 +764,9 @@
       $('#apiKeyInput').value = provider.apiKey;
       $('#testConnection').disabled = provider.draft;
       $('#testConnection').innerHTML = `${icons.activity}<span id="testConnectionText">测试连接</span>`;
+      $('#syncModels').disabled = provider.draft;
+      $('#syncModels').classList.remove('spinning');
+      $('#syncModels').innerHTML = icons.refresh;
     }
 
     function renderTabs() {
@@ -839,6 +911,104 @@
       $('#modelSearch').value = '';
       renderAll();
       window.setTimeout(() => $('#modelIdInput')?.focus(), 0);
+    }
+
+    function serverModelsFor(kind) {
+      const catalogs = {
+        openai: [
+          { modelId: 'gpt-5.5', displayName: 'GPT-5.5' },
+          { modelId: 'gpt-4.1', displayName: 'GPT-4.1' },
+          { modelId: 'gpt-4o-mini', displayName: 'GPT-4o mini' },
+          { modelId: 'text-embedding-3-large', displayName: 'Text Embedding 3 Large' }
+        ],
+        anthropic: [
+          { modelId: 'claude-opus-4-1', displayName: 'Claude Opus 4.1' },
+          { modelId: 'claude-sonnet-4', displayName: 'Claude Sonnet 4' },
+          { modelId: 'claude-3-5-haiku-latest', displayName: 'Claude 3.5 Haiku' }
+        ],
+        ollama: [
+          { modelId: 'llama3.2', displayName: 'Llama 3.2' },
+          { modelId: 'qwen2.5:7b', displayName: 'Qwen 2.5 7B' },
+          { modelId: 'deepseek-r1:8b', displayName: 'DeepSeek R1 8B' }
+        ]
+      };
+      return catalogs[kind] || [];
+    }
+
+    function syncFromServer() {
+      const provider = currentProvider();
+      if (provider.draft) {
+        toast('请先保存 provider', 'error');
+        return;
+      }
+      const button = $('#syncModels');
+      button.disabled = true;
+      button.classList.add('spinning');
+      state.syncProviderId = provider.id;
+      window.setTimeout(() => {
+        const existing = new Set(provider.models.map((model) => model.modelId.trim()));
+        state.syncCandidates = serverModelsFor(provider.kind).map((model) => ({
+          ...model,
+          existing: existing.has(model.modelId),
+          selected: !existing.has(model.modelId)
+        }));
+        renderSyncDialog();
+        $('#syncDialog').classList.add('open');
+        $('#syncDialog').setAttribute('aria-hidden', 'false');
+        button.disabled = false;
+        button.classList.remove('spinning');
+      }, 700);
+    }
+
+    function renderSyncDialog() {
+      const available = state.syncCandidates.filter((candidate) => !candidate.existing);
+      const selected = available.filter((candidate) => candidate.selected);
+      const provider = state.providers.find((candidate) => candidate.id === state.syncProviderId);
+      $('#syncSummary').textContent = `${provider?.name || '服务器'} 返回 ${state.syncCandidates.length} 个模型，其中 ${available.length} 个可导入。`;
+      $('#syncList').innerHTML = state.syncCandidates.map((candidate) => `
+        <label class="sync-row ${candidate.existing ? 'existing' : ''}">
+          <input type="checkbox" data-sync-model-id="${escapeHtml(candidate.modelId)}" ${candidate.existing || candidate.selected ? 'checked' : ''} ${candidate.existing ? 'disabled' : ''} />
+          <span class="sync-copy"><strong>${escapeHtml(candidate.displayName)}</strong><span>${escapeHtml(candidate.modelId)}</span></span>
+          ${candidate.existing ? '<span class="sync-badge">已添加</span>' : ''}
+        </label>
+      `).join('');
+      $('#importSyncedModels').textContent = `导入选中（${selected.length}）`;
+      $('#importSyncedModels').disabled = selected.length === 0;
+      $$('[data-sync-model-id]').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          const candidate = state.syncCandidates.find((item) => item.modelId === checkbox.dataset.syncModelId);
+          candidate.selected = checkbox.checked;
+          renderSyncDialog();
+        });
+      });
+    }
+
+    function closeSyncDialog() {
+      $('#syncDialog').classList.remove('open');
+      $('#syncDialog').setAttribute('aria-hidden', 'true');
+    }
+
+    function importSyncedModels() {
+      const provider = state.providers.find((candidate) => candidate.id === state.syncProviderId);
+      if (!provider) {
+        closeSyncDialog();
+        toast('Provider 已不存在', 'error');
+        return;
+      }
+      const selected = state.syncCandidates.filter((candidate) => candidate.selected && !candidate.existing);
+      const existing = new Set(provider.models.map((model) => model.modelId.trim()));
+      const imported = selected.filter((candidate) => !existing.has(candidate.modelId));
+      provider.models.push(...imported.map((candidate) => ({
+        id: uid('model'),
+        modelId: candidate.modelId,
+        displayName: candidate.displayName,
+        capabilities: ['text'],
+        temperature: '',
+        maxTokens: ''
+      })));
+      closeSyncDialog();
+      renderAll();
+      toast(`已导入 ${imported.length} 个模型`);
     }
 
     function addProvider() {
@@ -1004,8 +1174,10 @@
     $('#deleteProvider').innerHTML = icons.trash;
     $('#toggleKey').innerHTML = icons.eye;
     $('#searchIcon').innerHTML = icons.search;
+    $('#syncModels').innerHTML = icons.refresh;
     $('#addModel').innerHTML = icons.plus;
     $('#closeConfig').innerHTML = icons.close;
+    $('#closeSync').innerHTML = icons.close;
     $('#addProvider').innerHTML = `${icons.plus}<span>新增 provider</span>`;
     $('#openConfig').innerHTML = `${icons.transfer}<span>导入 / 导出配置</span>`;
     $('#testConnection').innerHTML = `${icons.activity}<span id="testConnectionText">测试连接</span>`;
@@ -1019,6 +1191,7 @@
       renderConfigDrawer(false);
     }));
     $('#modelSearch').addEventListener('input', renderModels);
+    $('#syncModels').addEventListener('click', syncFromServer);
     $('#addModel').addEventListener('click', addModel);
     $('#addProvider').addEventListener('click', addProvider);
     $('#providerForm').addEventListener('submit', saveProvider);
@@ -1046,13 +1219,21 @@
     $('#configDrawer').addEventListener('click', (event) => {
       if (event.target === $('#configDrawer')) closeConfig();
     });
+    $('#closeSync').addEventListener('click', closeSyncDialog);
+    $('#cancelSync').addEventListener('click', closeSyncDialog);
+    $('#importSyncedModels').addEventListener('click', importSyncedModels);
+    $('#syncDialog').addEventListener('click', (event) => {
+      if (event.target === $('#syncDialog')) closeSyncDialog();
+    });
     $('#secondaryConfigAction').addEventListener('click', () => {
       const includes = $('#secondaryConfigAction').dataset.includeKeys === 'true';
       renderConfigDrawer(!includes);
     });
     $('#primaryConfigAction').addEventListener('click', primaryConfigAction);
     window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && $('#configDrawer').classList.contains('open')) closeConfig();
+      if (event.key !== 'Escape') return;
+      if ($('#syncDialog').classList.contains('open')) closeSyncDialog();
+      else if ($('#configDrawer').classList.contains('open')) closeConfig();
     });
 
     renderAll();
