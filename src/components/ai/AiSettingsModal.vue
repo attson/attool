@@ -195,6 +195,16 @@ const filteredModelDrafts = computed(() => {
     || draft.displayName.toLocaleLowerCase().includes(query)
   );
 });
+const batchSelecting = ref(false);
+const batchSelectedIds = ref<Set<string>>(new Set());
+const deletingModels = ref(false);
+const allFilteredModelsSelected = computed(() =>
+  filteredModelDrafts.value.length > 0
+  && filteredModelDrafts.value.every((draft) => batchSelectedIds.value.has(draft.id))
+);
+const someFilteredModelsSelected = computed(() =>
+  filteredModelDrafts.value.some((draft) => batchSelectedIds.value.has(draft.id))
+);
 
 function syncModelDrafts() {
   const providerId = isDraftProvider.value ? null : selectedProvider.value?.id ?? null;
@@ -215,12 +225,42 @@ watch(selectedProviderId, () => {
   selectedModelId.value = null;
   modelSearch.value = '';
   modelError.value = '';
+  batchSelecting.value = false;
+  batchSelectedIds.value = new Set();
   syncModelDrafts();
 });
 
 function selectModel(id: string) {
+  if (batchSelecting.value) {
+    toggleBatchModel(id, !batchSelectedIds.value.has(id));
+    return;
+  }
   selectedModelId.value = id;
   modelError.value = '';
+}
+
+function startBatchSelection() {
+  batchSelecting.value = true;
+  batchSelectedIds.value = new Set();
+}
+
+function cancelBatchSelection() {
+  batchSelecting.value = false;
+  batchSelectedIds.value = new Set();
+}
+
+function toggleBatchModel(id: string, checked: boolean) {
+  const next = new Set(batchSelectedIds.value);
+  if (checked) next.add(id); else next.delete(id);
+  batchSelectedIds.value = next;
+}
+
+function toggleAllFilteredModels(checked: boolean) {
+  const next = new Set(batchSelectedIds.value);
+  for (const draft of filteredModelDrafts.value) {
+    if (checked) next.add(draft.id); else next.delete(draft.id);
+  }
+  batchSelectedIds.value = next;
 }
 
 function addModelDraft() {
@@ -289,6 +329,31 @@ async function removeModelDraft(draft: ModelDraft) {
     message.success('模型已删除');
   } catch (e) {
     message.error(errText(e));
+  }
+}
+
+async function removeSelectedModels() {
+  const selectedDrafts = modelDrafts.value.filter((draft) => batchSelectedIds.value.has(draft.id));
+  if (!selectedDrafts.length) return;
+  deletingModels.value = true;
+  try {
+    await Promise.all(
+      selectedDrafts.filter((draft) => draft.persisted).map((draft) => api.deleteModel(draft.id))
+    );
+    modelDrafts.value = modelDrafts.value.filter((draft) => !batchSelectedIds.value.has(draft.id));
+    await loadModels();
+    syncModelDrafts();
+    cancelBatchSelection();
+    message.success(`已删除 ${selectedDrafts.length} 个模型`);
+  } catch (e) {
+    await loadModels();
+    syncModelDrafts();
+    batchSelectedIds.value = new Set(
+      modelDrafts.value.filter((draft) => batchSelectedIds.value.has(draft.id)).map((draft) => draft.id)
+    );
+    message.error(errText(e));
+  } finally {
+    deletingModels.value = false;
   }
 }
 
@@ -455,6 +520,7 @@ watch(() => props.show, async (visible) => {
     importText.value = '';
     exportText.value = '';
     modelError.value = '';
+    cancelBatchSelection();
     return;
   }
   try {
@@ -687,6 +753,18 @@ function updateSyncShow(visible: boolean) {
                   </n-input>
                   <div class="toolbar-actions">
                     <n-button
+                      v-if="!batchSelecting"
+                      class="icon-button"
+                      quaternary
+                      :disabled="modelDrafts.length === 0"
+                      title="批量删除"
+                      aria-label="批量删除"
+                      @click="startBatchSelection"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg>
+                    </n-button>
+                    <n-button
+                      v-if="!batchSelecting"
                       class="icon-button"
                       quaternary
                       :loading="syncing"
@@ -696,31 +774,89 @@ function updateSyncShow(visible: boolean) {
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5" /><path d="M18.2 11a7 7 0 0 0-11.9-4L5 8M5.8 13a7 7 0 0 0 11.9 4L19 16" /></svg>
                     </n-button>
-                    <n-button class="icon-button" quaternary title="新增模型" aria-label="新增模型" @click="addModelDraft">
+                    <n-button
+                      v-if="!batchSelecting"
+                      class="icon-button"
+                      quaternary
+                      title="新增模型"
+                      aria-label="新增模型"
+                      @click="addModelDraft"
+                    >
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                     </n-button>
+                  </div>
+                  <div v-if="batchSelecting" class="batch-toolbar">
+                    <n-checkbox
+                      :checked="allFilteredModelsSelected"
+                      :indeterminate="someFilteredModelsSelected && !allFilteredModelsSelected"
+                      :disabled="filteredModelDrafts.length === 0 || deletingModels"
+                      @update:checked="toggleAllFilteredModels"
+                    >
+                      全选
+                    </n-checkbox>
+                    <span>已选 {{ batchSelectedIds.size }} 项</span>
+                    <div class="batch-actions">
+                      <n-button size="tiny" quaternary :disabled="deletingModels" @click="cancelBatchSelection">
+                        取消
+                      </n-button>
+                      <n-popconfirm
+                        :positive-text="`删除 ${batchSelectedIds.size} 项`"
+                        negative-text="取消"
+                        :disabled="batchSelectedIds.size === 0"
+                        @positive-click="removeSelectedModels"
+                      >
+                        <template #trigger>
+                          <n-button
+                            size="tiny"
+                            type="error"
+                            :loading="deletingModels"
+                            :disabled="batchSelectedIds.size === 0"
+                          >
+                            删除
+                          </n-button>
+                        </template>
+                        确定删除选中的 {{ batchSelectedIds.size }} 个模型吗？
+                      </n-popconfirm>
+                    </div>
                   </div>
                 </div>
 
                 <div class="model-list">
-                  <button
+                  <div
                     v-for="draft in filteredModelDrafts"
                     :key="draft.id"
-                    class="model-item"
-                    :class="{ active: draft.id === selectedModelId }"
-                    type="button"
-                    @click="selectModel(draft.id)"
+                    class="model-row"
+                    :class="{ selecting: batchSelecting }"
                   >
-                    <span class="model-main">
-                      <strong>{{ draft.displayName || draft.modelId || '未命名模型' }}</strong>
-                      <span>{{ draft.modelId || '等待填写 Model ID' }}</span>
-                    </span>
-                    <span class="capability-list">
-                      <span v-for="capability in draft.capabilities" :key="capability">
-                        {{ capabilityLabels[capability] }}
+                    <n-checkbox
+                      v-if="batchSelecting"
+                      class="model-select"
+                      :checked="batchSelectedIds.has(draft.id)"
+                      :disabled="deletingModels"
+                      :aria-label="`选择 ${draft.displayName || draft.modelId || '未命名模型'}`"
+                      @update:checked="(checked) => toggleBatchModel(draft.id, checked)"
+                    />
+                    <button
+                      class="model-item"
+                      :class="{
+                        active: !batchSelecting && draft.id === selectedModelId,
+                        selected: batchSelecting && batchSelectedIds.has(draft.id),
+                      }"
+                      type="button"
+                      :disabled="deletingModels"
+                      @click="selectModel(draft.id)"
+                    >
+                      <span class="model-main">
+                        <strong>{{ draft.displayName || draft.modelId || '未命名模型' }}</strong>
+                        <span>{{ draft.modelId || '等待填写 Model ID' }}</span>
                       </span>
-                    </span>
-                  </button>
+                      <span class="capability-list">
+                        <span v-for="capability in draft.capabilities" :key="capability">
+                          {{ capabilityLabels[capability] }}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
                   <div v-if="filteredModelDrafts.length === 0" class="list-empty">
                     {{ modelDrafts.length ? '没有匹配的模型' : '还没有模型' }}
                   </div>
@@ -1174,7 +1310,22 @@ function updateSyncShow(visible: boolean) {
 }
 
 .toolbar-actions { gap: 6px; }
+.batch-toolbar {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+}
+.batch-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .model-list { min-height: 0; overflow-y: auto; padding: 6px; }
+.model-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.model-row.selecting { grid-template-columns: auto minmax(0, 1fr); gap: 4px; }
+.model-row + .model-row { margin-top: 2px; }
+.model-select { padding-left: 6px; }
 
 .model-item {
   width: 100%;
@@ -1193,9 +1344,10 @@ function updateSyncShow(visible: boolean) {
   transition: background var(--motion-fast), border-color var(--motion-fast);
 }
 
-.model-item + .model-item { margin-top: 2px; }
 .model-item:hover { background: var(--bg-elev-2); }
-.model-item.active { border-color: var(--accent-line); background: var(--accent-soft); }
+.model-item.active,
+.model-item.selected { border-color: var(--accent-line); background: var(--accent-soft); }
+.model-item:disabled { cursor: default; opacity: 0.65; }
 .model-main { gap: 4px; }
 .model-main strong,
 .model-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
