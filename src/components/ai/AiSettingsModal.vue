@@ -6,7 +6,7 @@ import {
 } from 'naive-ui';
 import { createAiApi } from './aiApi';
 import { useAiChat } from './useAiChat';
-import { parseCapabilities } from '../../types/ai';
+import { isDuplicateAiModelId, parseCapabilities } from '../../types/ai';
 import type { AiCapability, AiModel, AiProvider, AiProviderKind, ProviderModelInfo } from '../../types/ai';
 
 const props = defineProps<{ show: boolean }>();
@@ -149,9 +149,18 @@ function addModelDraft() {
 async function saveModelDraft(draft: ModelDraft) {
   const provider = selectedProvider.value;
   if (!provider || isDraftProvider.value) return;
+  const modelId = draft.modelId.trim();
+  if (!modelId) {
+    message.error('请输入模型 ID');
+    return;
+  }
+  if (isDuplicateAiModelId(models.value, provider.id, modelId, draft.id)) {
+    message.error(`该 provider 下已存在模型「${modelId}」`);
+    return;
+  }
   const payload: AiModel = {
     id: draft.id, providerId: provider.id,
-    modelId: draft.modelId.trim(), displayName: draft.displayName.trim() || draft.modelId.trim(),
+    modelId, displayName: draft.displayName.trim() || modelId,
     capabilities: JSON.stringify(draft.capabilities.length ? draft.capabilities : ['text']),
     temperature: draft.temperature, maxTokens: draft.maxTokens,
     sortOrder: draft.sortOrder, createdAt: draft.createdAt, updatedAt: Date.now(),
@@ -438,7 +447,12 @@ function updateShow(v: boolean) {
                   </label>
                 </div>
                 <div class="model-actions">
-                  <n-button size="tiny" type="primary" @click="saveModelDraft(draft)">保存</n-button>
+                  <n-button
+                    size="tiny" type="primary" :disabled="!draft.modelId.trim()"
+                    @click="saveModelDraft(draft)"
+                  >
+                    保存
+                  </n-button>
                   <n-popconfirm v-if="draft.persisted" @positive-click="removeModelDraft(draft)">
                     <template #trigger>
                       <n-button size="tiny" quaternary type="error">删除</n-button>

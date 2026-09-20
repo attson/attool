@@ -34,6 +34,20 @@ export type AiContentPart =
     | { type: 'image'; path: string; mime: string };
 export interface AiImportSummary { providersUpserted: number; modelsUpserted: number }
 
+export function isDuplicateAiModelId(
+    models: readonly Pick<AiModel, 'id' | 'providerId' | 'modelId'>[],
+    providerId: string,
+    modelId: string,
+    currentId: string,
+): boolean {
+    const normalized = modelId.trim();
+    return models.some((model) =>
+        model.providerId === providerId
+        && model.id !== currentId
+        && model.modelId.trim() === normalized
+    );
+}
+
 export function parseCapabilities(json: string): AiCapability[] {
     try {
         const v = JSON.parse(json);

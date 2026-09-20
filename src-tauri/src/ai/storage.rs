@@ -55,6 +55,43 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   finished_at       INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, created_at);
+
+DROP TABLE IF EXISTS temp.ai_model_dedup_map;
+CREATE TEMP TABLE ai_model_dedup_map (
+  duplicate_id TEXT PRIMARY KEY,
+  keeper_id    TEXT NOT NULL
+);
+INSERT INTO ai_model_dedup_map (duplicate_id, keeper_id)
+SELECT duplicate.id, keeper.id
+FROM ai_models AS duplicate
+JOIN ai_models AS keeper
+  ON keeper.provider_id = duplicate.provider_id
+ AND keeper.model_id = duplicate.model_id
+ AND keeper.rowid = (
+   SELECT MIN(candidate.rowid)
+   FROM ai_models AS candidate
+   WHERE candidate.provider_id = duplicate.provider_id
+     AND candidate.model_id = duplicate.model_id
+ )
+WHERE duplicate.id != keeper.id;
+UPDATE ai_sessions
+SET current_model_id = (
+  SELECT keeper_id FROM ai_model_dedup_map
+  WHERE duplicate_id = ai_sessions.current_model_id
+)
+WHERE current_model_id IN (SELECT duplicate_id FROM ai_model_dedup_map);
+UPDATE ai_messages
+SET model_id = (
+  SELECT keeper_id FROM ai_model_dedup_map
+  WHERE duplicate_id = ai_messages.model_id
+)
+WHERE model_id IN (SELECT duplicate_id FROM ai_model_dedup_map);
+DELETE FROM ai_models
+WHERE id IN (SELECT duplicate_id FROM ai_model_dedup_map);
+DROP TABLE temp.ai_model_dedup_map;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_models_provider_model
+  ON ai_models(provider_id, model_id);
 "#;
 
 pub struct AiStore {
@@ -209,7 +246,8 @@ impl AiStore {
         .map_err(err_map)
     }
 
-    pub fn upsert_model(&self, row: ModelRow) -> Result<ModelRow, String> {
+    pub fn upsert_model(&self, mut row: ModelRow) -> Result<ModelRow, String> {
+        row.model_id = row.model_id.trim().to_owned();
         let conn = self.conn();
         conn.execute(
             "INSERT INTO ai_models \
@@ -611,6 +649,32 @@ mod tests {
     }
 
     #[test]
+    fn model_id_is_unique_within_provider() {
+        let s = AiStore::new_in_memory().unwrap();
+        s.upsert_provider(provider("p1")).unwrap();
+        s.upsert_model(model("m1", "p1")).unwrap();
+
+        let result = s.upsert_model(model("m2", "p1"));
+
+        assert!(result.is_err());
+        assert_eq!(s.list_models(Some("p1")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn model_id_uniqueness_ignores_surrounding_whitespace() {
+        let s = AiStore::new_in_memory().unwrap();
+        s.upsert_provider(provider("p1")).unwrap();
+        s.upsert_model(model("m1", "p1")).unwrap();
+        let mut duplicate = model("m2", "p1");
+        duplicate.model_id = "  gpt-4o  ".into();
+
+        let result = s.upsert_model(duplicate);
+
+        assert!(result.is_err());
+        assert_eq!(s.list_models(Some("p1")).unwrap().len(), 1);
+    }
+
+    #[test]
     fn message_cascades_when_session_deleted() {
         let s = AiStore::new_in_memory().unwrap();
         s.create_session(session("s1")).unwrap();
@@ -667,5 +731,40 @@ mod tests {
         // 再跑一次 DDL（模拟重启），已有数据保留
         s.conn.lock().unwrap().execute_batch(super::MIGRATION_SQL).unwrap();
         assert_eq!(s.list_providers().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_deduplicates_models_and_preserves_references() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = AiStore::new(dir.path().to_path_buf()).unwrap();
+        s.upsert_provider(provider("p1")).unwrap();
+        s.conn
+            .lock()
+            .unwrap()
+            .execute_batch("DROP INDEX idx_ai_models_provider_model;")
+            .unwrap();
+        s.upsert_model(model("m1", "p1")).unwrap();
+        s.upsert_model(model("m2", "p1")).unwrap();
+
+        let mut sess = session("s1");
+        sess.current_model_id = Some("m2".into());
+        s.create_session(sess).unwrap();
+        let mut msg = message("msg1", "s1", "assistant", "hi");
+        msg.model_id = Some("m2".into());
+        s.insert_message(msg).unwrap();
+        drop(s);
+
+        let migrated = AiStore::new(dir.path().to_path_buf()).unwrap();
+        let models = migrated.list_models(Some("p1")).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "m1");
+        assert_eq!(
+            migrated.get_session("s1").unwrap().unwrap().current_model_id.as_deref(),
+            Some("m1")
+        );
+        assert_eq!(
+            migrated.list_messages("s1").unwrap()[0].model_id.as_deref(),
+            Some("m1")
+        );
     }
 }
