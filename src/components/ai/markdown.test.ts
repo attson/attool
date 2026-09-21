@@ -32,6 +32,23 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('1. a\n2. b');
     expect(html).toBe('<ol><li>a</li><li>b</li></ol>');
   });
+  it('renders a table with inline markdown in its cells', () => {
+    const html = renderMarkdown([
+      '| 系统 | 适合人群 | 特点 |',
+      '| --- | --- | --- |',
+      '| Linux Mint | 新手 | **简单稳定** |',
+      '| Fedora KDE | 开发者 | 软件较新 |',
+    ].join('\n'));
+
+    expect(html).toBe(
+      '<div class="md-table-wrap"><table><thead><tr>'
+      + '<th>系统</th><th>适合人群</th><th>特点</th>'
+      + '</tr></thead><tbody>'
+      + '<tr><td>Linux Mint</td><td>新手</td><td><strong>简单稳定</strong></td></tr>'
+      + '<tr><td>Fedora KDE</td><td>开发者</td><td>软件较新</td></tr>'
+      + '</tbody></table></div>',
+    );
+  });
   it('renders blockquote', () => {
     expect(renderMarkdown('> hi')).toBe('<blockquote>hi</blockquote>');
   });

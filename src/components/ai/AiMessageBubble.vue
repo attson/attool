@@ -135,6 +135,27 @@ async function onMarkdownClick(ev: MouseEvent) {
 .markdown :deep(pre code) { font-size: 1em; }
 .markdown :deep(a) { color: var(--accent); }
 .markdown :deep(ul), .markdown :deep(ol) { margin: 0 0 8px; padding-left: 20px; }
+.markdown :deep(.md-table-wrap) {
+  max-width: 100%;
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+.markdown :deep(table) {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.markdown :deep(th), .markdown :deep(td) {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.markdown :deep(th) {
+  background: var(--bg-elev-2);
+  font-weight: 600;
+}
 .markdown :deep(blockquote) {
   margin: 0 0 8px;
   padding-left: 10px;
