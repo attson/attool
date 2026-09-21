@@ -175,6 +175,42 @@ describe('useAiChat', () => {
     expect(s.streamingMessageId.value).toBeNull();
   });
 
+  it('sendMessage derives the default session title from the first user message', async () => {
+    const { api, subscribe, state } = makeFakeApi();
+    state.models = [{ id: 'm1' }];
+    const s = _createAiChatState(api as any, subscribe as any);
+    await s.loadModels();
+    await s.newSession();
+
+    await s.sendMessage('  Ubuntu 桌面系统\n有什么替代方案？  ', []);
+
+    expect(api.updateSession).toHaveBeenCalledWith('s0', {
+      title: 'Ubuntu 桌面系统 有什么替代方案？',
+    });
+    expect(s.sessions.value[0].title).toBe('Ubuntu 桌面系统 有什么替代方案？');
+  });
+
+  it('openSession backfills the title of an existing default-titled conversation', async () => {
+    const { api, subscribe, state } = makeFakeApi();
+    state.sessions.push({
+      id: 's1', title: '新会话', systemPrompt: '', currentModelId: null, createdAt: 0, updatedAt: 0,
+    });
+    state.messages.s1 = [{
+      id: 'u1', sessionId: 's1', role: 'user',
+      contentJson: '[{"type":"text","text":"帮我选一个 Linux 桌面系统"}]',
+      status: 'done',
+    }];
+    const s = _createAiChatState(api as any, subscribe as any);
+    await s.loadSessions();
+
+    await s.openSession('s1');
+
+    expect(api.updateSession).toHaveBeenCalledWith('s1', {
+      title: '帮我选一个 Linux 桌面系统',
+    });
+    expect(s.currentSession.value?.session.title).toBe('帮我选一个 Linux 桌面系统');
+  });
+
   it('cancelStreaming calls api.cancel with current streaming id', async () => {
     const { api, subscribe } = makeFakeApi();
     const s = _createAiChatState(api as any, subscribe as any);

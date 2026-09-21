@@ -4,10 +4,21 @@ import { createAiApi, subscribeAiDelta, type AiApi } from './aiApi';
 import type {
   AiContentPart, AiModel, AiProvider, AiSession, AiSessionSummary,
 } from '../../types/ai';
+import { parseContent } from '../../types/ai';
 import type { KVStorage } from '../../composables/useSidebarState';
 
 type Subscribe = typeof subscribeAiDelta;
 const PREFERRED_MODEL_KEY = 'attool.ai.preferredModelId';
+const DEFAULT_SESSION_TITLE = '新会话';
+const MAX_AUTO_TITLE_LENGTH = 40;
+
+function deriveSessionTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '图片对话';
+  const characters = Array.from(normalized);
+  if (characters.length <= MAX_AUTO_TITLE_LENGTH) return normalized;
+  return `${characters.slice(0, MAX_AUTO_TITLE_LENGTH).join('')}…`;
+}
 
 function resolvePreferredModelId(models: readonly AiModel[], storage?: KVStorage): string | undefined {
   const stored = storage?.getItem(PREFERRED_MODEL_KEY);
@@ -54,6 +65,20 @@ export function _createAiChatState(api: AiApi, subscribe: Subscribe, storage?: K
       await api.updateSession(id, { modelId: defaultModelId });
       rememberPreferredModel(defaultModelId);
       summary = await api.getSession(id);
+    }
+    if (summary.session.title === DEFAULT_SESSION_TITLE) {
+      const firstUserMessage = summary.messages.find((message) => message.role === 'user');
+      if (firstUserMessage) {
+        const text = parseContent(firstUserMessage.contentJson)
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join(' ');
+        summary = {
+          ...summary,
+          session: await api.updateSession(id, { title: deriveSessionTitle(text) }),
+        };
+        await loadSessions();
+      }
     }
     currentSession.value = summary;
   }
