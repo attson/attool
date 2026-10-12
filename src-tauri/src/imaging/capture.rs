@@ -5,7 +5,8 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl,
+    WebviewWindowBuilder,
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -14,6 +15,22 @@ pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
 const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
 const WAYLAND_SHORTCUT_UNAVAILABLE: &str =
     "当前是 Wayland 会话，内置全局快捷键仅支持 X11；请在系统键盘设置中绑定截图命令";
+
+fn select_primary_or_first<T>(primary: Option<T>, available: Vec<T>) -> Option<T> {
+    primary.or_else(|| available.into_iter().next())
+}
+
+pub(crate) fn primary_or_first_monitor(app: &AppHandle) -> Result<Monitor, String> {
+    // Some Linux backends enumerate monitors without designating a primary one.
+    let primary = app.primary_monitor().ok().flatten();
+    let available = if primary.is_none() {
+        app.available_monitors()
+            .map_err(|error| format!("枚举显示器失败：{error}"))?
+    } else {
+        Vec::new()
+    };
+    select_primary_or_first(primary, available).ok_or_else(|| "未找到可用显示器".to_string())
+}
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -202,11 +219,8 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
         return Err("桌面截图失败：未生成截图文件".to_string());
     }
 
-    // Position overlay to cover primary monitor
-    let monitor = app
-        .primary_monitor()
-        .map_err(|error| format!("获取主显示器失败：{error}"))?
-        .ok_or_else(|| "未找到主显示器".to_string())?;
+    // Position overlay to cover the selected monitor
+    let monitor = primary_or_first_monitor(app)?;
     let scale = monitor.scale_factor();
     let physical_size = monitor.size();
     let physical_pos = monitor.position();
@@ -369,10 +383,7 @@ pub fn pin_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathBuf,
     let img_w = dyn_img.width() as f64;
     let img_h = dyn_img.height() as f64;
 
-    let monitor = app
-        .primary_monitor()
-        .map_err(|error| format!("获取主显示器失败：{error}"))?
-        .ok_or_else(|| "未找到主显示器".to_string())?;
+    let monitor = primary_or_first_monitor(app)?;
     let scale = monitor.scale_factor();
     let logical_w = img_w / scale;
     let logical_h = img_h / scale;
@@ -509,5 +520,16 @@ mod tests {
             OVERLAY_DESKTOP_FRAME_EXTENSION, "bmp",
             "WKWebView does not reliably render BMP, which leaves the capture overlay blank"
         );
+    }
+
+    #[test]
+    fn selects_primary_monitor_when_available() {
+        assert_eq!(select_primary_or_first(Some(2), vec![1, 3]), Some(2));
+    }
+
+    #[test]
+    fn falls_back_to_first_monitor_when_primary_is_unavailable() {
+        assert_eq!(select_primary_or_first(None, vec![1, 2]), Some(1));
+        assert_eq!(select_primary_or_first::<u8>(None, vec![]), None);
     }
 }

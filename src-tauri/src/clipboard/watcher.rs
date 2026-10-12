@@ -15,6 +15,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use super::{models::DEFAULT_CLIPBOARD_SHORTCUT, storage::ClipboardStore};
+use crate::imaging::capture::primary_or_first_monitor;
 
 const CLIPBOARD_EVENT: &str = "clipboard-history-updated";
 const CLIPBOARD_STRIP_HEIGHT: f64 = 260.0;
@@ -162,10 +163,7 @@ fn install_clipboard_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), 
 }
 
 fn position_history_strip(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
-    let monitor = app
-        .primary_monitor()
-        .map_err(|error| format!("获取主显示器失败：{error}"))?
-        .ok_or_else(|| "未找到主显示器".to_string())?;
+    let monitor = primary_or_first_monitor(app)?;
     let scale = monitor.scale_factor();
     // work_area 排除了 macOS 的菜单栏和 Dock、Windows 的任务栏,避免条状面板被遮挡。
     let work_area = monitor.work_area();
