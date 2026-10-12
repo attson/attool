@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
 const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
 const WAYLAND_SHORTCUT_UNAVAILABLE: &str =
-    "当前是 Wayland 会话，内置全局快捷键仅支持 X11；请使用“开始截图”，或从 X11 会话登录后使用快捷键";
+    "当前是 Wayland 会话，内置全局快捷键仅支持 X11；请在系统键盘设置中绑定截图命令";
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -141,14 +141,18 @@ fn install_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), String> {
             if event.state() != ShortcutState::Pressed {
                 return;
             }
-            let inner = handle.clone();
-            std::thread::spawn(move || {
-                if let Err(err) = open_capture_overlay(&inner) {
-                    let _ = inner.emit("capture-failed", err);
-                }
-            });
+            trigger_capture_overlay(&handle);
         })
         .map_err(|error| format!("注册截图快捷键失败：{error}"))
+}
+
+pub fn trigger_capture_overlay(app: &AppHandle) {
+    let inner = app.clone();
+    std::thread::spawn(move || {
+        if let Err(err) = open_capture_overlay(&inner) {
+            let _ = inner.emit("capture-failed", err);
+        }
+    });
 }
 
 // ---------- overlay ----------

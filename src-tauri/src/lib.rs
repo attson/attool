@@ -1,5 +1,7 @@
 mod bilibili;
 mod clipboard;
+#[cfg(target_os = "linux")]
+mod capture_command;
 mod updater;
 mod douyin;
 #[cfg(target_os = "linux")]
@@ -1103,6 +1105,13 @@ fn show_main_window(app: &AppHandle) {
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    let capture_requested = capture_command::capture_requested();
+    #[cfg(target_os = "linux")]
+    if capture_requested && capture_command::forward_capture_if_running() {
+        return;
+    }
+
     // Linux/WebKitGTK: 启动前探测 GPU 环境,必要时兜底禁用 DMABUF 渲染器,
     // 避免驱动版本不一致等场景下 WebKit 在 C 层 SIGABRT。见 gpu_linux 模块。
     #[cfg(target_os = "linux")]
@@ -1126,7 +1135,12 @@ pub fn run() {
                 }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
+            #[cfg(target_os = "linux")]
+            if let Err(error) = capture_command::start_listener(app.handle()) {
+                eprintln!("{error}");
+            }
+
             let state = create_download_state(app.handle())
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(state);
@@ -1229,6 +1243,14 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            #[cfg(target_os = "linux")]
+            if capture_requested {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                capture_command::schedule_initial_capture(app.handle());
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1330,6 +1352,7 @@ pub fn run() {
             imaging::commands::capture_screen,
             imaging::commands::get_capture_shortcut,
             imaging::commands::set_capture_shortcut,
+            imaging::commands::open_system_shortcut_settings,
             imaging::commands::open_capture_overlay,
             imaging::commands::close_capture_overlay,
             imaging::commands::commit_capture_overlay,

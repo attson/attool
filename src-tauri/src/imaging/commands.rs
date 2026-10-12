@@ -262,6 +262,7 @@ pub struct CaptureShortcutInfo {
     pub shortcut: String,
     pub default_shortcut: String,
     pub unavailable_reason: Option<String>,
+    pub system_shortcut_command: Option<String>,
 }
 
 #[tauri::command]
@@ -275,6 +276,16 @@ pub fn get_capture_shortcut(app: AppHandle) -> CaptureShortcutInfo {
         },
         default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
         unavailable_reason: global_shortcut_unavailable_reason().map(str::to_string),
+        system_shortcut_command: {
+            #[cfg(target_os = "linux")]
+            {
+                crate::capture_command::system_capture_command()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        },
     }
 }
 
@@ -288,7 +299,18 @@ pub async fn set_capture_shortcut(
         shortcut,
         default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
         unavailable_reason: None,
+        system_shortcut_command: None,
     })
+}
+
+#[tauri::command]
+pub fn open_system_shortcut_settings() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        return crate::capture_command::open_shortcut_settings();
+    }
+    #[cfg(not(target_os = "linux"))]
+    Err("当前平台无需配置系统快捷键".to_string())
 }
 
 #[tauri::command]

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { NAlert, NButton, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Panel from '../ui/Panel.vue';
 import { formatShortcutForDisplay, keyEventToShortcut } from './shortcut';
 
@@ -9,6 +10,7 @@ interface CaptureShortcutInfo {
   shortcut: string;
   defaultShortcut: string;
   unavailableReason: string | null;
+  systemShortcutCommand: string | null;
 }
 
 const message = useMessage();
@@ -16,7 +18,8 @@ const message = useMessage();
 const shortcutInfo = ref<CaptureShortcutInfo>({
   shortcut: '',
   defaultShortcut: 'CommandOrControl+Shift+A',
-  unavailableReason: null
+  unavailableReason: null,
+  systemShortcutCommand: null
 });
 const editing = ref(false);
 const recordingRaw = ref('');
@@ -116,6 +119,24 @@ async function startCapture() {
   }
 }
 
+async function copySystemShortcutCommand() {
+  if (!shortcutInfo.value.systemShortcutCommand) return;
+  try {
+    await writeText(shortcutInfo.value.systemShortcutCommand);
+    message.success('截图命令已复制');
+  } catch (err) {
+    message.error(String(err));
+  }
+}
+
+async function openSystemShortcutSettings() {
+  try {
+    await invoke('open_system_shortcut_settings');
+  } catch (err) {
+    message.error(String(err));
+  }
+}
+
 onMounted(loadShortcut);
 </script>
 
@@ -142,7 +163,7 @@ onMounted(loadShortcut);
 
       <div v-if="!editing" class="shortcut-view">
         <p v-if="shortcutInfo.unavailableReason" class="tips-inline">
-          点击“开始截图”可正常使用截图功能。
+          将下面的命令添加到系统自定义快捷键，即可在任何窗口下启动截图。
         </p>
         <p v-else class="tips-inline">
           任何窗口下按快捷键都直接开始选区截图，截完自动送入标注 tab。
@@ -162,6 +183,20 @@ onMounted(loadShortcut);
           >
             恢复默认
           </n-button>
+        </div>
+        <div
+          v-if="shortcutInfo.unavailableReason && shortcutInfo.systemShortcutCommand"
+          class="system-shortcut"
+        >
+          <code class="mono">{{ shortcutInfo.systemShortcutCommand }}</code>
+          <div class="btn-inline">
+            <n-button size="small" secondary @click="copySystemShortcutCommand">
+              复制命令
+            </n-button>
+            <n-button size="small" secondary @click="openSystemShortcutSettings">
+              打开键盘设置
+            </n-button>
+          </div>
         </div>
       </div>
 
@@ -221,7 +256,24 @@ onMounted(loadShortcut);
 }
 .btn-inline {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.system-shortcut {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+.system-shortcut code {
+  display: block;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
 }
 
 .shortcut-edit {
