@@ -20,19 +20,30 @@ done
 tmp=$(mktemp -d)
 tar -xzf "$src" -C "$tmp"
 
-# 找出解压出来的可执行文件（应该只有一个）
-new_bin=""
-for candidate in "$tmp"/*; do
-  if [ -f "$candidate" ]; then
-    new_bin="$candidate"
-    break
-  fi
-done
+# 新版归档固定为 attool；兼容只含单个二进制的旧归档。
+new_bin="$tmp/attool"
+if [ ! -f "$new_bin" ]; then
+  new_bin=""
+  for candidate in "$tmp"/*; do
+    if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+      new_bin="$candidate"
+      break
+    fi
+  done
+fi
 if [ -z "$new_bin" ]; then
   echo "archive did not contain an executable" >&2
   exit 1
 fi
 chmod +x "$new_bin"
+
+layer_shell_src="$tmp/libgtk-layer-shell.so.0"
+if [ -f "$layer_shell_src" ]; then
+  data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  layer_shell_dir="$data_home/attool/lib"
+  mkdir -p "$layer_shell_dir"
+  cp "$layer_shell_src" "$layer_shell_dir/libgtk-layer-shell.so.0"
+fi
 
 echo "[$(date)] replacing $dst with $new_bin" >&2
 if ! mv "$new_bin" "$dst" 2>/dev/null; then

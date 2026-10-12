@@ -169,7 +169,7 @@ AT.Tool_<v>_arm64.deb
 AT.Tool_<v>_arm64.app.tar.gz    # updater 归档（macOS .app 打包）
 AT.Tool_<v>_amd64.app.tar.gz
 AT.Tool_<v>_amd64.exe.zip       # updater 归档（Windows exe 打包）
-AT.Tool_<v>_amd64.tar.gz        # updater 归档（Linux 裸二进制打包）
+AT.Tool_<v>_amd64.tar.gz        # updater 归档（Linux 二进制 + layer-shell 运行库）
 AT.Tool_<v>_arm64.tar.gz
 ```
 
@@ -189,7 +189,7 @@ AT.Tool_<v>_arm64.tar.gz
 
 3. tag push 触发 `.github/workflows/build.yml`：
 
-   - **build job（matrix × 5）**：每个 runner 先跑「Sync version from git tag」步骤，把 `github.ref_name` 去掉 `v` 前缀写入三个版本号文件；然后 `pnpm tauri build --target <triple>`，跑完 `stage-bundles.sh` 把 dmg/deb/exe 复制到 `runner.temp/stage` 并**同时打包 updater archive**（macOS 用 `tar` 打 `.app`；Windows 用 `7z` 打 exe；Linux 用 `tar` 打裸二进制），上传成 artifact
+   - **build job（matrix × 5）**：每个 runner 先跑「Sync version from git tag」步骤，把 `github.ref_name` 去掉 `v` 前缀写入三个版本号文件；然后 `pnpm tauri build --target <triple>`，跑完 `stage-bundles.sh` 把 dmg/deb/exe 复制到 `runner.temp/stage` 并**同时打包 updater archive**（macOS 用 `tar` 打 `.app`；Windows 用 `7z` 打 exe；Linux 用 `tar` 打二进制与 layer-shell 运行库），上传成 artifact
    - **release job（单 ubuntu，`environment: prod`）**：下载所有 artifact 到一个目录 → `find` 生成 `SHA256SUMS` → `sign-checksums.mjs` 签成 `.sig` → `gh release create` 直接发布正式 release（不再走草稿）
 
 4. 全部跑完（约 6-10 分钟）后 GitHub Releases 会直接公开正式 release。文件名应该正好是上面 §Release 产物列的 12 个

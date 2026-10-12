@@ -44,6 +44,7 @@
 │  ├─ aria2c           HTTP/FTP/BT 下载                    │
 │  ├─ python3 + psd-tools   PSD 解析                        │
 │  ├─ xcap / core-graphics  屏幕截图                        │
+│  ├─ gtk-layer-shell  Wayland 剪贴板面板底部定位           │
 │  ├─ pkexec           Linux 升级提权（updater）             │
 │  └─ open / explorer / xdg-open    打开文件夹              │
 └──────────────────────────────────────────────────────────┘
@@ -102,7 +103,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 |---|---|
 | macOS | tar 解 `.app.tar.gz` → rename current `.app` 为 `.app.old` → rename 新 `.app` 到位（失败回滚）→ `open <bundle>` 拉起 → app.exit(0) |
 | Windows | PowerShell `Expand-Archive` `.exe.zip` → embed `update-windows.bat`（timeout 2s → `copy /y` → `start`）→ `cmd /C start bat` → app.exit(0) |
-| Linux | 写 embed `install-linux.sh` 到 `/tmp/attool-update-<pid>.sh` → chmod 755 → 传 `<pid> <staged.tar.gz> <current_exe_path>` → app.exit(0)；脚本内：等父进程死 → tar 解 → mv 覆盖 / 失败走 `pkexec` → `setsid` 拉起 → 清理 tmp |
+| Linux | 写 embed `install-linux.sh` 到 `/tmp/attool-update-<pid>.sh` → chmod 755 → 传 `<pid> <staged.tar.gz> <current_exe_path>` → app.exit(0)；脚本内：等父进程死 → tar 解 → 安装 layer-shell 运行库 → mv 覆盖 / 失败走 `pkexec` → `setsid` 拉起 → 清理 tmp |
 
 ### 密钥体系
 
@@ -115,7 +116,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ### CI 侧
 
-- `.github/workflows/build.yml` 每 matrix 除 installer 外**打 updater 归档**：macOS `tar -czf .app.tar.gz`、Windows `7z a .exe.zip`、Linux `tar -czf .tar.gz`（裸二进制 `attool`）
+- `.github/workflows/build.yml` 每 matrix 除 installer 外**打 updater 归档**：macOS `tar -czf .app.tar.gz`、Windows `7z a .exe.zip`、Linux `tar -czf .tar.gz`（`attool` + `libgtk-layer-shell.so.0`）
 - release job（`environment: prod`）：`find` 生成 `SHA256SUMS` → `node .github/scripts/sign-checksums.mjs` → `gh release create` 一次性挂全部
 
 ### 前端
@@ -281,7 +282,7 @@ SSE / WebSocket 长连接。所有 session 共享 `HttpStreamState`（通过 `.m
      - env `ATTOOL_UPDATE_VERIFY_PUBLIC_KEY` 从 secret 注入到 `build.rs`（写到 `OUT_DIR/verify_public_key.pem`）
    - `bash .github/scripts/stage-bundles.sh <target> <label> <stage-dir>`：
      - 把 installer 复制到 stage 并规整名（`AT.Tool_<v>_<arch>.{dmg,deb,exe}`）
-     - **同时打 updater archive**：macOS `tar -czf .app.tar.gz "AT Tool.app"`、Windows `7z a .exe.zip "AT Tool.exe"`、Linux `tar -czf .tar.gz attool`（Cargo package 名）
+     - **同时打 updater archive**：macOS `tar -czf .app.tar.gz "AT Tool.app"`、Windows `7z a .exe.zip "AT Tool.exe"`、Linux `tar -czf .tar.gz attool libgtk-layer-shell.so.0`
    - `actions/upload-artifact@v4` 把 stage 全部上传，名 `bundle-<label>`
 
 2. **release job（单 ubuntu-latest，`environment: prod`）** 仅在 tag push 时跑

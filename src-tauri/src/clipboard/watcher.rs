@@ -190,6 +190,10 @@ fn position_history_strip(app: &AppHandle, window: &WebviewWindow) -> Result<(),
     window
         .set_size(LogicalSize::new(logical_width, strip_height))
         .map_err(|error| format!("调整剪贴板窗口尺寸失败：{error}"))?;
+    #[cfg(target_os = "linux")]
+    if super::layer_shell::history_window_is_layer_shell() {
+        return Ok(());
+    }
     window
         .set_position(LogicalPosition::new(
             logical_x,

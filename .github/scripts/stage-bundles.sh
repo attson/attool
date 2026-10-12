@@ -7,7 +7,7 @@
 #   macos-arm64   -> AT.Tool_<v>_arm64.dmg (user installer)
 #                    AT.Tool_<v>_arm64.app.tar.gz (updater archive; contains "AT Tool.app")
 #   macos-x64     -> AT.Tool_<v>_amd64.dmg + AT.Tool_<v>_amd64.app.tar.gz
-#   linux-x64     -> AT.Tool_<v>_amd64.deb + AT.Tool_<v>_amd64.tar.gz (contains raw binary)
+#   linux-x64     -> AT.Tool_<v>_amd64.deb + AT.Tool_<v>_amd64.tar.gz (binary + layer-shell runtime)
 #   linux-arm64   -> AT.Tool_<v>_arm64.deb + AT.Tool_<v>_arm64.tar.gz
 #   windows-x64   -> AT.Tool_<v>_amd64.exe (NSIS installer) + AT.Tool_<v>_amd64.exe.zip
 #                    (updater archive; contains "AT Tool.exe")
@@ -60,8 +60,13 @@ case "$LABEL" in
       ls -la "$TARGET_BIN" >&2
       exit 1
     fi
-    # tar the raw binary — install-linux.sh will find & mv the single file
-    (cd "$TARGET_BIN" && tar -czf "$STAGE/${STEM}_${ARCH}.tar.gz" attool)
+    LAYER_SHELL_LIB=$(dpkg-query -L libgtk-layer-shell0 | awk '/\/libgtk-layer-shell\.so\.0$/{print; exit}')
+    if [ -z "$LAYER_SHELL_LIB" ] || [ ! -e "$LAYER_SHELL_LIB" ]; then
+      echo "ERROR: libgtk-layer-shell.so.0 not found" >&2
+      exit 1
+    fi
+    cp -L "$LAYER_SHELL_LIB" "$TARGET_BIN/libgtk-layer-shell.so.0"
+    (cd "$TARGET_BIN" && tar -czf "$STAGE/${STEM}_${ARCH}.tar.gz" attool libgtk-layer-shell.so.0)
     ;;
 
   windows-x64)

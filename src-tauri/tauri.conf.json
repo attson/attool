@@ -94,6 +94,13 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libgtk-layer-shell0"
+        ]
+      }
     }
   },
   "plugins": {}

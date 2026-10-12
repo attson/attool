@@ -1139,6 +1139,13 @@ pub fn run() {
         })
         .setup(move |app| {
             #[cfg(target_os = "linux")]
+            match clipboard::layer_shell::configure_history_window(app.handle()) {
+                Ok(true) => eprintln!("剪贴板面板已启用 Wayland layer-shell 底部定位"),
+                Ok(false) => {}
+                Err(error) => eprintln!("{error}"),
+            }
+
+            #[cfg(target_os = "linux")]
             if let Err(error) = capture_command::start_listener(app.handle()) {
                 eprintln!("{error}");
             }

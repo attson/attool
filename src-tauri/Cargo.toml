@@ -47,5 +47,9 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 core-graphics = "0.24"
 core-foundation = "0.10"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+libloading = "0.8"
+
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 xcap = "0.8"
