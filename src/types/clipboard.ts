@@ -24,3 +24,10 @@ export interface ClipboardHistorySettings {
   retentionLimit: number;
   shortcut: string;
 }
+
+export interface ClipboardShortcutInfo {
+  shortcut: string;
+  defaultShortcut: string;
+  unavailableReason: string | null;
+  systemShortcutCommand: string | null;
+}

@@ -29,9 +29,9 @@ onMounted(async () => {
     // 非 tauri 环境(纯浏览器调试)或 command 缺失时静默跳过
     return;
   }
-  const failed = [errors.clipboard, errors.capture].filter(
-    (msg): msg is string => !!msg
-  );
+  const failed = [...new Set(
+    [errors.clipboard, errors.capture].filter((msg): msg is string => !!msg)
+  )];
   for (const msg of failed) {
     const detail = msg.includes('Wayland')
       ? msg

@@ -1106,10 +1106,12 @@ fn show_main_window(app: &AppHandle) {
 
 pub fn run() {
     #[cfg(target_os = "linux")]
-    let capture_requested = capture_command::capture_requested();
+    let external_command = capture_command::requested_command();
     #[cfg(target_os = "linux")]
-    if capture_requested && capture_command::forward_capture_if_running() {
-        return;
+    if let Some(request) = external_command {
+        if capture_command::forward_if_running(request) {
+            return;
+        }
     }
 
     // Linux/WebKitGTK: 启动前探测 GPU 环境,必要时兜底禁用 DMABUF 渲染器,
@@ -1244,11 +1246,11 @@ pub fn run() {
                 .build(app)?;
 
             #[cfg(target_os = "linux")]
-            if capture_requested {
+            if let Some(request) = external_command {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
-                capture_command::schedule_initial_capture(app.handle());
+                capture_command::schedule_initial_command(app.handle(), request);
             }
 
             Ok(())
@@ -1341,6 +1343,7 @@ pub fn run() {
             clipboard::commands::set_clipboard_item_pinned,
             clipboard::commands::clear_clipboard_history,
             clipboard::commands::get_clipboard_settings,
+            clipboard::commands::get_clipboard_shortcut_info,
             clipboard::commands::save_clipboard_settings,
             clipboard::commands::restore_clipboard_item,
             imaging::commands::compress_images,

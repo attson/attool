@@ -13,8 +13,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
 const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
-const WAYLAND_SHORTCUT_UNAVAILABLE: &str =
-    "当前是 Wayland 会话，内置全局快捷键仅支持 X11；请在系统键盘设置中绑定截图命令";
+const WAYLAND_SHORTCUT_UNAVAILABLE: &str = "当前是 Wayland 会话，内置全局快捷键仅支持 X11";
 
 fn select_primary_or_first<T>(primary: Option<T>, available: Vec<T>) -> Option<T> {
     primary.or_else(|| available.into_iter().next())

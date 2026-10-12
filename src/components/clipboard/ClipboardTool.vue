@@ -6,15 +6,26 @@ import { emitTo } from '@tauri-apps/api/event';
 import { LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import Panel from '../ui/Panel.vue';
+import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
 import { DEFAULT_CLIPBOARD_SHORTCUT, formatShortcutLabel } from '../../utils/clipboardHistory';
 import { formatShortcutForDisplay, keyEventToShortcut } from '../image/shortcut';
-import type { ClipboardHistoryItem, ClipboardHistorySettings } from '../../types/clipboard';
+import type {
+  ClipboardHistoryItem,
+  ClipboardHistorySettings,
+  ClipboardShortcutInfo,
+} from '../../types/clipboard';
 
 const history = useClipboardHistory();
 const message = useMessage();
 const registerError = ref('');
+const shortcutInfo = ref<ClipboardShortcutInfo>({
+  shortcut: DEFAULT_CLIPBOARD_SHORTCUT,
+  defaultShortcut: DEFAULT_CLIPBOARD_SHORTCUT,
+  unavailableReason: null,
+  systemShortcutCommand: null,
+});
 const settings = ref<ClipboardHistorySettings>({
   captureEnabled: true,
   retentionLimit: 500,
@@ -75,7 +86,12 @@ async function openPreview(item: ClipboardHistoryItem) {
 }
 
 async function loadSettings() {
-  settings.value = await invoke<ClipboardHistorySettings>('get_clipboard_settings');
+  const [loadedSettings, loadedShortcutInfo] = await Promise.all([
+    invoke<ClipboardHistorySettings>('get_clipboard_settings'),
+    invoke<ClipboardShortcutInfo>('get_clipboard_shortcut_info'),
+  ]);
+  settings.value = loadedSettings;
+  shortcutInfo.value = loadedShortcutInfo;
 }
 
 async function loadRegisterError() {
@@ -128,6 +144,7 @@ async function saveShortcut(next: string) {
     settings.value = await invoke<ClipboardHistorySettings>('save_clipboard_settings', {
       settings: settings.value,
     });
+    shortcutInfo.value = { ...shortcutInfo.value, shortcut: settings.value.shortcut };
     registerError.value = ''; // 保存成功即代表新快捷键注册成功
     editing.value = false;
     recordingRaw.value = '';
@@ -170,20 +187,32 @@ onMounted(() => {
         AT Tool 运行时记录文本、图片和文件路径；按 {{ shortcutLabel }} 打开快捷面板。
       </p>
       <n-alert
-        v-if="registerError"
-        type="error"
+        v-if="shortcutInfo.unavailableReason || registerError"
+        :type="shortcutInfo.unavailableReason ? 'warning' : 'error'"
         :bordered="false"
         style="margin-bottom: 12px"
       >
-        {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
+        <template v-if="shortcutInfo.unavailableReason">
+          {{ shortcutInfo.unavailableReason }}
+        </template>
+        <template v-else>
+          {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
+        </template>
       </n-alert>
 
       <div class="clipboard-shortcut">
         <div v-if="!editing" class="clipboard-shortcut__view">
           <span class="clipboard-muted">唤起快捷键</span>
           <span class="clipboard-shortcut__key mono">{{ shortcutLabel || '未设置' }}</span>
-          <n-button size="tiny" secondary @click="startEdit">修改</n-button>
-          <n-button v-if="!isDefault" size="tiny" secondary @click="restoreDefault">恢复默认</n-button>
+          <n-button v-if="!shortcutInfo.unavailableReason" size="tiny" secondary @click="startEdit">修改</n-button>
+          <n-button
+            v-if="!shortcutInfo.unavailableReason && !isDefault"
+            size="tiny"
+            secondary
+            @click="restoreDefault"
+          >
+            恢复默认
+          </n-button>
         </div>
         <div v-else class="clipboard-shortcut__edit">
           <div
@@ -201,6 +230,14 @@ onMounted(() => {
         <n-alert v-if="recordError" type="warning" :bordered="false" style="margin-top: 8px">
           {{ recordError }}
         </n-alert>
+        <p v-if="shortcutInfo.unavailableReason" class="clipboard-muted clipboard-shortcut__hint">
+          将下面的命令添加到系统自定义快捷键，即可在任何窗口下打开剪贴板面板。
+        </p>
+        <SystemShortcutSetup
+          v-if="shortcutInfo.unavailableReason && shortcutInfo.systemShortcutCommand"
+          :command="shortcutInfo.systemShortcutCommand"
+          copy-success="剪贴板命令已复制"
+        />
       </div>
 
       <div class="clipboard-toolbar">
@@ -255,6 +292,7 @@ onMounted(() => {
 .clipboard-limit-input { width: 140px; }
 
 .clipboard-shortcut { margin-bottom: 14px; }
+.clipboard-shortcut__hint { margin: 10px 0 0; }
 .clipboard-shortcut__view,
 .clipboard-shortcut__edit {
   display: flex;

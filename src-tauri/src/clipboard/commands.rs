@@ -1,11 +1,47 @@
+use serde::Serialize;
 use tauri::{image::Image, AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use super::{
-    models::{ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind},
+    models::{
+        ClipboardHistoryItem, ClipboardHistorySettings, ClipboardItemKind,
+        DEFAULT_CLIPBOARD_SHORTCUT,
+    },
     storage::ClipboardStore,
     watcher::ClipboardWatcherState,
 };
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardShortcutInfo {
+    pub shortcut: String,
+    pub default_shortcut: String,
+    pub unavailable_reason: Option<String>,
+    pub system_shortcut_command: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_clipboard_shortcut_info(
+    store: State<'_, ClipboardStore>,
+) -> Result<ClipboardShortcutInfo, String> {
+    let settings = store.load_settings()?;
+    Ok(ClipboardShortcutInfo {
+        shortcut: settings.shortcut,
+        default_shortcut: DEFAULT_CLIPBOARD_SHORTCUT.to_string(),
+        unavailable_reason: crate::imaging::capture::global_shortcut_unavailable_reason()
+            .map(str::to_string),
+        system_shortcut_command: {
+            #[cfg(target_os = "linux")]
+            {
+                crate::capture_command::system_clipboard_history_command()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        },
+    })
+}
 
 #[tauri::command]
 pub async fn list_clipboard_items(

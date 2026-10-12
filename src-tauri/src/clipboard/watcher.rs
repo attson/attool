@@ -98,6 +98,9 @@ pub fn start_clipboard_watcher(
 
 /// 按给定快捷键字符串注册剪贴板面板快捷键。空串回退到默认值。
 pub fn register_clipboard_shortcut(app: &AppHandle, shortcut_str: &str) -> Result<(), String> {
+    if let Some(reason) = crate::imaging::capture::global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
     let shortcut_str = if shortcut_str.trim().is_empty() {
         DEFAULT_CLIPBOARD_SHORTCUT
     } else {
@@ -115,6 +118,9 @@ pub fn register_clipboard_shortcut(app: &AppHandle, shortcut_str: &str) -> Resul
 
 /// 把剪贴板快捷键改为 next:先注销旧的,注册新的,失败则回滚到旧的。
 pub fn reregister_clipboard_shortcut(app: &AppHandle, next: &str) -> Result<(), String> {
+    if let Some(reason) = crate::imaging::capture::global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
     let next = next.trim();
     if next.is_empty() {
         return Err("请填入有效的快捷键".to_string());
@@ -151,15 +157,23 @@ fn install_clipboard_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), 
     app.global_shortcut()
         .on_shortcut(shortcut, move |_app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
-                if let Some(window) = handle.get_webview_window("clipboard-history") {
-                    let _ = position_history_strip(&handle, &window);
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = handle.emit("clipboard-history-opened", ());
-                }
+                let _ = show_clipboard_history(&handle);
             }
         })
         .map_err(|error| format!("注册剪贴板快捷键失败：{error}"))
+}
+
+pub(crate) fn show_clipboard_history(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("clipboard-history")
+        .ok_or_else(|| "找不到剪贴板快捷面板".to_string())?;
+    position_history_strip(app, &window)?;
+    window
+        .show()
+        .map_err(|error| format!("显示剪贴板快捷面板失败：{error}"))?;
+    let _ = window.set_focus();
+    let _ = app.emit("clipboard-history-opened", ());
+    Ok(())
 }
 
 fn position_history_strip(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {

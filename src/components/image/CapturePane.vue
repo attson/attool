@@ -2,8 +2,8 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { NAlert, NButton, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Panel from '../ui/Panel.vue';
+import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import { formatShortcutForDisplay, keyEventToShortcut } from './shortcut';
 
 interface CaptureShortcutInfo {
@@ -119,24 +119,6 @@ async function startCapture() {
   }
 }
 
-async function copySystemShortcutCommand() {
-  if (!shortcutInfo.value.systemShortcutCommand) return;
-  try {
-    await writeText(shortcutInfo.value.systemShortcutCommand);
-    message.success('截图命令已复制');
-  } catch (err) {
-    message.error(String(err));
-  }
-}
-
-async function openSystemShortcutSettings() {
-  try {
-    await invoke('open_system_shortcut_settings');
-  } catch (err) {
-    message.error(String(err));
-  }
-}
-
 onMounted(loadShortcut);
 </script>
 
@@ -184,20 +166,11 @@ onMounted(loadShortcut);
             恢复默认
           </n-button>
         </div>
-        <div
+        <SystemShortcutSetup
           v-if="shortcutInfo.unavailableReason && shortcutInfo.systemShortcutCommand"
-          class="system-shortcut"
-        >
-          <code class="mono">{{ shortcutInfo.systemShortcutCommand }}</code>
-          <div class="btn-inline">
-            <n-button size="small" secondary @click="copySystemShortcutCommand">
-              复制命令
-            </n-button>
-            <n-button size="small" secondary @click="openSystemShortcutSettings">
-              打开键盘设置
-            </n-button>
-          </div>
-        </div>
+          :command="shortcutInfo.systemShortcutCommand"
+          copy-success="截图命令已复制"
+        />
       </div>
 
       <div v-else class="shortcut-edit">
@@ -258,22 +231,6 @@ onMounted(loadShortcut);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.system-shortcut {
-  display: grid;
-  gap: 10px;
-  padding-top: 2px;
-}
-.system-shortcut code {
-  display: block;
-  padding: 8px 10px;
-  overflow-wrap: anywhere;
-  color: var(--text);
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-xs);
 }
 
 .shortcut-edit {

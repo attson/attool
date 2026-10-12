@@ -1,3 +1,4 @@
+use crate::clipboard::watcher::show_clipboard_history;
 use crate::imaging::capture::trigger_capture_overlay;
 use std::ffi::OsString;
 use std::fs;
@@ -9,42 +10,83 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const CAPTURE_ARG: &str = "--capture";
-const CAPTURE_MESSAGE: &[u8] = b"capture\n";
+const CLIPBOARD_HISTORY_ARG: &str = "--clipboard-history";
 const SOCKET_FILE: &str = "attool-capture.sock";
 
-struct CaptureCommandSocket(PathBuf);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CommandRequest {
+    Capture,
+    ClipboardHistory,
+}
 
-impl Drop for CaptureCommandSocket {
+impl CommandRequest {
+    fn message(self) -> &'static [u8] {
+        match self {
+            Self::Capture => b"capture\n",
+            Self::ClipboardHistory => b"clipboard-history\n",
+        }
+    }
+}
+
+struct ExternalCommandSocket(PathBuf);
+
+impl Drop for ExternalCommandSocket {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
     }
 }
 
-fn args_request_capture(args: &[OsString]) -> bool {
-    args.iter().any(|arg| arg == CAPTURE_ARG)
+fn requested_command_from_args(args: &[OsString]) -> Option<CommandRequest> {
+    if args.iter().any(|arg| arg == CAPTURE_ARG) {
+        Some(CommandRequest::Capture)
+    } else if args.iter().any(|arg| arg == CLIPBOARD_HISTORY_ARG) {
+        Some(CommandRequest::ClipboardHistory)
+    } else {
+        None
+    }
 }
 
-pub fn capture_requested() -> bool {
-    args_request_capture(&std::env::args_os().collect::<Vec<_>>())
+pub(crate) fn requested_command() -> Option<CommandRequest> {
+    requested_command_from_args(&std::env::args_os().collect::<Vec<_>>())
 }
 
 fn socket_path() -> Result<PathBuf, String> {
     if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(runtime_dir).join(SOCKET_FILE));
     }
-    let cache_dir = dirs::cache_dir().ok_or_else(|| "无法确定截图命令通信目录".to_string())?;
+    let cache_dir = dirs::cache_dir().ok_or_else(|| "无法确定快捷键命令通信目录".to_string())?;
     Ok(cache_dir.join("attool").join(SOCKET_FILE))
 }
 
-fn send_capture(path: &Path) -> Result<(), String> {
+fn send_command(path: &Path, request: CommandRequest) -> Result<(), String> {
     let mut stream = UnixStream::connect(path).map_err(|error| error.to_string())?;
     stream
-        .write_all(CAPTURE_MESSAGE)
+        .write_all(request.message())
         .map_err(|error| error.to_string())
 }
 
-pub fn forward_capture_if_running() -> bool {
-    socket_path().and_then(|path| send_capture(&path)).is_ok()
+pub(crate) fn forward_if_running(request: CommandRequest) -> bool {
+    socket_path()
+        .and_then(|path| send_command(&path, request))
+        .is_ok()
+}
+
+fn parse_command_message(payload: &str) -> Option<CommandRequest> {
+    match payload.trim() {
+        "capture" => Some(CommandRequest::Capture),
+        "clipboard-history" => Some(CommandRequest::ClipboardHistory),
+        _ => None,
+    }
+}
+
+fn trigger_command(app: &AppHandle, request: CommandRequest) -> Result<(), String> {
+    match request {
+        CommandRequest::Capture => {
+            trigger_capture_overlay(app);
+            Ok(())
+        }
+        CommandRequest::ClipboardHistory => show_clipboard_history(app),
+    }
 }
 
 pub fn start_listener(app: &AppHandle) -> Result<(), String> {
@@ -53,17 +95,18 @@ pub fn start_listener(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     if path.exists() {
-        fs::remove_file(&path).map_err(|error| format!("清理旧截图命令 Socket 失败：{error}"))?;
+        fs::remove_file(&path).map_err(|error| format!("清理旧快捷键命令 Socket 失败：{error}"))?;
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("创建截图命令通信目录失败：{error}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("创建快捷键命令通信目录失败：{error}"))?;
     }
 
     let listener =
-        UnixListener::bind(&path).map_err(|error| format!("启动截图命令监听失败：{error}"))?;
+        UnixListener::bind(&path).map_err(|error| format!("启动快捷键命令监听失败：{error}"))?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-        .map_err(|error| format!("设置截图命令 Socket 权限失败：{error}"))?;
-    app.manage(CaptureCommandSocket(path));
+        .map_err(|error| format!("设置快捷键命令 Socket 权限失败：{error}"))?;
+    app.manage(ExternalCommandSocket(path));
 
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -73,19 +116,25 @@ pub fn start_listener(app: &AppHandle) -> Result<(), String> {
             };
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
             let mut payload = String::new();
-            if stream.take(64).read_to_string(&mut payload).is_ok() && payload.trim() == "capture" {
-                trigger_capture_overlay(&handle);
+            if stream.take(64).read_to_string(&mut payload).is_ok() {
+                if let Some(request) = parse_command_message(&payload) {
+                    if let Err(error) = trigger_command(&handle, request) {
+                        eprintln!("处理外部快捷键命令失败：{error}");
+                    }
+                }
             }
         }
     });
     Ok(())
 }
 
-pub fn schedule_initial_capture(app: &AppHandle) {
+pub(crate) fn schedule_initial_command(app: &AppHandle, request: CommandRequest) {
     let handle = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(700));
-        trigger_capture_overlay(&handle);
+        if let Err(error) = trigger_command(&handle, request) {
+            eprintln!("处理启动快捷键命令失败：{error}");
+        }
     });
 }
 
@@ -100,12 +149,20 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub fn system_capture_command() -> Option<String> {
+fn system_command(argument: &str) -> Option<String> {
     let executable = std::env::current_exe().ok()?;
     Some(format!(
-        "{} {CAPTURE_ARG}",
-        shell_quote(&executable.to_string_lossy())
+        "{} {argument}",
+        shell_quote(&executable.to_string_lossy()),
     ))
+}
+
+pub fn system_capture_command() -> Option<String> {
+    system_command(CAPTURE_ARG)
+}
+
+pub fn system_clipboard_history_command() -> Option<String> {
+    system_command(CLIPBOARD_HISTORY_ARG)
 }
 
 fn shortcut_settings_candidates(desktop: &str) -> Vec<(&'static str, &'static [&'static str])> {
@@ -150,12 +207,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detects_capture_argument() {
-        assert!(args_request_capture(&[
-            OsString::from("attool"),
-            OsString::from("--capture")
-        ]));
-        assert!(!args_request_capture(&[OsString::from("attool")]));
+    fn detects_external_command_arguments() {
+        assert_eq!(
+            requested_command_from_args(&[OsString::from("attool"), OsString::from("--capture")]),
+            Some(CommandRequest::Capture)
+        );
+        assert_eq!(
+            requested_command_from_args(&[
+                OsString::from("attool"),
+                OsString::from("--clipboard-history")
+            ]),
+            Some(CommandRequest::ClipboardHistory)
+        );
+        assert_eq!(
+            requested_command_from_args(&[OsString::from("attool")]),
+            None
+        );
+    }
+
+    #[test]
+    fn parses_external_command_messages() {
+        assert_eq!(
+            parse_command_message("capture\n"),
+            Some(CommandRequest::Capture)
+        );
+        assert_eq!(
+            parse_command_message("clipboard-history\n"),
+            Some(CommandRequest::ClipboardHistory)
+        );
+        assert_eq!(parse_command_message("unknown\n"), None);
     }
 
     #[test]
