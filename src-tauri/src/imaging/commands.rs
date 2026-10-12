@@ -1,6 +1,7 @@
 use super::capture::{
     capture_screen as run_capture, close_capture_overlay as run_close_overlay,
-    commit_capture_overlay as run_commit_overlay, current_shortcut as current_capture_shortcut,
+    commit_capture_overlay as run_commit_overlay, configured_shortcut,
+    current_shortcut as current_capture_shortcut, global_shortcut_unavailable_reason,
     open_capture_overlay as run_open_overlay, pin_capture_overlay as run_pin_overlay,
     reregister_capture_shortcut, DEFAULT_CAPTURE_SHORTCUT,
 };
@@ -260,18 +261,20 @@ pub async fn capture_screen(request: CaptureRequest) -> Result<CaptureResponse, 
 pub struct CaptureShortcutInfo {
     pub shortcut: String,
     pub default_shortcut: String,
+    pub unavailable_reason: Option<String>,
 }
 
 #[tauri::command]
-pub fn get_capture_shortcut() -> CaptureShortcutInfo {
+pub fn get_capture_shortcut(app: AppHandle) -> CaptureShortcutInfo {
     let current = current_capture_shortcut();
     CaptureShortcutInfo {
         shortcut: if current.is_empty() {
-            DEFAULT_CAPTURE_SHORTCUT.to_string()
+            configured_shortcut(&app)
         } else {
             current
         },
         default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
+        unavailable_reason: global_shortcut_unavailable_reason().map(str::to_string),
     }
 }
 
@@ -284,6 +287,7 @@ pub async fn set_capture_shortcut(
     Ok(CaptureShortcutInfo {
         shortcut,
         default_shortcut: DEFAULT_CAPTURE_SHORTCUT.to_string(),
+        unavailable_reason: None,
     })
 }
 

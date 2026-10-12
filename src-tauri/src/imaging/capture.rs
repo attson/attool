@@ -12,6 +12,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
 const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
+const WAYLAND_SHORTCUT_UNAVAILABLE: &str =
+    "当前是 Wayland 会话，内置全局快捷键仅支持 X11；请使用“开始截图”，或从 X11 会话登录后使用快捷键";
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
@@ -29,7 +31,7 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("capture-config.json"))
 }
 
-fn load_stored_shortcut(app: &AppHandle) -> String {
+pub fn configured_shortcut(app: &AppHandle) -> String {
     let Ok(path) = config_path(app) else {
         return DEFAULT_CAPTURE_SHORTCUT.to_string();
     };
@@ -48,6 +50,23 @@ fn load_stored_shortcut(app: &AppHandle) -> String {
     }
 }
 
+fn is_wayland_session(session_type: Option<&str>, wayland_display: Option<&str>) -> bool {
+    session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland"))
+        || wayland_display.is_some_and(|value| !value.trim().is_empty())
+}
+
+pub fn global_shortcut_unavailable_reason() -> Option<&'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        let session_type = std::env::var("XDG_SESSION_TYPE").ok();
+        let wayland_display = std::env::var("WAYLAND_DISPLAY").ok();
+        if is_wayland_session(session_type.as_deref(), wayland_display.as_deref()) {
+            return Some(WAYLAND_SHORTCUT_UNAVAILABLE);
+        }
+    }
+    None
+}
+
 fn write_stored_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
     let path = config_path(app)?;
     let body = serde_json::json!({ "shortcut": shortcut }).to_string();
@@ -59,11 +78,17 @@ pub fn current_shortcut() -> String {
 }
 
 pub fn register_capture_shortcut(app: &AppHandle) -> Result<(), String> {
-    let stored = load_stored_shortcut(app);
+    if let Some(reason) = global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
+    let stored = configured_shortcut(app);
     register_shortcut_str(app, &stored)
 }
 
 pub fn reregister_capture_shortcut(app: &AppHandle, next: &str) -> Result<(), String> {
+    if let Some(reason) = global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
     let next = next.trim();
     if next.is_empty() {
         return Err("请填入有效的快捷键".to_string());
@@ -451,6 +476,24 @@ pub fn capture_screen(mode: &str, delay_seconds: u32) -> Result<PathBuf, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_wayland_from_session_type() {
+        assert!(is_wayland_session(Some("wayland"), None));
+        assert!(is_wayland_session(Some("Wayland"), None));
+    }
+
+    #[test]
+    fn detects_wayland_from_display_socket() {
+        assert!(is_wayland_session(None, Some("wayland-1")));
+        assert!(!is_wayland_session(None, Some("  ")));
+    }
+
+    #[test]
+    fn leaves_x11_sessions_supported() {
+        assert!(!is_wayland_session(Some("x11"), None));
+        assert!(!is_wayland_session(None, None));
+    }
 
     #[test]
     fn overlay_desktop_frame_uses_a_webview_supported_image_format() {

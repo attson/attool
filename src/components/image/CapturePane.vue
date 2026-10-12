@@ -8,18 +8,21 @@ import { formatShortcutForDisplay, keyEventToShortcut } from './shortcut';
 interface CaptureShortcutInfo {
   shortcut: string;
   defaultShortcut: string;
+  unavailableReason: string | null;
 }
 
 const message = useMessage();
 
 const shortcutInfo = ref<CaptureShortcutInfo>({
   shortcut: '',
-  defaultShortcut: 'CommandOrControl+Shift+A'
+  defaultShortcut: 'CommandOrControl+Shift+A',
+  unavailableReason: null
 });
 const editing = ref(false);
 const recordingRaw = ref('');
 const recordError = ref('');
 const registerError = ref('');
+const capturing = ref(false);
 const recorderEl = ref<HTMLDivElement | null>(null);
 
 const shortcutLabel = computed(() => formatShortcutForDisplay(shortcutInfo.value.shortcut));
@@ -102,6 +105,17 @@ async function restoreDefault() {
   }
 }
 
+async function startCapture() {
+  capturing.value = true;
+  try {
+    await invoke('open_capture_overlay');
+  } catch (err) {
+    message.error(String(err), { duration: 8000, closable: true });
+  } finally {
+    capturing.value = false;
+  }
+}
+
 onMounted(loadShortcut);
 </script>
 
@@ -113,21 +127,39 @@ onMounted(loadShortcut);
       </template>
 
       <n-alert
-        v-if="registerError"
-        type="error"
+        v-if="shortcutInfo.unavailableReason || registerError"
+        :type="shortcutInfo.unavailableReason ? 'warning' : 'error'"
         :bordered="false"
         style="margin-bottom: 10px"
       >
-        {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
+        <template v-if="shortcutInfo.unavailableReason">
+          {{ shortcutInfo.unavailableReason }}
+        </template>
+        <template v-else>
+          {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
+        </template>
       </n-alert>
 
       <div v-if="!editing" class="shortcut-view">
-        <p class="tips-inline">
+        <p v-if="shortcutInfo.unavailableReason" class="tips-inline">
+          点击“开始截图”可正常使用截图功能。
+        </p>
+        <p v-else class="tips-inline">
           任何窗口下按快捷键都直接开始选区截图，截完自动送入标注 tab。
         </p>
         <div class="btn-inline">
-          <n-button size="small" secondary @click="startEdit">修改</n-button>
-          <n-button v-if="!isDefault" size="small" secondary @click="restoreDefault">
+          <n-button size="small" type="primary" :loading="capturing" @click="startCapture">
+            开始截图
+          </n-button>
+          <n-button v-if="!shortcutInfo.unavailableReason" size="small" secondary @click="startEdit">
+            修改
+          </n-button>
+          <n-button
+            v-if="!shortcutInfo.unavailableReason && !isDefault"
+            size="small"
+            secondary
+            @click="restoreDefault"
+          >
             恢复默认
           </n-button>
         </div>
