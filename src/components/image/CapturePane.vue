@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue';
 import { NAlert, NButton, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
 import Panel from '../ui/Panel.vue';
+import SystemShortcutNotice from '../ui/SystemShortcutNotice.vue';
 import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import { formatShortcutForDisplay, keyEventToShortcut } from './shortcut';
 
@@ -129,36 +130,49 @@ onMounted(loadShortcut);
         <span v-if="!editing" class="mono shortcut-display">{{ shortcutLabel || '未设置' }}</span>
       </template>
 
+      <SystemShortcutNotice
+        v-if="shortcutInfo.unavailableReason"
+        :title="shortcutInfo.unavailableReason"
+      >
+        <div class="shortcut-view">
+          <p class="tips-inline">
+            将下面的命令添加到系统自定义快捷键，即可在任何窗口下启动截图。
+          </p>
+          <div class="btn-inline">
+            <n-button size="small" type="primary" :loading="capturing" @click="startCapture">
+              开始截图
+            </n-button>
+          </div>
+          <SystemShortcutSetup
+            v-if="shortcutInfo.systemShortcutCommand"
+            :command="shortcutInfo.systemShortcutCommand"
+            copy-success="截图命令已复制"
+          />
+        </div>
+      </SystemShortcutNotice>
+
       <n-alert
-        v-if="shortcutInfo.unavailableReason || registerError"
-        :type="shortcutInfo.unavailableReason ? 'warning' : 'error'"
+        v-if="registerError && !shortcutInfo.unavailableReason"
+        type="error"
         :bordered="false"
         style="margin-bottom: 10px"
       >
-        <template v-if="shortcutInfo.unavailableReason">
-          {{ shortcutInfo.unavailableReason }}
-        </template>
-        <template v-else>
-          {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
-        </template>
+        {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
       </n-alert>
 
-      <div v-if="!editing" class="shortcut-view">
-        <p v-if="shortcutInfo.unavailableReason" class="tips-inline">
-          将下面的命令添加到系统自定义快捷键，即可在任何窗口下启动截图。
-        </p>
-        <p v-else class="tips-inline">
+      <div v-if="!shortcutInfo.unavailableReason && !editing" class="shortcut-view">
+        <p class="tips-inline">
           任何窗口下按快捷键都直接开始选区截图，截完自动送入标注 tab。
         </p>
         <div class="btn-inline">
           <n-button size="small" type="primary" :loading="capturing" @click="startCapture">
             开始截图
           </n-button>
-          <n-button v-if="!shortcutInfo.unavailableReason" size="small" secondary @click="startEdit">
+          <n-button size="small" secondary @click="startEdit">
             修改
           </n-button>
           <n-button
-            v-if="!shortcutInfo.unavailableReason && !isDefault"
+            v-if="!isDefault"
             size="small"
             secondary
             @click="restoreDefault"
@@ -166,14 +180,9 @@ onMounted(loadShortcut);
             恢复默认
           </n-button>
         </div>
-        <SystemShortcutSetup
-          v-if="shortcutInfo.unavailableReason && shortcutInfo.systemShortcutCommand"
-          :command="shortcutInfo.systemShortcutCommand"
-          copy-success="截图命令已复制"
-        />
       </div>
 
-      <div v-else class="shortcut-edit">
+      <div v-else-if="!shortcutInfo.unavailableReason" class="shortcut-edit">
         <div
           class="recorder"
           tabindex="0"

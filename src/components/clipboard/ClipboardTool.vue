@@ -6,6 +6,7 @@ import { emitTo } from '@tauri-apps/api/event';
 import { LogicalPosition, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import Panel from '../ui/Panel.vue';
+import SystemShortcutNotice from '../ui/SystemShortcutNotice.vue';
 import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import ClipboardItemCard from './ClipboardItemCard.vue';
 import { useClipboardHistory } from '../../composables/useClipboardHistory';
@@ -186,27 +187,43 @@ onMounted(() => {
       <p class="clipboard-muted clipboard-intro">
         AT Tool 运行时记录文本、图片和文件路径；按 {{ shortcutLabel }} 打开快捷面板。
       </p>
+      <SystemShortcutNotice
+        v-if="shortcutInfo.unavailableReason"
+        :title="shortcutInfo.unavailableReason"
+        class="clipboard-shortcut-notice"
+      >
+        <div class="clipboard-shortcut clipboard-shortcut--notice">
+          <div class="clipboard-shortcut__view">
+            <span class="clipboard-muted">唤起快捷键</span>
+            <span class="clipboard-shortcut__key mono">{{ shortcutLabel || '未设置' }}</span>
+          </div>
+          <p class="clipboard-muted clipboard-shortcut__hint">
+            将下面的命令添加到系统自定义快捷键，即可在任何窗口下打开剪贴板面板。
+          </p>
+          <SystemShortcutSetup
+            v-if="shortcutInfo.systemShortcutCommand"
+            :command="shortcutInfo.systemShortcutCommand"
+            copy-success="剪贴板命令已复制"
+          />
+        </div>
+      </SystemShortcutNotice>
+
       <n-alert
-        v-if="shortcutInfo.unavailableReason || registerError"
-        :type="shortcutInfo.unavailableReason ? 'warning' : 'error'"
+        v-if="registerError && !shortcutInfo.unavailableReason"
+        type="error"
         :bordered="false"
         style="margin-bottom: 12px"
       >
-        <template v-if="shortcutInfo.unavailableReason">
-          {{ shortcutInfo.unavailableReason }}
-        </template>
-        <template v-else>
-          {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
-        </template>
+        {{ registerError }}（该快捷键已被占用，常见占用者：系统/桌面环境、输入法、远程桌面等，请点“修改”换一个）
       </n-alert>
 
-      <div class="clipboard-shortcut">
+      <div v-if="!shortcutInfo.unavailableReason" class="clipboard-shortcut">
         <div v-if="!editing" class="clipboard-shortcut__view">
           <span class="clipboard-muted">唤起快捷键</span>
           <span class="clipboard-shortcut__key mono">{{ shortcutLabel || '未设置' }}</span>
-          <n-button v-if="!shortcutInfo.unavailableReason" size="tiny" secondary @click="startEdit">修改</n-button>
+          <n-button size="tiny" secondary @click="startEdit">修改</n-button>
           <n-button
-            v-if="!shortcutInfo.unavailableReason && !isDefault"
+            v-if="!isDefault"
             size="tiny"
             secondary
             @click="restoreDefault"
@@ -230,14 +247,6 @@ onMounted(() => {
         <n-alert v-if="recordError" type="warning" :bordered="false" style="margin-top: 8px">
           {{ recordError }}
         </n-alert>
-        <p v-if="shortcutInfo.unavailableReason" class="clipboard-muted clipboard-shortcut__hint">
-          将下面的命令添加到系统自定义快捷键，即可在任何窗口下打开剪贴板面板。
-        </p>
-        <SystemShortcutSetup
-          v-if="shortcutInfo.unavailableReason && shortcutInfo.systemShortcutCommand"
-          :command="shortcutInfo.systemShortcutCommand"
-          copy-success="剪贴板命令已复制"
-        />
       </div>
 
       <div class="clipboard-toolbar">
@@ -292,6 +301,8 @@ onMounted(() => {
 .clipboard-limit-input { width: 140px; }
 
 .clipboard-shortcut { margin-bottom: 14px; }
+.clipboard-shortcut-notice { margin-bottom: 14px; }
+.clipboard-shortcut--notice { margin-bottom: 0; }
 .clipboard-shortcut__hint { margin: 10px 0 0; }
 .clipboard-shortcut__view,
 .clipboard-shortcut__edit {
