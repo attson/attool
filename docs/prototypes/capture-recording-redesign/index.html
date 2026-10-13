@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AT Tool 截屏录制交互原型</title>
+  <style>
+    :root {
+      --bg-base: #0a0a0b;
+      --bg-elevated: #131316;
+      --bg-elev-2: #18181c;
+      --bg-overlay: #1d1d22;
+      --line: #1f1f23;
+      --line-strong: #28282d;
+      --text: #ededed;
+      --text-muted: #8b8b8b;
+      --text-faint: #6a6a6f;
+      --accent: #34d399;
+      --accent-hover: #4ade80;
+      --accent-pressed: #16a34a;
+      --accent-fg: #0a0a0b;
+      --accent-soft: rgba(52, 211, 153, 0.14);
+      --accent-line: rgba(52, 211, 153, 0.35);
+      --error: #f87171;
+      --error-soft: rgba(248, 113, 113, 0.14);
+      --warning: #f5b94b;
+      --warning-soft: rgba(245, 185, 75, 0.14);
+      --info: #60a5fa;
+      --info-soft: rgba(96, 165, 250, 0.14);
+      --radius-sm: 4px;
+      --radius: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-pill: 999px;
+      --font-sans: -apple-system, "SF Pro Text", "PingFang SC", "Inter", "Segoe UI", sans-serif;
+      --font-mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+      --motion-fast: 120ms ease;
+      --motion-mid: 180ms ease;
+    }
+
+    [data-theme="light"] {
+      --bg-base: #fafaf9;
+      --bg-elevated: #ffffff;
+      --bg-elev-2: #f4f4f5;
+      --bg-overlay: #ffffff;
+      --line: #e4e4e7;
+      --line-strong: #d4d4d8;
+      --text: #18181b;
+      --text-muted: #71717a;
+      --text-faint: #a1a1aa;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --accent-pressed: #047857;
+      --accent-fg: #ffffff;
+      --accent-soft: rgba(16, 185, 129, 0.12);
+      --accent-line: rgba(16, 185, 129, 0.28);
+      --error: #dc2626;
+      --error-soft: rgba(220, 38, 38, 0.10);
+      --warning: #d97706;
+      --warning-soft: rgba(217, 119, 6, 0.10);
+      --info: #2563eb;
+      --info-soft: rgba(37, 99, 235, 0.10);
+      --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.10);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { min-width: 320px; min-height: 100%; margin: 0; }
+    body {
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--bg-base);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent-line);
+      outline-offset: 1px;
+    }
+    svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: none;
+    }
+    .mono { font-family: var(--font-mono); font-feature-settings: "tnum"; }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      min-height: 620px;
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--bg-base);
+    }
+
+    .sidebar {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr) auto;
+      border-right: 1px solid var(--line);
+      background: var(--bg-elevated);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: var(--accent-fg);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .nav { min-height: 0; overflow-y: auto; padding: 10px 8px; }
+    .nav-item {
+      width: 100%;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: default;
+    }
+    .nav-item + .nav-item { margin-top: 3px; }
+    .nav-item.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+    .nav-item svg { width: 17px; height: 17px; }
+    .sidebar-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      color: var(--text-faint);
+      font-size: 11px;
+    }
+
+    .main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr); }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg-base);
+    }
+    .breadcrumb { color: var(--text-faint); font-size: 12px; }
+    .breadcrumb strong { color: var(--text); font-weight: 550; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+
+    .icon-button, .button {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--bg-elevated);
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+    }
+    .icon-button { width: 32px; padding: 0; }
+    .button { padding: 0 12px; }
+    .button:hover, .icon-button:hover { border-color: var(--text-faint); background: var(--bg-elev-2); }
+    .button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+    .button.primary:hover { border-color: var(--accent-hover); background: var(--accent-hover); }
+    .button.danger { border-color: var(--error); background: var(--error); color: #ffffff; }
+    .button.ghost, .icon-button.ghost { border-color: transparent; background: transparent; color: var(--text-muted); }
+    .button.ghost:hover, .icon-button.ghost:hover { background: var(--bg-elev-2); color: var(--text); }
+
+    .tool { min-width: 0; min-height: 0; display: grid; grid-template-rows: 42px 58px minmax(0, 1fr); }
+    .image-tabs {
+      display: flex;
+      align-items: flex-end;
+      gap: 20px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .image-tabs::-webkit-scrollbar { display: none; }
+    .image-tab {
+      position: relative;
+      height: 41px;
+      flex: none;
+      padding: 0 1px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: default;
+      font-size: 12px;
+    }
+    .image-tab.active { color: var(--text); font-weight: 600; }
+    .image-tab.active::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      bottom: -1px;
+      left: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+    .tool-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .mode-switch {
+      height: 34px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--bg-elevated);
+    }
+    .mode-button {
+      min-width: 104px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .mode-button:hover { color: var(--text); }
+    .mode-button.active { background: var(--bg-elev-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+    .tool-status { min-width: 0; display: flex; align-items: center; gap: 9px; color: var(--text-muted); font-size: 12px; }
+    .status-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--text-faint); }
+    .status-dot.live { background: var(--error); box-shadow: 0 0 0 4px var(--error-soft); }
+    .shortcut { color: var(--text-faint); }
+
+    .workspace { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(520px, 1fr) 286px; }
+    .stage-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+    .stage-wrap { min-height: 0; padding: 18px; overflow: hidden; }
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 380px;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-md);
+      background: var(--bg-elevated);
+    }
+
+    .desktop-preview {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-rows: 27px minmax(0, 1fr) 31px;
+      color: #c7cbd1;
+      background: #292d34;
+      user-select: none;
+    }
+    .desktop-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      background: #17191e;
+      font-size: 9px;
+    }
+    .desktop-status { display: flex; align-items: center; gap: 8px; }
+    .desktop-main { min-height: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); }
+    .desktop-dock {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      padding: 9px 8px;
+      border-right: 1px solid #30343c;
+      background: #202329;
+    }
+    .dock-icon { width: 25px; height: 25px; border-radius: 6px; background: #3a3f48; }
+    .dock-icon.active { background: #29a875; }
+    .mock-window {
+      margin: 20px clamp(18px, 5vw, 68px);
+      overflow: hidden;
+      border: 1px solid #484d57;
+      border-radius: 7px;
+      background: #f7f7f6;
+      color: #24262a;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.26);
+    }
+    .mock-titlebar { height: 31px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border-bottom: 1px solid #dedede; background: #eeeeec; }
+    .traffic { width: 7px; height: 7px; border-radius: 50%; background: #d75c56; }
+    .traffic:nth-child(2) { background: #d7aa3d; }
+    .traffic:nth-child(3) { background: #4caf6d; }
+    .mock-layout { height: calc(100% - 31px); display: grid; grid-template-columns: 116px minmax(0, 1fr); }
+    .mock-side { padding: 12px 9px; border-right: 1px solid #e4e4e4; background: #f1f1ef; }
+    .mock-logo { width: 52px; height: 8px; margin-bottom: 18px; border-radius: 3px; background: #24262a; }
+    .mock-line { height: 6px; margin: 9px 0; border-radius: 3px; background: #d1d3d4; }
+    .mock-line.short { width: 64%; }
+    .mock-content { min-width: 0; padding: 20px; }
+    .mock-heading { width: 44%; height: 13px; margin-bottom: 8px; border-radius: 3px; background: #24262a; }
+    .mock-subheading { width: 66%; height: 7px; margin-bottom: 22px; border-radius: 3px; background: #c8cbce; }
+    .mock-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .mock-card { height: 72px; border: 1px solid #e1e2e2; border-radius: 6px; background: #ffffff; }
+    .mock-chart { position: relative; height: 74px; margin-top: 12px; overflow: hidden; border: 1px solid #e1e2e2; border-radius: 6px; background: #ffffff; }
+    .mock-chart::after { content: ""; position: absolute; right: 8%; bottom: 15px; left: 8%; height: 25px; border-top: 2px solid #27a877; border-right: 2px solid #27a877; transform: skewY(-9deg); }
+    .desktop-bottom { display: flex; align-items: center; justify-content: center; gap: 7px; background: #1c1f24; }
+    .desktop-app { width: 18px; height: 18px; border-radius: 4px; background: #4c525d; }
+    .desktop-app:nth-child(2) { background: #29a875; }
+    .desktop-app:nth-child(4) { background: #4f7bcc; }
+
+    .source-chip {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 5;
+      height: 27px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: var(--radius);
+      background: rgba(16, 18, 22, 0.84);
+      color: #f4f4f5;
+      font-size: 11px;
+      backdrop-filter: blur(8px);
+    }
+    .stage-hover {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      display: grid;
+      place-items: center;
+      background: rgba(6, 7, 9, 0.32);
+      opacity: 0;
+      transition: opacity var(--motion-fast);
+      pointer-events: none;
+    }
+    .stage:hover .stage-hover { opacity: 1; }
+    .stage-hover span { padding: 7px 10px; border-radius: var(--radius); background: rgba(16, 18, 22, 0.86); color: #f4f4f5; font-size: 11px; }
+
+    .select-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      display: none;
+      background: rgba(0, 0, 0, 0.58);
+      cursor: crosshair;
+    }
+    .select-overlay.visible { display: block; }
+    .selection {
+      position: absolute;
+      left: 16%;
+      top: 18%;
+      width: 60%;
+      height: 56%;
+      border: 1.5px solid var(--accent);
+      background: rgba(255, 255, 255, 0.03);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.18), 0 0 0 3px var(--accent-soft);
+      cursor: move;
+    }
+    .selection-handle { position: absolute; width: 8px; height: 8px; border: 1px solid #ffffff; background: var(--accent); }
+    .selection-handle.nw { top: -4px; left: -4px; }
+    .selection-handle.ne { top: -4px; right: -4px; }
+    .selection-handle.sw { bottom: -4px; left: -4px; }
+    .selection-handle.se { right: -4px; bottom: -4px; }
+    .selection-size {
+      position: absolute;
+      top: -29px;
+      left: 0;
+      padding: 4px 7px;
+      border-radius: var(--radius-sm);
+      background: rgba(16, 18, 22, 0.92);
+      color: #ffffff;
+      font-size: 10px;
+    }
+    .selection-toolbar {
+      position: absolute;
+      top: calc(100% + 9px);
+      left: 50%;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--radius-md);
+      background: rgba(16, 18, 22, 0.94);
+      box-shadow: var(--shadow-pop);
+      transform: translateX(-50%);
+      cursor: default;
+    }
+    .selection-toolbar button { height: 28px; color: #f4f4f5; }
+    .selection-toolbar .button.primary { color: var(--accent-fg); }
+
+    .countdown {
+      position: absolute;
+      inset: 0;
+      z-index: 12;
+      display: none;
+      place-items: center;
+      background: rgba(5, 6, 8, 0.58);
+      color: #ffffff;
+      backdrop-filter: blur(2px);
+    }
+    .countdown.visible { display: grid; }
+    .countdown-number { font-family: var(--font-mono); font-size: 74px; font-weight: 700; }
+
+    .recording-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 6;
+      display: none;
+      align-items: center;
+      gap: 7px;
+      height: 27px;
+      padding: 0 9px;
+      border-radius: var(--radius);
+      background: rgba(16, 18, 22, 0.86);
+      color: #ffffff;
+      font-size: 11px;
+    }
+    .recording-badge.visible { display: flex; }
+    .recording-badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
+
+    .recording-dock {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      z-index: 15;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--radius-lg);
+      background: rgba(16, 18, 22, 0.94);
+      color: #f4f4f5;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.40);
+      transform: translateX(-50%);
+      backdrop-filter: blur(12px);
+    }
+    .recording-dock.visible { display: flex; }
+    .dock-timer { min-width: 70px; padding: 0 8px; text-align: center; font-size: 12px; }
+    .dock-separator { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.16); }
+    .recording-dock .icon-button { color: #f4f4f5; border-color: transparent; background: transparent; }
+    .recording-dock .icon-button:hover { background: rgba(255, 255, 255, 0.10); }
+    .recording-dock .stop-button { width: 32px; height: 32px; border: 0; border-radius: var(--radius); background: var(--error); color: #ffffff; cursor: pointer; }
+    .recording-dock .stop-button svg { width: 13px; height: 13px; fill: currentColor; stroke: none; }
+
+    .result-view {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      grid-template-rows: minmax(0, 1fr) 48px;
+      background: #17191e;
+    }
+    .result-view.visible { display: grid; }
+    [data-mode="screenshot"] .result-view.visible { grid-template-rows: minmax(0, 1fr); }
+    [data-mode="screenshot"] .result-footer { display: none; }
+    .result-canvas { position: relative; min-height: 0; display: grid; place-items: center; padding: 26px; }
+    .result-shot {
+      position: relative;
+      width: min(82%, 760px);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 1px solid #474b54;
+      border-radius: var(--radius);
+      background: #292d34;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.30);
+    }
+    .result-shot .desktop-preview { transform: scale(1.01); }
+    .result-video-overlay { position: absolute; inset: 0; display: none; place-items: center; background: rgba(5, 6, 8, 0.13); }
+    [data-mode="recording"] .result-video-overlay { display: grid; }
+    .play-button { width: 48px; height: 48px; border: 0; border-radius: 50%; background: rgba(16, 18, 22, 0.86); color: #ffffff; cursor: pointer; }
+    .play-button svg { width: 20px; height: 20px; margin-left: 2px; fill: currentColor; stroke: none; }
+    .result-footer { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-top: 1px solid #30333a; color: #a8adb5; background: #1c1f24; }
+    .timeline { position: relative; flex: 1; height: 4px; border-radius: 2px; background: #3a3e46; }
+    .timeline-progress { width: 34%; height: 100%; border-radius: 2px; background: var(--accent); }
+    .result-time { min-width: 74px; font-size: 11px; }
+
+    .bottom-bar {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      min-height: 86px;
+      padding: 12px 18px 14px;
+      border-top: 1px solid var(--line);
+    }
+    .source-picker { min-width: 0; display: flex; align-items: center; gap: 7px; }
+    .source-button {
+      min-width: 104px;
+      height: 48px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      text-align: left;
+      cursor: pointer;
+    }
+    .source-button:hover { border-color: var(--line-strong); color: var(--text); }
+    .source-button.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--text); }
+    .source-icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--bg-elev-2); }
+    .source-copy { min-width: 0; display: grid; gap: 2px; }
+    .source-name { font-size: 12px; font-weight: 600; }
+    .source-meta { overflow: hidden; color: var(--text-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .primary-action { min-width: 126px; height: 38px; }
+
+    .inspector {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      border-left: 1px solid var(--line);
+      background: var(--bg-elevated);
+    }
+    .inspector-content { min-height: 0; overflow-y: auto; }
+    .section { padding: 17px 16px; border-bottom: 1px solid var(--line); }
+    .section-title { margin: 0 0 13px; color: var(--text); font-size: 12px; font-weight: 650; }
+    .section-note { margin: -7px 0 13px; color: var(--text-faint); font-size: 10px; line-height: 1.5; }
+    .setting-row { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .setting-row + .setting-row { margin-top: 7px; }
+    .setting-copy { min-width: 0; display: grid; gap: 2px; }
+    .setting-label { color: var(--text); font-size: 12px; }
+    .setting-hint { color: var(--text-faint); font-size: 10px; }
+    select {
+      height: 30px;
+      padding: 0 26px 0 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--bg-base);
+      color: var(--text);
+    }
+    .segmented {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg-base);
+    }
+    .segmented button { height: 25px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; }
+    .segmented button.active { background: var(--bg-elev-2); color: var(--text); }
+    .switch {
+      position: relative;
+      width: 31px;
+      height: 18px;
+      flex: none;
+      border: 0;
+      border-radius: var(--radius-pill);
+      background: var(--line-strong);
+      cursor: pointer;
+      transition: background var(--motion-fast);
+    }
+    .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #ffffff; transition: transform var(--motion-fast); }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { transform: translateX(13px); }
+    .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .kbd { padding: 4px 7px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--radius-sm); color: var(--text-muted); background: var(--bg-base); font-family: var(--font-mono); font-size: 10px; }
+    .inspector-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+    .mode-panel[hidden] { display: none; }
+
+    .summary { display: none; }
+    .summary.visible { display: block; }
+    .summary-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--text-muted); font-size: 11px; }
+    .summary-row:last-child { border-bottom: 0; }
+    .summary-row strong { max-width: 160px; overflow: hidden; color: var(--text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+
+    .toast {
+      position: fixed;
+      top: 66px;
+      left: 50%;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--bg-overlay);
+      color: var(--text);
+      box-shadow: var(--shadow-pop);
+      opacity: 0;
+      transform: translate(-50%, -8px);
+      pointer-events: none;
+      transition: opacity var(--motion-mid), transform var(--motion-mid);
+    }
+    .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+    .toast svg { color: var(--accent); }
+
+    @media (max-width: 960px) {
+      .app { grid-template-columns: 56px minmax(0, 1fr); }
+      .brand { justify-content: center; padding: 0; }
+      .brand span:not(.brand-mark), .nav-item span, .sidebar-footer span:first-child { display: none; }
+      .nav-item { justify-content: center; padding: 0; }
+      .workspace { grid-template-columns: minmax(430px, 1fr) 248px; }
+      .source-button { min-width: 46px; grid-template-columns: 1fr; justify-items: center; padding: 0 8px; }
+      .source-copy { display: none; }
+    }
+    @media (max-width: 760px) {
+      body { overflow: auto; }
+      .app { min-height: 760px; }
+      .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(450px, 1fr) auto; overflow-y: auto; }
+      .inspector { border-top: 1px solid var(--line); border-left: 0; }
+      .inspector-content { display: grid; grid-template-columns: 1fr 1fr; }
+      .stage-wrap { padding: 10px; }
+      .tool-header { padding: 0 10px; }
+      .shortcut { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="prototype" data-mode="screenshot" data-state="idle">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">A</span><span>AT Tool</span></div>
+      <nav class="nav" aria-label="工具导航">
+        <button class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg><span>Aria2 下载</span></button>
+        <button class="nav-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 15 3-3 2 2 3-4 2 3"/></svg><span>主图模板</span></button>
+        <button class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 22h8M12 19v3"/><circle cx="12" cy="12" r="3"/></svg><span>图片工具</span></button>
+        <button class="nav-item"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M8 9h8M8 13h6"/></svg><span>剪贴板</span></button>
+        <button class="nav-item"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg><span>JSON</span></button>
+        <button class="nav-item"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg><span>文本工具</span></button>
+      </nav>
+      <div class="sidebar-footer"><span>v0.9.0</span><button class="icon-button ghost" id="themeButton" title="切换主题"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumb">工具&nbsp; / &nbsp;<strong>图片工具</strong></div>
+        <div class="top-actions">
+          <button class="icon-button ghost" title="捕获历史"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+          <button class="icon-button ghost" title="更多设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg></button>
+        </div>
+      </header>
+
+      <section class="tool">
+        <nav class="image-tabs" aria-label="图片工具功能">
+          <button class="image-tab active">捕获</button>
+          <button class="image-tab">标注</button>
+          <button class="image-tab">压缩</button>
+          <button class="image-tab">格式转换</button>
+          <button class="image-tab">EXIF</button>
+          <button class="image-tab">OCR</button>
+        </nav>
+        <div class="tool-header">
+          <div class="mode-switch" role="tablist" aria-label="捕获模式">
+            <button class="mode-button active" data-mode-button="screenshot"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/></svg>截图</button>
+            <button class="mode-button" data-mode-button="recording"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-2v8l-4-2Z"/></svg>录屏</button>
+          </div>
+          <div class="tool-status"><span class="status-dot" id="statusDot"></span><span id="statusText">准备截图</span><span class="shortcut">快捷键 <span class="mono">Ctrl Shift A</span></span></div>
+        </div>
+
+        <div class="workspace">
+          <div class="stage-column">
+            <div class="stage-wrap">
+              <div class="stage" id="stage">
+                <div class="desktop-preview" aria-label="当前桌面预览">
+                  <div class="desktop-bar"><span>活动</span><div class="desktop-status"><span>AT Tool</span><span class="mono">16:42</span></div></div>
+                  <div class="desktop-main">
+                    <div class="desktop-dock"><span class="dock-icon active"></span><span class="dock-icon"></span><span class="dock-icon"></span><span class="dock-icon"></span></div>
+                    <div class="mock-window">
+                      <div class="mock-titlebar"><i class="traffic"></i><i class="traffic"></i><i class="traffic"></i></div>
+                      <div class="mock-layout">
+                        <div class="mock-side"><div class="mock-logo"></div><div class="mock-line"></div><div class="mock-line short"></div><div class="mock-line"></div><div class="mock-line short"></div></div>
+                        <div class="mock-content"><div class="mock-heading"></div><div class="mock-subheading"></div><div class="mock-cards"><span class="mock-card"></span><span class="mock-card"></span><span class="mock-card"></span></div><div class="mock-chart"></div></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="desktop-bottom"><span class="desktop-app"></span><span class="desktop-app"></span><span class="desktop-app"></span><span class="desktop-app"></span><span class="desktop-app"></span></div>
+                </div>
+                <div class="source-chip"><svg id="sourceChipIcon" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg><span id="sourceChipText">显示器 1 · 待选区域</span></div>
+                <div class="stage-hover"><span>点击下方来源切换捕获范围</span></div>
+
+                <div class="select-overlay" id="selectOverlay">
+                  <div class="selection" id="selection">
+                    <i class="selection-handle nw"></i><i class="selection-handle ne"></i><i class="selection-handle sw"></i><i class="selection-handle se"></i>
+                    <span class="selection-size mono" id="selectionSize">1280 x 720</span>
+                    <div class="selection-toolbar">
+                      <button class="icon-button ghost" id="cancelSelection" title="取消"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+                      <button class="button primary" id="confirmSelection"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/></svg>捕获</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="countdown" id="countdown"><span class="countdown-number mono" id="countdownNumber">3</span></div>
+                <div class="recording-badge" id="recordingBadge"><i></i><span id="recordingBadgeText">正在录制</span></div>
+                <div class="recording-dock" id="recordingDock">
+                  <span class="dock-timer mono" id="dockTimer">00:00</span><span class="dock-separator"></span>
+                  <button class="icon-button" id="micDock" title="麦克风"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg></button>
+                  <button class="icon-button" id="pauseButton" title="暂停"><svg id="pauseIcon" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+                  <button class="stop-button" id="stopButton" title="停止录制"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></svg></button>
+                </div>
+
+                <div class="result-view" id="resultView">
+                  <div class="result-canvas">
+                    <div class="result-shot">
+                      <div class="desktop-preview">
+                        <div class="desktop-bar"><span>活动</span><div class="desktop-status"><span>AT Tool</span><span class="mono">16:42</span></div></div>
+                        <div class="desktop-main">
+                          <div class="desktop-dock"><span class="dock-icon active"></span><span class="dock-icon"></span><span class="dock-icon"></span><span class="dock-icon"></span></div>
+                          <div class="mock-window"><div class="mock-titlebar"><i class="traffic"></i><i class="traffic"></i><i class="traffic"></i></div><div class="mock-layout"><div class="mock-side"><div class="mock-logo"></div><div class="mock-line"></div><div class="mock-line short"></div><div class="mock-line"></div></div><div class="mock-content"><div class="mock-heading"></div><div class="mock-subheading"></div><div class="mock-cards"><span class="mock-card"></span><span class="mock-card"></span><span class="mock-card"></span></div><div class="mock-chart"></div></div></div></div>
+                        </div>
+                        <div class="desktop-bottom"><span class="desktop-app"></span><span class="desktop-app"></span><span class="desktop-app"></span><span class="desktop-app"></span></div>
+                      </div>
+                      <div class="result-video-overlay"><button class="play-button" id="playButton" title="播放"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg></button></div>
+                    </div>
+                  </div>
+                  <div class="result-footer"><button class="icon-button ghost" id="resultPlay" title="播放"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg></button><span class="result-time mono" id="resultTime">00:00 / 00:08</span><div class="timeline"><div class="timeline-progress"></div></div><button class="icon-button ghost" title="音量"><svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5ZM18 9a4 4 0 0 1 0 6"/></svg></button></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bottom-bar">
+              <div class="source-picker" aria-label="捕获来源">
+                <button class="source-button active" data-source="region"><span class="source-icon"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></span><span class="source-copy"><span class="source-name">区域</span><span class="source-meta">拖动选择范围</span></span></button>
+                <button class="source-button" data-source="window"><span class="source-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M7 7h.01"/></svg></span><span class="source-copy"><span class="source-name">窗口</span><span class="source-meta">AT Tool</span></span></button>
+                <button class="source-button" data-source="screen"><span class="source-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 22h8M12 18v4"/></svg></span><span class="source-copy"><span class="source-name">屏幕</span><span class="source-meta">显示器 1</span></span></button>
+              </div>
+              <button class="button primary primary-action" id="primaryAction"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg><span>选择区域</span></button>
+            </div>
+          </div>
+
+          <aside class="inspector">
+            <div class="inspector-content">
+              <div class="mode-panel" id="screenshotPanel">
+                <section class="section">
+                  <h2 class="section-title">截图设置</h2>
+                  <div class="setting-row"><span class="setting-label">延时捕获</span><select><option>无延时</option><option>3 秒</option><option>5 秒</option></select></div>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">显示鼠标指针</span><span class="setting-hint">捕获当前指针位置</span></div><button class="switch" aria-label="显示鼠标指针"></button></div>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">捕获后复制</span><span class="setting-hint">同时保留在预览中</span></div><button class="switch on" aria-label="捕获后复制"></button></div>
+                </section>
+                <section class="section">
+                  <h2 class="section-title">输出</h2>
+                  <div class="setting-row"><span class="setting-label">格式</span><div class="segmented"><button class="active">PNG</button><button>JPG</button></div></div>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">截图后标注</span><span class="setting-hint">直接进入标注编辑器</span></div><button class="switch on" aria-label="截图后标注"></button></div>
+                </section>
+              </div>
+
+              <div class="mode-panel" id="recordingPanel" hidden>
+                <section class="section">
+                  <h2 class="section-title">画面</h2>
+                  <div class="setting-row"><span class="setting-label">清晰度</span><select><option>原始尺寸</option><option>1080p</option><option>720p</option></select></div>
+                  <div class="setting-row"><span class="setting-label">帧率</span><div class="segmented"><button class="active">30</button><button>60</button></div></div>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">显示鼠标指针</span><span class="setting-hint">录制指针移动</span></div><button class="switch on" aria-label="显示鼠标指针"></button></div>
+                </section>
+                <section class="section">
+                  <h2 class="section-title">声音</h2>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">系统声音</span><span class="setting-hint">录制应用和系统音频</span></div><button class="switch on" aria-label="系统声音"></button></div>
+                  <div class="setting-row"><div class="setting-copy"><span class="setting-label">麦克风</span><span class="setting-hint">默认输入设备</span></div><button class="switch" aria-label="麦克风"></button></div>
+                </section>
+                <section class="section">
+                  <h2 class="section-title">录制</h2>
+                  <div class="setting-row"><span class="setting-label">开始倒计时</span><select><option>3 秒</option><option>无</option><option>5 秒</option></select></div>
+                  <div class="setting-row"><span class="setting-label">格式</span><span class="mono setting-hint">WebM</span></div>
+                </section>
+              </div>
+
+              <div class="summary" id="summaryPanel">
+                <section class="section">
+                  <h2 class="section-title" id="summaryTitle">截图完成</h2>
+                  <div class="summary-row"><span>尺寸</span><strong class="mono" id="summaryDimension">1280 x 720</strong></div>
+                  <div class="summary-row"><span>大小</span><strong class="mono" id="summarySize">842 KB</strong></div>
+                  <div class="summary-row"><span>格式</span><strong class="mono" id="summaryFormat">PNG</strong></div>
+                  <div class="summary-row"><span>来源</span><strong id="summarySource">选定区域</strong></div>
+                </section>
+                <section class="section">
+                  <h2 class="section-title">下一步</h2>
+                  <p class="section-note" id="summaryNote">图片已复制到剪贴板，可继续标注或保存文件。</p>
+                  <button class="button" id="secondaryResultAction"><svg viewBox="0 0 24 24"><path d="M4 7h16M7 4v6M17 4v6M5 10h14v10H5z"/></svg><span>打开标注</span></button>
+                </section>
+              </div>
+
+              <section class="section" id="shortcutSection">
+                <h2 class="section-title">快捷键</h2>
+                <div class="shortcut-row"><span class="setting-label" id="shortcutLabel">区域截图</span><span class="kbd" id="shortcutValue">Ctrl Shift A</span></div>
+              </section>
+            </div>
+            <div class="inspector-footer" id="defaultFooter"><button class="button ghost">恢复默认</button></div>
+            <div class="inspector-footer" id="resultFooter" hidden><button class="button" id="newCapture">重新捕获</button><button class="button primary" id="saveResult"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg><span>保存</span></button></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span id="toastText">已完成</span></div>
+
+  <script>
+    const root = document.documentElement;
+    const prototype = document.getElementById('prototype');
+    const modeButtons = [...document.querySelectorAll('[data-mode-button]')];
+    const sourceButtons = [...document.querySelectorAll('[data-source]')];
+    const screenshotPanel = document.getElementById('screenshotPanel');
+    const recordingPanel = document.getElementById('recordingPanel');
+    const summaryPanel = document.getElementById('summaryPanel');
+    const shortcutSection = document.getElementById('shortcutSection');
+    const primaryAction = document.getElementById('primaryAction');
+    const primaryActionText = primaryAction.querySelector('span');
+    const primaryActionIcon = primaryAction.querySelector('svg');
+    const selectOverlay = document.getElementById('selectOverlay');
+    const selection = document.getElementById('selection');
+    const selectionSize = document.getElementById('selectionSize');
+    const countdown = document.getElementById('countdown');
+    const countdownNumber = document.getElementById('countdownNumber');
+    const recordingDock = document.getElementById('recordingDock');
+    const recordingBadge = document.getElementById('recordingBadge');
+    const recordingBadgeText = document.getElementById('recordingBadgeText');
+    const dockTimer = document.getElementById('dockTimer');
+    const pauseButton = document.getElementById('pauseButton');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const resultView = document.getElementById('resultView');
+    const statusText = document.getElementById('statusText');
+    const statusDot = document.getElementById('statusDot');
+    const sourceChipText = document.getElementById('sourceChipText');
+    const sourceChipIcon = document.getElementById('sourceChipIcon');
+    const defaultFooter = document.getElementById('defaultFooter');
+    const resultFooter = document.getElementById('resultFooter');
+
+    let mode = 'screenshot';
+    let source = 'region';
+    let state = 'idle';
+    let seconds = 0;
+    let timer = null;
+    let countdownTimer = null;
+    let toastTimer = null;
+    let dragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    const icons = {
+      region: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+      window: '<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M7 7h.01"/>',
+      screen: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 22h8M12 18v4"/>',
+      record: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>'
+    };
+
+    function formatTime(value) {
+      const minutes = String(Math.floor(value / 60)).padStart(2, '0');
+      const remainder = String(value % 60).padStart(2, '0');
+      return `${minutes}:${remainder}`;
+    }
+
+    function showToast(message) {
+      document.getElementById('toastText').textContent = message;
+      document.getElementById('toast').classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => document.getElementById('toast').classList.remove('visible'), 1800);
+    }
+
+    function setState(nextState) {
+      state = nextState;
+      prototype.dataset.state = state;
+      const isResult = state === 'completed';
+      const isBusy = ['selecting', 'countdown', 'recording', 'paused'].includes(state);
+
+      selectOverlay.classList.toggle('visible', state === 'selecting');
+      countdown.classList.toggle('visible', state === 'countdown');
+      recordingDock.classList.toggle('visible', state === 'recording' || state === 'paused');
+      recordingBadge.classList.toggle('visible', state === 'recording' || state === 'paused');
+      resultView.classList.toggle('visible', isResult);
+      summaryPanel.classList.toggle('visible', isResult);
+      screenshotPanel.hidden = isResult || mode !== 'screenshot';
+      recordingPanel.hidden = isResult || mode !== 'recording';
+      shortcutSection.hidden = isResult;
+      defaultFooter.hidden = isResult;
+      resultFooter.hidden = !isResult;
+      document.querySelector('.bottom-bar').style.visibility = isResult || isBusy ? 'hidden' : 'visible';
+      modeButtons.forEach((button) => button.disabled = isBusy);
+
+      statusDot.classList.toggle('live', state === 'recording');
+      if (state === 'idle') statusText.textContent = mode === 'screenshot' ? '准备截图' : '准备录制';
+      if (state === 'selecting') statusText.textContent = '拖动调整截图区域';
+      if (state === 'countdown') statusText.textContent = '录制即将开始';
+      if (state === 'recording') statusText.textContent = `录制中 · ${formatTime(seconds)}`;
+      if (state === 'paused') statusText.textContent = `已暂停 · ${formatTime(seconds)}`;
+      if (state === 'completed') statusText.textContent = mode === 'screenshot' ? '截图完成' : '录制完成';
+    }
+
+    function updateMode(nextMode) {
+      if (['selecting', 'countdown', 'recording', 'paused'].includes(state)) return;
+      mode = nextMode;
+      prototype.dataset.mode = mode;
+      modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.modeButton === mode));
+      if (state === 'completed') setState('idle');
+      screenshotPanel.hidden = mode !== 'screenshot';
+      recordingPanel.hidden = mode !== 'recording';
+      document.getElementById('shortcutLabel').textContent = mode === 'screenshot' ? '区域截图' : '开始 / 停止录制';
+      document.getElementById('shortcutValue').textContent = mode === 'screenshot' ? 'Ctrl Shift A' : 'Ctrl Shift R';
+      updatePrimaryAction();
+      setState('idle');
+    }
+
+    function updatePrimaryAction() {
+      if (mode === 'recording') {
+        primaryActionText.textContent = '开始录制';
+        primaryActionIcon.innerHTML = icons.record;
+        return;
+      }
+      const labels = { region: '选择区域', window: '截取窗口', screen: '截取屏幕' };
+      primaryActionText.textContent = labels[source];
+      primaryActionIcon.innerHTML = icons[source];
+    }
+
+    function updateSource(nextSource) {
+      source = nextSource;
+      sourceButtons.forEach((button) => button.classList.toggle('active', button.dataset.source === source));
+      const labels = { region: '显示器 1 · 待选区域', window: 'AT Tool 窗口', screen: '显示器 1' };
+      sourceChipText.textContent = labels[source];
+      sourceChipIcon.innerHTML = icons[source];
+      updatePrimaryAction();
+    }
+
+    function finishCapture() {
+      clearInterval(timer);
+      timer = null;
+      const sourceLabels = { region: '选定区域', window: 'AT Tool 窗口', screen: '显示器 1' };
+      document.getElementById('summarySource').textContent = sourceLabels[source];
+      if (mode === 'screenshot') {
+        document.getElementById('summaryTitle').textContent = '截图完成';
+        document.getElementById('summaryDimension').textContent = source === 'region' ? selectionSize.textContent : '1920 x 1080';
+        document.getElementById('summarySize').textContent = '842 KB';
+        document.getElementById('summaryFormat').textContent = 'PNG';
+        document.getElementById('summaryNote').textContent = '图片已复制到剪贴板，可继续标注或保存文件。';
+        document.getElementById('secondaryResultAction').querySelector('span').textContent = '打开标注';
+        document.getElementById('saveResult').querySelector('span').textContent = '保存图片';
+        document.getElementById('resultTime').textContent = '截图预览';
+        showToast('截图已复制到剪贴板');
+      } else {
+        document.getElementById('summaryTitle').textContent = '录制完成';
+        document.getElementById('summaryDimension').textContent = '1920 x 1080';
+        document.getElementById('summarySize').textContent = `${Math.max(2.4, seconds * 0.65).toFixed(1)} MB`;
+        document.getElementById('summaryFormat').textContent = 'WebM';
+        document.getElementById('summaryNote').textContent = '录制暂存在应用缓存中，确认后再选择保存位置。';
+        document.getElementById('secondaryResultAction').querySelector('span').textContent = '剪辑开头 / 结尾';
+        document.getElementById('saveResult').querySelector('span').textContent = '保存录屏';
+        document.getElementById('resultTime').textContent = `00:00 / ${formatTime(seconds)}`;
+      }
+      setState('completed');
+    }
+
+    function startRecording() {
+      seconds = 0;
+      dockTimer.textContent = '00:00';
+      let count = 3;
+      countdownNumber.textContent = count;
+      setState('countdown');
+      countdownTimer = setInterval(() => {
+        count -= 1;
+        if (count > 0) {
+          countdownNumber.textContent = count;
+          return;
+        }
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        setState('recording');
+        timer = setInterval(() => {
+          seconds += 1;
+          dockTimer.textContent = formatTime(seconds);
+          statusText.textContent = `录制中 · ${formatTime(seconds)}`;
+        }, 1000);
+      }, 650);
+    }
+
+    modeButtons.forEach((button) => button.addEventListener('click', () => updateMode(button.dataset.modeButton)));
+    sourceButtons.forEach((button) => button.addEventListener('click', () => updateSource(button.dataset.source)));
+
+    primaryAction.addEventListener('click', () => {
+      if (mode === 'recording') {
+        startRecording();
+      } else if (source === 'region') {
+        setState('selecting');
+      } else {
+        setTimeout(finishCapture, 220);
+      }
+    });
+
+    document.getElementById('confirmSelection').addEventListener('click', (event) => {
+      event.stopPropagation();
+      finishCapture();
+    });
+    document.getElementById('cancelSelection').addEventListener('click', (event) => {
+      event.stopPropagation();
+      setState('idle');
+    });
+
+    pauseButton.addEventListener('click', () => {
+      if (state === 'recording') {
+        clearInterval(timer);
+        timer = null;
+        pauseIcon.innerHTML = '<path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/>';
+        pauseButton.title = '继续';
+        recordingBadgeText.textContent = '已暂停';
+        setState('paused');
+      } else if (state === 'paused') {
+        pauseIcon.innerHTML = '<path d="M8 5v14M16 5v14"/>';
+        pauseButton.title = '暂停';
+        recordingBadgeText.textContent = '正在录制';
+        setState('recording');
+        timer = setInterval(() => {
+          seconds += 1;
+          dockTimer.textContent = formatTime(seconds);
+          statusText.textContent = `录制中 · ${formatTime(seconds)}`;
+        }, 1000);
+      }
+    });
+
+    document.getElementById('stopButton').addEventListener('click', finishCapture);
+    document.getElementById('newCapture').addEventListener('click', () => setState('idle'));
+    document.getElementById('saveResult').addEventListener('click', () => showToast(mode === 'screenshot' ? '已打开图片保存窗口' : '已打开录屏保存窗口'));
+    document.getElementById('secondaryResultAction').addEventListener('click', () => showToast(mode === 'screenshot' ? '已进入标注工作区' : '已打开轻量剪辑'));
+    document.getElementById('micDock').addEventListener('click', (event) => {
+      event.currentTarget.classList.toggle('active');
+      showToast(event.currentTarget.classList.contains('active') ? '麦克风已开启' : '麦克风已静音');
+    });
+    document.getElementById('playButton').addEventListener('click', () => showToast('正在播放预览'));
+    document.getElementById('resultPlay').addEventListener('click', () => showToast('正在播放预览'));
+
+    document.querySelectorAll('.switch').forEach((toggle) => toggle.addEventListener('click', () => toggle.classList.toggle('on')));
+    document.querySelectorAll('.segmented').forEach((group) => {
+      group.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
+        group.querySelectorAll('button').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+      }));
+    });
+
+    document.getElementById('themeButton').addEventListener('click', () => {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    });
+
+    selection.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('button')) return;
+      dragging = true;
+      const box = selection.getBoundingClientRect();
+      dragOffsetX = event.clientX - box.left;
+      dragOffsetY = event.clientY - box.top;
+      selection.setPointerCapture(event.pointerId);
+    });
+    selection.addEventListener('pointermove', (event) => {
+      if (!dragging) return;
+      const parent = selectOverlay.getBoundingClientRect();
+      const current = selection.getBoundingClientRect();
+      const left = Math.max(0, Math.min(event.clientX - parent.left - dragOffsetX, parent.width - current.width));
+      const top = Math.max(34, Math.min(event.clientY - parent.top - dragOffsetY, parent.height - current.height - 48));
+      selection.style.left = `${left}px`;
+      selection.style.top = `${top}px`;
+    });
+    selection.addEventListener('pointerup', (event) => {
+      dragging = false;
+      selection.releasePointerCapture(event.pointerId);
+    });
+
+    updateSource('region');
+    setState('idle');
+  </script>
+</body>
+</html>
