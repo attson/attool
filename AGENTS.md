@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 13 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）、AI 对话（多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换）。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。当前内置 14 个工具：Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图）、录屏、文本、网络、编码、生成器、时间、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）、AI 对话（多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换）。
 
 ## 技术栈
 
@@ -56,6 +56,7 @@ src/
 │   ├── ecommerce/               # 主图模板：TemplateTool + 5 子组件（图层树/属性/画布/资源/批量）
 │   ├── image/                   # 图片：ImageTool（tabs：压缩/转换/EXIF/标注/OCR/截图）
 │   │                            #   + CaptureOverlay（截图浮层）+ CapturePinWindow
+│   ├── recording/               # 录屏：系统源选择/音频/暂停/预览 + 分块落盘
 │   ├── json/                    # JSON：格式化/JSONPath 查询/对比/转换（Monaco）
 │   ├── codec/                   # 编码：Base64/URL/Unicode/Hex/Hash/JWT
 │   ├── generator/               # 生成器：密码/UUID·ULID/QR/Lorem/假数据/骰子

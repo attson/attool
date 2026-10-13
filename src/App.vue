@@ -43,6 +43,7 @@ import type { Tool } from './types/tool';
 const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
 const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 const ImageTool = defineAsyncComponent(() => import('./components/image/ImageTool.vue'));
+const RecordingTool = defineAsyncComponent(() => import('./components/recording/RecordingTool.vue'));
 const CodecTool = defineAsyncComponent(() => import('./components/codec/CodecTool.vue'));
 const NetworkTool = defineAsyncComponent(() => import('./components/network/NetworkTool.vue'));
 const TextTool = defineAsyncComponent(() => import('./components/text/TextTool.vue'));
@@ -58,6 +59,7 @@ const tools: Tool[] = [
   { id: 'json',      name: 'JSON 工具',       description: '格式化 / 查询 / 对比 / 转换',          status: 'ready', icon: 'code',      group: 'edit' },
   { id: 'video-link', name: '视频链接抽取',  description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video',     group: 'download' },
   { id: 'image',     name: '图片工具',       description: '压缩 / 格式转 / EXIF / 标注 / OCR',    status: 'ready', icon: 'image',     group: 'edit' },
+  { id: 'recording', name: '录屏工具',       description: '屏幕录制 / 音频 / 实时预览',             status: 'ready', icon: 'record',    group: 'edit' },
   { id: 'text',      name: '文本工具',       description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比', status: 'ready', icon: 'type',      group: 'edit' },
   { id: 'network',   name: '网络工具',       description: 'URL 分析 / Ping / 端口检查 / DNS',    status: 'ready', icon: 'wifi',      group: 'network' },
   { id: 'codec',     name: '编码转换',       description: 'Base64 / URL / Unicode / Hex / Hash / JWT', status: 'ready', icon: 'hash',      group: 'network' },
@@ -633,6 +635,10 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'image'">
           <ImageTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'recording'">
+          <RecordingTool />
         </template>
 
         <template v-else-if="selectedTool.id === 'codec'">

@@ -12,6 +12,7 @@ export type ToolIconId =
   | 'code'
   | 'video'
   | 'image'
+  | 'record'
   | 'dice'
   | 'clock'
   | 'send'

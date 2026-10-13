@@ -10,12 +10,14 @@ const tools = [
   { id: 'json',       group: 'edit' as ToolGroup },
   { id: 'video-link', group: 'download' as ToolGroup },
   { id: 'image',      group: 'edit' as ToolGroup },
+  { id: 'recording',  group: 'edit' as ToolGroup },
   { id: 'text',       group: 'edit' as ToolGroup },
   { id: 'network',    group: 'network' as ToolGroup },
   { id: 'codec',      group: 'network' as ToolGroup },
   { id: 'generator',  group: 'utility' as ToolGroup },
   { id: 'time',       group: 'utility' as ToolGroup },
-  { id: 'http',       group: 'network' as ToolGroup }
+  { id: 'http',       group: 'network' as ToolGroup },
+  { id: 'ai-chat',    group: 'utility' as ToolGroup }
 ];
 
 describe('Tool.group', () => {
@@ -25,7 +27,7 @@ describe('Tool.group', () => {
     }
   });
 
-  it('12 个 tool 全数', () => {
-    expect(tools.length).toBe(12);
+  it('14 个 tool 全数', () => {
+    expect(tools.length).toBe(14);
   });
 });

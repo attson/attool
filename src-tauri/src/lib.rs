@@ -12,6 +12,7 @@ pub mod http;
 pub mod imaging;
 pub mod network;
 mod qrcode;
+mod recording;
 mod xhs;
 mod youtube;
 
@@ -1236,6 +1237,7 @@ pub fn run() {
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
                 .join("updater");
             app.manage(updater::state::UpdaterState::new(updater_stage_dir));
+            app.manage(recording::RecordingStore::default());
 
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
@@ -1278,6 +1280,11 @@ pub fn run() {
             extract_bilibili_video,
             extract_youtube_video,
             generate_qr_png,
+            recording::begin_recording_file,
+            recording::append_recording_chunk,
+            recording::finish_recording_file,
+            recording::cancel_recording_file,
+            recording::open_recording_folder,
             http::commands::send_http,
             http::commands::cancel_http,
             http::commands::list_http_tabs,

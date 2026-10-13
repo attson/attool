@@ -78,6 +78,13 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <polyline points="21 15 16 10 5 21" />
     </template>
 
+    <!-- record -->
+    <template v-else-if="name === 'record'">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </template>
+
     <!-- dice / generator -->
     <template v-else-if="name === 'dice'">
       <rect x="3" y="3" width="18" height="18" rx="3" />
