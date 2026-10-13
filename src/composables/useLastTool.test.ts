@@ -24,6 +24,12 @@ describe('useLastTool', () => {
     expect(lastToolId.value).toBe('aria2');
   });
 
+  it('maps the removed recording tool to the integrated image tool', () => {
+    const { storage } = fakeStorage({ 'attool.lastTool': 'recording' });
+    const { lastToolId } = useLastTool(storage);
+    expect(lastToolId.value).toBe('image');
+  });
+
   it('remember persists tool id and updates state', () => {
     const { storage, data } = fakeStorage();
     const { lastToolId, remember } = useLastTool(storage);

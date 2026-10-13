@@ -10,7 +10,6 @@ const tools = [
   { id: 'json',       group: 'edit' as ToolGroup },
   { id: 'video-link', group: 'download' as ToolGroup },
   { id: 'image',      group: 'edit' as ToolGroup },
-  { id: 'recording',  group: 'edit' as ToolGroup },
   { id: 'text',       group: 'edit' as ToolGroup },
   { id: 'network',    group: 'network' as ToolGroup },
   { id: 'codec',      group: 'network' as ToolGroup },
@@ -27,7 +26,7 @@ describe('Tool.group', () => {
     }
   });
 
-  it('14 个 tool 全数', () => {
-    expect(tools.length).toBe(14);
+  it('13 个 tool 全数', () => {
+    expect(tools.length).toBe(13);
   });
 });

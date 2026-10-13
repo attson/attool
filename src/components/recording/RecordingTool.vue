@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import {
@@ -29,6 +29,10 @@ interface RecordingSaved {
   outputPath: string;
   size: number;
 }
+
+const emit = defineEmits<{
+  'busy-change': [busy: boolean];
+}>();
 
 const message = useMessage();
 const previewEl = ref<HTMLVideoElement | null>(null);
@@ -82,6 +86,8 @@ const resolutionOptions = [
   { label: '1080p', value: '1080' },
   { label: '720p', value: '720' }
 ];
+
+watch(busy, (value) => emit('busy-change', value), { immediate: true });
 
 function videoConstraints(): MediaTrackConstraints {
   const constraints: MediaTrackConstraints = {
@@ -379,24 +385,6 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="recording-actions">
-        <n-button v-if="status === 'recording'" size="small" secondary @click="pauseRecording">
-          <template #icon>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-          </template>
-          暂停
-        </n-button>
-        <n-button v-if="status === 'paused'" size="small" secondary @click="resumeRecording">
-          <template #icon>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="7 4 20 12 7 20"/></svg>
-          </template>
-          继续
-        </n-button>
-        <n-button v-if="status === 'recording' || status === 'paused'" size="small" type="error" @click="stopRecording">
-          <template #icon>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>
-          </template>
-          停止
-        </n-button>
         <n-button v-if="status === 'completed'" size="small" type="primary" :loading="saving" @click="saveCompletedRecording">
           <template #icon>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16" fill="none" /></svg>
@@ -448,6 +436,47 @@ onBeforeUnmount(() => {
 
           <div v-if="status === 'recording' || status === 'paused'" class="live-badge">
             {{ status === 'paused' ? 'PAUSED' : 'REC' }}
+          </div>
+
+          <div v-if="status === 'recording' || status === 'paused'" class="recording-dock">
+            <span class="dock-timer mono">{{ elapsedLabel }}</span>
+            <span class="dock-separator" aria-hidden="true"></span>
+            <button
+              v-if="status === 'recording'"
+              class="dock-button"
+              type="button"
+              title="暂停"
+              aria-label="暂停录制"
+              @click="pauseRecording"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
+              </svg>
+            </button>
+            <button
+              v-else
+              class="dock-button"
+              type="button"
+              title="继续"
+              aria-label="继续录制"
+              @click="resumeRecording"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <polygon points="7 4 20 12 7 20" />
+              </svg>
+            </button>
+            <button
+              class="dock-button stop-button"
+              type="button"
+              title="停止"
+              aria-label="停止录制"
+              @click="stopRecording"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="5" width="14" height="14" rx="1" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -622,6 +651,56 @@ onBeforeUnmount(() => {
   font-family: var(--font-mono);
   font-size: var(--fs-xxs);
   font-weight: 700;
+}
+
+.recording-dock {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
+}
+
+.dock-timer {
+  min-width: 68px;
+  padding: 0 8px;
+  color: var(--text);
+  text-align: center;
+  font-size: var(--fs-xs);
+}
+
+.dock-separator { width: 1px; height: 22px; background: var(--line-strong); }
+
+.dock-button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.dock-button:hover { background: var(--bg-elev-2); }
+.dock-button.stop-button { background: var(--error); color: var(--text); }
+.dock-button.stop-button:hover { background: var(--error); }
+.dock-button svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.5;
 }
 
 .recording-settings {

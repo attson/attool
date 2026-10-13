@@ -4,7 +4,8 @@ import type { KVStorage } from './useSidebarState';
 const STORAGE_KEY = 'attool.lastTool';
 
 const LEGACY_ID_MAP: Record<string, string> = {
-  douyin: 'video-link'
+  douyin: 'video-link',
+  recording: 'image'
 };
 
 export function useLastTool(storage: KVStorage = localStorage) {

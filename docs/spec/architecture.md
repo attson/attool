@@ -28,6 +28,7 @@
 │  ├─ lib.rs           run() + Aria2 下载 + command 注册    │
 │  ├─ clipboard/       历史存储 + 系统剪贴板监听（SQLite）   │
 │  ├─ imaging/         压缩/转换/EXIF/OCR/截图（xcap）       │
+│  ├─ recording.rs    录屏分块缓存 / 保存 / 清理             │
 │  ├─ ecommerce/       模板 render / storage / psd_bridge   │
 │  ├─ network/         ping / port / dns                    │
 │  ├─ http/            HTTP：send + storage(4 表 + kind 列)  │
@@ -190,6 +191,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 | `lib.rs` | Aria2 下载（shell out `aria2c` + 进度事件）、command 注册 | `start_download` / `cancel_download` / `list_download_tasks` / `generate_qr_png` / `open_external_url` |
 | `clipboard/` | 剪贴板历史（SQLite 存储 + 系统剪贴板监听 + 快捷键面板） | `list_clipboard_items` / `restore_clipboard_item` / `clear_clipboard_history` / `get·save_clipboard_settings` |
 | `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
+| `recording.rs` | 录屏分块缓存、完成预览、保存与缓存清理 | `begin·append·finish_recording_file` / `save·discard_recording_file` / `default_recording_path` |
 | `ecommerce/` | 主图模板：PSD 导入 / 图层渲染 / 批量替换 | `import_psd_template` / `save·load·list·delete_ecommerce_template` / `run_batch_replace_tasks` |
 | `network/` | 网络诊断 | `ping_host` / `check_ports` / `resolve_dns` |
 | `http/` | HTTP 工具后端：请求发送（含 multipart + cancel）+ tabs/history/envs/env_vars/collections CRUD（tabs 有 `kind` 列） | `send_http` / `cancel_http` / `list·upsert·delete·set_active_http_{tab,env}` / `list·insert·delete·clear_http_history` / `list·upsert·delete_http_env_var` / `list·upsert·delete_http_collection*` |

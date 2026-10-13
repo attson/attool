@@ -32,7 +32,7 @@ watch(requested, (val) => { if (val) drainRequestedTab(); });
 <template>
   <div class="image-tool">
     <n-tabs v-model:value="tab" type="line" animated>
-      <n-tab-pane name="capture" tab="截图">
+      <n-tab-pane name="capture" tab="捕获">
         <div class="pane-wrap"><CapturePane /></div>
       </n-tab-pane>
       <n-tab-pane name="annotate" tab="标注">
