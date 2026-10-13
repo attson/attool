@@ -42,8 +42,10 @@ const elapsedMs = ref(0);
 const bytesWritten = ref(0);
 const sourceLabel = ref('');
 const savedPath = ref('');
+const cachePath = ref('');
 const previewUrl = ref('');
 const errorMessage = ref('');
+const saving = ref(false);
 
 let recorder: MediaRecorder | null = null;
 let displayStream: MediaStream | null = null;
@@ -68,8 +70,8 @@ const statusLabel = computed(() => {
     case 'selecting': return '等待选择屏幕';
     case 'recording': return '录制中';
     case 'paused': return '已暂停';
-    case 'stopping': return '正在保存';
-    case 'completed': return '录制完成';
+    case 'stopping': return '正在处理';
+    case 'completed': return savedPath.value ? '已保存' : '录制完成';
     case 'error': return '录制失败';
     default: return '准备就绪';
   }
@@ -192,15 +194,16 @@ async function finishRecording() {
   sessionId = '';
   try {
     const saved = await invoke<RecordingSaved>('finish_recording_file', {
-      sessionId: currentSession
+      sessionId: currentSession,
+      extension: profile.value?.extension ?? 'webm'
     });
-    savedPath.value = saved.outputPath;
+    cachePath.value = saved.outputPath;
     bytesWritten.value = saved.size;
     previewUrl.value = convertFileSrc(saved.outputPath);
     status.value = 'completed';
     await nextTick();
     previewEl.value?.load();
-    message.success('录屏已保存');
+    await saveCompletedRecording();
   } catch (error) {
     failRecording(error);
   }
@@ -209,14 +212,9 @@ async function finishRecording() {
 async function startRecording() {
   if (!profile.value || !supported.value) return;
   errorMessage.value = '';
-  const target = await save({
-    defaultPath: buildRecordingFileName(new Date(), profile.value.extension),
-    filters: [{ name: profile.value.label, extensions: [profile.value.extension] }]
-  }).catch(() => null);
-  if (!target) return;
-
   status.value = 'selecting';
   savedPath.value = '';
+  cachePath.value = '';
   previewUrl.value = '';
   bytesWritten.value = 0;
   sourceLabel.value = '';
@@ -224,14 +222,14 @@ async function startRecording() {
   writeError = null;
 
   try {
-    const session = await invoke<RecordingSession>('begin_recording_file', { path: target });
-    sessionId = session.sessionId;
     displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: videoConstraints(),
       audio: systemAudio.value
     });
     recordingStream = await composeRecordingStream(displayStream);
     sourceLabel.value = displayStream.getVideoTracks()[0]?.label || '共享屏幕';
+    const session = await invoke<RecordingSession>('begin_recording_file');
+    sessionId = session.sessionId;
 
     recorder = new MediaRecorder(recordingStream, {
       mimeType: profile.value.mimeType,
@@ -273,6 +271,46 @@ async function startRecording() {
   }
 }
 
+async function saveCompletedRecording() {
+  if (!profile.value || !cachePath.value || saving.value) return;
+  saving.value = true;
+  try {
+    const fileName = buildRecordingFileName(new Date(), profile.value.extension);
+    const defaultPath = await invoke<string>('default_recording_path', { fileName })
+      .catch(() => fileName);
+    const target = await save({
+      title: '保存录屏',
+      defaultPath,
+      filters: [{ name: profile.value.label, extensions: [profile.value.extension] }]
+    }).catch(() => null);
+    if (!target) return;
+
+    const saved = await invoke<RecordingSaved>('save_recording_file', {
+      source: cachePath.value,
+      target
+    });
+    savedPath.value = saved.outputPath;
+    bytesWritten.value = saved.size;
+    message.success('录屏已保存');
+  } catch (error) {
+    message.error(String(error));
+  } finally {
+    saving.value = false;
+  }
+}
+
+function discardCachedRecording() {
+  const path = cachePath.value;
+  cachePath.value = '';
+  if (previewEl.value) {
+    previewEl.value.pause();
+    previewEl.value.removeAttribute('src');
+    previewEl.value.load();
+  }
+  previewUrl.value = '';
+  if (path) void invoke('discard_recording_file', { path }).catch(() => {});
+}
+
 function pauseRecording() {
   if (recorder?.state !== 'recording') return;
   recorder.pause();
@@ -304,6 +342,7 @@ async function openFolder() {
 }
 
 function resetRecording() {
+  discardCachedRecording();
   status.value = 'idle';
   savedPath.value = '';
   previewUrl.value = '';
@@ -325,6 +364,7 @@ onBeforeUnmount(() => {
   if (recorder?.state !== 'inactive') recorder?.stop();
   stopStreams();
   void cancelFileSession();
+  discardCachedRecording();
 });
 </script>
 
@@ -357,13 +397,19 @@ onBeforeUnmount(() => {
           </template>
           停止
         </n-button>
-        <n-button v-if="status === 'completed'" size="small" secondary @click="openFolder">
+        <n-button v-if="status === 'completed'" size="small" type="primary" :loading="saving" @click="saveCompletedRecording">
+          <template #icon>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16" fill="none" /></svg>
+          </template>
+          {{ savedPath ? '另存为' : '保存' }}
+        </n-button>
+        <n-button v-if="status === 'completed' && savedPath" size="small" secondary @click="openFolder">
           <template #icon>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v10H3z"/></svg>
           </template>
           打开目录
         </n-button>
-        <n-button v-if="status === 'completed' || status === 'error'" size="small" type="primary" @click="resetRecording">
+        <n-button v-if="status === 'completed' || status === 'error'" size="small" secondary @click="resetRecording">
           新建录制
         </n-button>
       </div>
@@ -452,6 +498,10 @@ onBeforeUnmount(() => {
             <span class="output-value">{{ sourceLabel }}</span>
           </div>
           <div v-if="savedPath" class="saved-path mono" :title="savedPath">{{ savedPath }}</div>
+          <div v-else-if="status === 'completed'" class="output-row">
+            <span>文件</span>
+            <span>尚未保存</span>
+          </div>
         </section>
       </aside>
     </div>
