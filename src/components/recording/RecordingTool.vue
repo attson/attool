@@ -40,6 +40,16 @@ interface RecordingShortcutInfo {
   systemShortcutCommand: string | null;
 }
 
+interface NativeRecordingCapabilities {
+  supported: boolean;
+  audioSupported: boolean;
+}
+
+interface NativeRecordingStarted {
+  sessionId: string;
+  sourceLabel: string;
+}
+
 const props = withDefaults(defineProps<{
   shortcutTrigger?: number;
 }>(), {
@@ -54,6 +64,9 @@ const message = useMessage();
 const previewEl = ref<HTMLVideoElement | null>(null);
 const status = ref<RecorderStatus>('idle');
 const profile = ref<RecordingProfile | null>(null);
+const capabilitiesLoaded = ref(false);
+const nativeRecordingSupported = ref(false);
+const nativeAudioSupported = ref(false);
 const frameRate = ref(30);
 const resolution = ref('original');
 const systemAudio = ref(true);
@@ -84,6 +97,7 @@ let microphoneStream: MediaStream | null = null;
 let recordingStream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
 let sessionId = '';
+let nativeSessionId = '';
 let writeQueue: Promise<void> = Promise.resolve();
 let writeError: unknown = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -92,7 +106,14 @@ let pausedAt = 0;
 let pausedTotal = 0;
 let disposing = false;
 
-const supported = computed(() => profile.value !== null && !!navigator.mediaDevices?.getDisplayMedia);
+const nativeProfile: RecordingProfile = {
+  mimeType: 'video/webm;codecs=vp8',
+  extension: 'webm',
+  label: 'WebM (VP8)'
+};
+const activeProfile = computed(() => nativeRecordingSupported.value ? nativeProfile : profile.value);
+const supported = computed(() => capabilitiesLoaded.value && (nativeRecordingSupported.value
+  || (profile.value !== null && !!navigator.mediaDevices?.getDisplayMedia)));
 const busy = computed(() => ['selecting', 'recording', 'paused', 'stopping'].includes(status.value));
 const elapsedLabel = computed(() => formatRecordingDuration(elapsedMs.value));
 const sizeLabel = computed(() => formatRecordingSize(bytesWritten.value));
@@ -140,6 +161,23 @@ async function loadRecordingShortcut() {
     shortcutRegisterError.value = errors.recording ?? '';
   } catch {
     shortcutRegisterError.value = '';
+  }
+}
+
+async function loadNativeRecordingCapabilities() {
+  try {
+    const capabilities = await invoke<NativeRecordingCapabilities>('get_native_recording_capabilities');
+    nativeRecordingSupported.value = capabilities.supported;
+    nativeAudioSupported.value = capabilities.audioSupported;
+    if (!capabilities.audioSupported) {
+      systemAudio.value = false;
+      microphone.value = false;
+    }
+  } catch {
+    nativeRecordingSupported.value = false;
+    nativeAudioSupported.value = true;
+  } finally {
+    capabilitiesLoaded.value = true;
   }
 }
 
@@ -308,7 +346,7 @@ async function finishRecording() {
   try {
     const saved = await invoke<RecordingSaved>('finish_recording_file', {
       sessionId: currentSession,
-      extension: profile.value?.extension ?? 'webm'
+      extension: activeProfile.value?.extension ?? 'webm'
     });
     cachePath.value = saved.outputPath;
     bytesWritten.value = saved.size;
@@ -323,7 +361,8 @@ async function finishRecording() {
 }
 
 async function startRecording() {
-  if (!profile.value || !supported.value) return;
+  const selectedProfile = activeProfile.value;
+  if (!selectedProfile || !supported.value) return;
   errorMessage.value = '';
   status.value = 'selecting';
   savedPath.value = '';
@@ -335,6 +374,17 @@ async function startRecording() {
   writeError = null;
 
   try {
+    if (nativeRecordingSupported.value) {
+      const started = await invoke<NativeRecordingStarted>('start_native_recording', {
+        resolution: resolution.value,
+        frameRate: frameRate.value
+      });
+      nativeSessionId = started.sessionId;
+      sourceLabel.value = started.sourceLabel;
+      startClock();
+      status.value = 'recording';
+      return;
+    }
     displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: videoConstraints(),
       audio: systemAudio.value
@@ -345,7 +395,7 @@ async function startRecording() {
     sessionId = session.sessionId;
 
     recorder = new MediaRecorder(recordingStream, {
-      mimeType: profile.value.mimeType,
+      mimeType: selectedProfile.mimeType,
       videoBitsPerSecond: resolution.value === '720' ? 4_000_000 : 8_000_000,
       audioBitsPerSecond: 128_000
     });
@@ -385,16 +435,17 @@ async function startRecording() {
 }
 
 async function saveCompletedRecording() {
-  if (!profile.value || !cachePath.value || saving.value) return;
+  const selectedProfile = activeProfile.value;
+  if (!selectedProfile || !cachePath.value || saving.value) return;
   saving.value = true;
   try {
-    const fileName = buildRecordingFileName(new Date(), profile.value.extension);
+    const fileName = buildRecordingFileName(new Date(), selectedProfile.extension);
     const defaultPath = await invoke<string>('default_recording_path', { fileName })
       .catch(() => fileName);
     const target = await save({
       title: '保存录屏',
       defaultPath,
-      filters: [{ name: profile.value.label, extensions: [profile.value.extension] }]
+      filters: [{ name: selectedProfile.label, extensions: [selectedProfile.extension] }]
     }).catch(() => null);
     if (!target) return;
 
@@ -424,14 +475,41 @@ function discardCachedRecording() {
   if (path) void invoke('discard_recording_file', { path }).catch(() => {});
 }
 
-function pauseRecording() {
+async function pauseRecording() {
+  if (nativeSessionId) {
+    try {
+      await invoke('pause_native_recording', { sessionId: nativeSessionId });
+      pausedAt = performance.now();
+      status.value = 'paused';
+    } catch (error) {
+      const currentSession = nativeSessionId;
+      nativeSessionId = '';
+      await invoke('cancel_native_recording', { sessionId: currentSession }).catch(() => {});
+      failRecording(error);
+    }
+    return;
+  }
   if (recorder?.state !== 'recording') return;
   recorder.pause();
   pausedAt = performance.now();
   status.value = 'paused';
 }
 
-function resumeRecording() {
+async function resumeRecording() {
+  if (nativeSessionId) {
+    try {
+      await invoke('resume_native_recording', { sessionId: nativeSessionId });
+      pausedTotal += performance.now() - pausedAt;
+      pausedAt = 0;
+      status.value = 'recording';
+    } catch (error) {
+      const currentSession = nativeSessionId;
+      nativeSessionId = '';
+      await invoke('cancel_native_recording', { sessionId: currentSession }).catch(() => {});
+      failRecording(error);
+    }
+    return;
+  }
   if (recorder?.state !== 'paused') return;
   recorder.resume();
   pausedTotal += performance.now() - pausedAt;
@@ -439,7 +517,28 @@ function resumeRecording() {
   status.value = 'recording';
 }
 
-function stopRecording() {
+async function stopRecording() {
+  if (nativeSessionId) {
+    const currentSession = nativeSessionId;
+    nativeSessionId = '';
+    status.value = 'stopping';
+    stopClock();
+    try {
+      const saved = await invoke<RecordingSaved>('stop_native_recording', {
+        sessionId: currentSession
+      });
+      cachePath.value = saved.outputPath;
+      bytesWritten.value = saved.size;
+      previewUrl.value = convertFileSrc(saved.outputPath);
+      status.value = 'completed';
+      await nextTick();
+      previewEl.value?.load();
+      await saveCompletedRecording();
+    } catch (error) {
+      failRecording(error);
+    }
+    return;
+  }
   if (!recorder || recorder.state === 'inactive') return;
   status.value = 'stopping';
   recorder.stop();
@@ -464,11 +563,12 @@ function resetRecording() {
   bytesWritten.value = 0;
   errorMessage.value = '';
   recorder = null;
+  nativeSessionId = '';
 }
 
 async function toggleRecordingFromShortcut() {
   if (status.value === 'recording' || status.value === 'paused') {
-    stopRecording();
+    await stopRecording();
     return;
   }
   if (status.value === 'selecting' || status.value === 'stopping' || saving.value) return;
@@ -481,6 +581,7 @@ async function toggleRecordingFromShortcut() {
 
 onMounted(() => {
   void loadRecordingShortcut();
+  void loadNativeRecordingCapabilities();
   if (typeof MediaRecorder !== 'undefined') {
     profile.value = selectRecordingProfile((mimeType) => MediaRecorder.isTypeSupported(mimeType));
   }
@@ -490,6 +591,10 @@ onBeforeUnmount(() => {
   disposing = true;
   stopClock();
   if (recorder?.state !== 'inactive') recorder?.stop();
+  if (nativeSessionId) {
+    void invoke('cancel_native_recording', { sessionId: nativeSessionId }).catch(() => {});
+    nativeSessionId = '';
+  }
   stopStreams();
   void cancelFileSession();
   discardCachedRecording();
@@ -529,7 +634,7 @@ onBeforeUnmount(() => {
       <main class="preview-area">
         <div class="preview-stage">
           <video
-            v-show="status === 'recording' || status === 'paused' || status === 'completed'"
+            v-show="status === 'completed' || (!nativeRecordingSupported && (status === 'recording' || status === 'paused'))"
             ref="previewEl"
             :src="previewUrl || undefined"
             :controls="status === 'completed'"
@@ -550,6 +655,13 @@ onBeforeUnmount(() => {
 
           <div v-else-if="status === 'selecting' || status === 'stopping'" class="stage-empty">
             <span class="stage-status">{{ statusLabel }}</span>
+          </div>
+
+          <div
+            v-else-if="nativeRecordingSupported && (status === 'recording' || status === 'paused')"
+            class="stage-empty"
+          >
+            <span class="stage-status">{{ sourceLabel }}</span>
           </div>
 
           <div v-else-if="status === 'error'" class="stage-empty error-state">
@@ -630,11 +742,21 @@ onBeforeUnmount(() => {
           <h3>音频</h3>
           <label class="switch-row">
             <span>系统音频</span>
-            <n-switch v-model:value="systemAudio" size="small" :disabled="busy" />
+            <n-switch
+              v-model:value="systemAudio"
+              size="small"
+              :disabled="busy || !nativeAudioSupported"
+              :title="nativeAudioSupported ? undefined : 'Wayland 原生录屏暂不支持系统音频'"
+            />
           </label>
           <label class="switch-row">
             <span>麦克风</span>
-            <n-switch v-model:value="microphone" size="small" :disabled="busy" />
+            <n-switch
+              v-model:value="microphone"
+              size="small"
+              :disabled="busy || !nativeAudioSupported"
+              :title="nativeAudioSupported ? undefined : 'Wayland 原生录屏暂不支持麦克风'"
+            />
           </label>
         </section>
 
