@@ -59,5 +59,5 @@ watch(requested, (val) => { if (val) drainRequestedTab(); });
 .image-tool :deep(.n-tabs) { height: 100%; display: flex; flex-direction: column; }
 .image-tool :deep(.n-tabs-pane-wrapper) { flex: 1; min-height: 0; }
 .image-tool :deep(.n-tab-pane) { height: 100%; }
-.pane-wrap { height: 100%; min-height: 480px; }
+.pane-wrap { height: 100%; min-height: 0; }
 </style>

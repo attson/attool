@@ -540,7 +540,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .recording-tool {
   height: 100%;
-  min-height: 520px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
@@ -603,7 +603,7 @@ onBeforeUnmount(() => {
 .preview-stage {
   position: relative;
   flex: 1;
-  min-height: 360px;
+  min-height: 280px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
 @media (max-width: 820px) {
   .recording-body { grid-template-columns: 1fr; }
   .recording-settings { border-left: 0; border-top: 1px solid var(--line); }
-  .preview-stage { min-height: 300px; }
+  .preview-stage { min-height: 260px; }
   .recording-toolbar { align-items: flex-start; flex-direction: column; }
 }
 </style>

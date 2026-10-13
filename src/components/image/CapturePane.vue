@@ -297,7 +297,7 @@ onMounted(loadShortcut);
 <style scoped>
 .capture-workspace {
   height: 100%;
-  min-height: 520px;
+  min-height: 0;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   background: var(--bg-base);
@@ -379,7 +379,7 @@ onMounted(loadShortcut);
 }
 .capture-stage {
   position: relative;
-  min-height: 360px;
+  min-height: 280px;
   margin: 16px 16px 0;
   overflow: hidden;
   border: 1px solid var(--line-strong);
