@@ -1124,6 +1124,12 @@ pub fn run() {
     gpu_linux::maybe_disable_dmabuf();
 
     tauri::Builder::default()
+        .on_permission_request(|_, kind| match kind {
+            tauri::webview::PermissionKind::DisplayCapture => {
+                tauri::webview::PermissionResponse::Allow
+            }
+            _ => tauri::webview::PermissionResponse::Default,
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
