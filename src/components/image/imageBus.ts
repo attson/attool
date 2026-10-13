@@ -4,6 +4,12 @@ import { ref } from 'vue';
 const pendingAnnotate = ref<string | null>(null);
 // A tab that ImageTool should switch to when it mounts / receives the signal.
 const requestedTab = ref<string | null>(null);
+export type CaptureMode = 'screenshot' | 'recording';
+interface CaptureModeRequest {
+  mode: CaptureMode;
+  toggle: boolean;
+}
+const requestedCaptureMode = ref<CaptureModeRequest | null>(null);
 
 export function setPendingAnnotateImage(path: string) {
   pendingAnnotate.value = path;
@@ -11,6 +17,10 @@ export function setPendingAnnotateImage(path: string) {
 
 export function requestImageTab(name: string) {
   requestedTab.value = name;
+}
+
+export function requestCaptureMode(mode: CaptureMode, toggle = false) {
+  requestedCaptureMode.value = { mode, toggle };
 }
 
 export function usePendingAnnotateImage() {
@@ -31,6 +41,17 @@ export function useRequestedTab() {
       const v = requestedTab.value;
       requestedTab.value = null;
       return v;
+    }
+  };
+}
+
+export function useRequestedCaptureMode() {
+  return {
+    requested: requestedCaptureMode,
+    consume(): CaptureModeRequest | null {
+      const value = requestedCaptureMode.value;
+      requestedCaptureMode.value = null;
+      return value;
     }
   };
 }

@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { NAlert, NButton, useMessage } from 'naive-ui';
 import { invoke } from '@tauri-apps/api/core';
 import RecordingTool from '../recording/RecordingTool.vue';
 import SystemShortcutNotice from '../ui/SystemShortcutNotice.vue';
 import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import { formatShortcutForDisplay, keyEventToShortcut } from './shortcut';
-
-type CaptureMode = 'screenshot' | 'recording';
+import { useRequestedCaptureMode, type CaptureMode } from './imageBus';
 
 interface CaptureShortcutInfo {
   shortcut: string;
@@ -19,6 +18,7 @@ interface CaptureShortcutInfo {
 const message = useMessage();
 const mode = ref<CaptureMode>('screenshot');
 const recordingBusy = ref(false);
+const recordingShortcutTrigger = ref(0);
 const shortcutInfo = ref<CaptureShortcutInfo>({
   shortcut: '',
   defaultShortcut: 'CommandOrControl+Shift+A',
@@ -43,6 +43,7 @@ const isDefault = computed(
   () => shortcutInfo.value.shortcut === shortcutInfo.value.defaultShortcut
 );
 const modeLocked = computed(() => capturing.value || recordingBusy.value);
+const captureModeRequest = useRequestedCaptureMode();
 
 async function loadShortcut() {
   try {
@@ -127,7 +128,23 @@ async function startCapture() {
   }
 }
 
-onMounted(loadShortcut);
+async function drainCaptureModeRequest() {
+  const request = captureModeRequest.consume();
+  if (!request) return;
+  mode.value = request.mode;
+  if (request.toggle) {
+    await nextTick();
+    recordingShortcutTrigger.value += 1;
+  }
+}
+
+onMounted(() => {
+  void loadShortcut();
+  void drainCaptureModeRequest();
+});
+watch(captureModeRequest.requested, (request) => {
+  if (request) void drainCaptureModeRequest();
+});
 </script>
 
 <template>
@@ -174,6 +191,7 @@ onMounted(loadShortcut);
     <RecordingTool
       v-show="mode === 'recording'"
       class="embedded-recording"
+      :shortcut-trigger="recordingShortcutTrigger"
       @busy-change="recordingBusy = $event"
     />
 

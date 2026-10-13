@@ -11,6 +11,9 @@ import {
   NSwitch,
   useMessage
 } from 'naive-ui';
+import SystemShortcutNotice from '../ui/SystemShortcutNotice.vue';
+import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
+import { formatShortcutForDisplay, keyEventToShortcut } from '../image/shortcut';
 import {
   buildRecordingFileName,
   formatRecordingDuration,
@@ -29,6 +32,19 @@ interface RecordingSaved {
   outputPath: string;
   size: number;
 }
+
+interface RecordingShortcutInfo {
+  shortcut: string;
+  defaultShortcut: string;
+  unavailableReason: string | null;
+  systemShortcutCommand: string | null;
+}
+
+const props = withDefaults(defineProps<{
+  shortcutTrigger?: number;
+}>(), {
+  shortcutTrigger: 0
+});
 
 const emit = defineEmits<{
   'busy-change': [busy: boolean];
@@ -50,6 +66,17 @@ const cachePath = ref('');
 const previewUrl = ref('');
 const errorMessage = ref('');
 const saving = ref(false);
+const shortcutInfo = ref<RecordingShortcutInfo>({
+  shortcut: '',
+  defaultShortcut: 'CommandOrControl+Shift+R',
+  unavailableReason: null,
+  systemShortcutCommand: null
+});
+const shortcutEditing = ref(false);
+const shortcutRaw = ref('');
+const shortcutError = ref('');
+const shortcutRegisterError = ref('');
+const shortcutRecorderEl = ref<HTMLDivElement | null>(null);
 
 let recorder: MediaRecorder | null = null;
 let displayStream: MediaStream | null = null;
@@ -69,6 +96,16 @@ const supported = computed(() => profile.value !== null && !!navigator.mediaDevi
 const busy = computed(() => ['selecting', 'recording', 'paused', 'stopping'].includes(status.value));
 const elapsedLabel = computed(() => formatRecordingDuration(elapsedMs.value));
 const sizeLabel = computed(() => formatRecordingSize(bytesWritten.value));
+const shortcutLabel = computed(() => formatShortcutForDisplay(shortcutInfo.value.shortcut));
+const shortcutRecordingLabel = computed(() =>
+  shortcutRaw.value ? formatShortcutForDisplay(shortcutRaw.value) : ''
+);
+const shortcutChanged = computed(
+  () => !!shortcutRaw.value && shortcutRaw.value !== shortcutInfo.value.shortcut
+);
+const shortcutIsDefault = computed(
+  () => shortcutInfo.value.shortcut === shortcutInfo.value.defaultShortcut
+);
 const statusLabel = computed(() => {
   switch (status.value) {
     case 'selecting': return '等待选择屏幕';
@@ -88,6 +125,76 @@ const resolutionOptions = [
 ];
 
 watch(busy, (value) => emit('busy-change', value), { immediate: true });
+watch(() => props.shortcutTrigger, (value, previous) => {
+  if (value > 0 && value !== previous) void toggleRecordingFromShortcut();
+});
+
+async function loadRecordingShortcut() {
+  try {
+    shortcutInfo.value = await invoke<RecordingShortcutInfo>('get_recording_shortcut');
+  } catch (error) {
+    console.warn('[recording] load shortcut failed', error);
+  }
+  try {
+    const errors = await invoke<{ recording: string | null }>('get_shortcut_register_errors');
+    shortcutRegisterError.value = errors.recording ?? '';
+  } catch {
+    shortcutRegisterError.value = '';
+  }
+}
+
+function startShortcutEdit() {
+  shortcutEditing.value = true;
+  shortcutRaw.value = '';
+  shortcutError.value = '';
+  nextTick(() => shortcutRecorderEl.value?.focus());
+}
+
+function cancelShortcutEdit() {
+  shortcutEditing.value = false;
+  shortcutRaw.value = '';
+  shortcutError.value = '';
+}
+
+function onShortcutKeydown(event: KeyboardEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  const shortcut = keyEventToShortcut(event);
+  if (!shortcut) {
+    shortcutRaw.value = '';
+    shortcutError.value = '需要至少一个修饰键（⌘ / Ctrl / Shift / Alt）和一个字母、数字或功能键';
+    return;
+  }
+  shortcutRaw.value = shortcut;
+  shortcutError.value = '';
+}
+
+async function applyRecordingShortcut() {
+  if (!shortcutRaw.value) return;
+  try {
+    shortcutInfo.value = await invoke<RecordingShortcutInfo>('set_recording_shortcut', {
+      shortcut: shortcutRaw.value
+    });
+    shortcutEditing.value = false;
+    shortcutRaw.value = '';
+    shortcutRegisterError.value = '';
+    message.success(`已切换到 ${shortcutLabel.value}`);
+  } catch (error) {
+    shortcutError.value = String(error);
+  }
+}
+
+async function restoreRecordingShortcut() {
+  try {
+    shortcutInfo.value = await invoke<RecordingShortcutInfo>('set_recording_shortcut', {
+      shortcut: shortcutInfo.value.defaultShortcut
+    });
+    shortcutRegisterError.value = '';
+    message.success(`已恢复默认 ${shortcutLabel.value}`);
+  } catch (error) {
+    message.error(String(error));
+  }
+}
 
 function videoConstraints(): MediaTrackConstraints {
   const constraints: MediaTrackConstraints = {
@@ -359,9 +466,24 @@ function resetRecording() {
   recorder = null;
 }
 
+async function toggleRecordingFromShortcut() {
+  if (status.value === 'recording' || status.value === 'paused') {
+    stopRecording();
+    return;
+  }
+  if (status.value === 'selecting' || status.value === 'stopping' || saving.value) return;
+  if (status.value === 'completed' || status.value === 'error') {
+    resetRecording();
+    await nextTick();
+  }
+  await startRecording();
+}
+
 onMounted(() => {
-  if (typeof MediaRecorder === 'undefined') return;
-  profile.value = selectRecordingProfile((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+  void loadRecordingShortcut();
+  if (typeof MediaRecorder !== 'undefined') {
+    profile.value = selectRecordingProfile((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+  }
 });
 
 onBeforeUnmount(() => {
@@ -514,6 +636,72 @@ onBeforeUnmount(() => {
             <span>麦克风</span>
             <n-switch v-model:value="microphone" size="small" :disabled="busy" />
           </label>
+        </section>
+
+        <section class="setting-section shortcut-section">
+          <div class="setting-title-row">
+            <h3>全局快捷键</h3>
+            <span v-if="!shortcutEditing && shortcutLabel" class="shortcut-key mono">
+              {{ shortcutLabel }}
+            </span>
+          </div>
+
+          <n-alert
+            v-if="shortcutRegisterError && !shortcutInfo.unavailableReason"
+            type="error"
+            :bordered="false"
+          >
+            {{ shortcutRegisterError }}
+          </n-alert>
+
+          <SystemShortcutNotice
+            v-if="shortcutInfo.unavailableReason"
+            :title="shortcutInfo.unavailableReason"
+          >
+            <SystemShortcutSetup
+              v-if="shortcutInfo.systemShortcutCommand"
+              :command="shortcutInfo.systemShortcutCommand"
+              copy-success="录屏命令已复制"
+            />
+          </SystemShortcutNotice>
+
+          <div v-else-if="!shortcutEditing" class="shortcut-actions">
+            <n-button size="small" secondary @click="startShortcutEdit">修改</n-button>
+            <n-button
+              v-if="!shortcutIsDefault"
+              size="small"
+              secondary
+              @click="restoreRecordingShortcut"
+            >
+              恢复默认
+            </n-button>
+          </div>
+
+          <div v-else class="shortcut-editor">
+            <div
+              ref="shortcutRecorderEl"
+              class="shortcut-recorder"
+              tabindex="0"
+              @keydown="onShortcutKeydown"
+            >
+              <span v-if="shortcutRaw" class="mono">{{ shortcutRecordingLabel }}</span>
+              <span v-else>请按下组合键</span>
+            </div>
+            <n-alert v-if="shortcutError" type="warning" :bordered="false">
+              {{ shortcutError }}
+            </n-alert>
+            <div class="shortcut-actions">
+              <n-button size="small" secondary @click="cancelShortcutEdit">取消</n-button>
+              <n-button
+                size="small"
+                type="primary"
+                :disabled="!shortcutChanged"
+                @click="applyRecordingShortcut"
+              >
+                保存
+              </n-button>
+            </div>
+          </div>
         </section>
 
         <section class="setting-section output-section">
@@ -722,6 +910,38 @@ onBeforeUnmount(() => {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+
+.setting-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shortcut-key {
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-muted);
+  font-size: var(--fs-xxs);
+}
+
+.shortcut-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.shortcut-editor { display: grid; gap: 10px; }
+.shortcut-recorder {
+  min-height: 64px;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  outline: none;
+  color: var(--text-muted);
+  cursor: text;
+}
+.shortcut-recorder:focus { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 
 .setting-field {
   display: grid;

@@ -202,6 +202,7 @@ tab 方法字段按 kind 分色：HTTP 方法名走默认色、`SSE` 走 `#8b5cf
 | 默认键位 | 行为 |
 |---|---|
 | `CommandOrControl+Shift+A` | 截图（触发选区浮层） |
+| `CommandOrControl+Shift+R` | 录屏（打开来源选择器；录制中再次按下停止） |
 | `CommandOrControl+Alt+V` | 打开剪贴板历史面板 |
 
 全局快捷键在启动时注册；若被系统 / 输入法 / 远程桌面占用，注册失败信息记录在后端 `ShortcutRegisterState`，前端查询后以 toast + 工具页常驻 alert 提示用户更换（`ShortcutErrorNotifier.vue` + 各工具页录制 UI）。

@@ -67,6 +67,7 @@ impl DownloadState {
 struct ShortcutRegisterState {
     clipboard: std::sync::Mutex<Option<String>>,
     capture: std::sync::Mutex<Option<String>>,
+    recording: std::sync::Mutex<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,6 +75,7 @@ struct ShortcutRegisterState {
 struct ShortcutRegisterErrors {
     clipboard: Option<String>,
     capture: Option<String>,
+    recording: Option<String>,
 }
 
 #[tauri::command]
@@ -81,6 +83,7 @@ fn get_shortcut_register_errors(state: State<'_, ShortcutRegisterState>) -> Shor
     ShortcutRegisterErrors {
         clipboard: state.clipboard.lock().ok().and_then(|g| g.clone()),
         capture: state.capture.lock().ok().and_then(|g| g.clone()),
+        recording: state.recording.lock().ok().and_then(|g| g.clone()),
     }
 }
 
@@ -1093,7 +1096,7 @@ fn path_to_string(path: PathBuf) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         #[cfg(target_os = "macos")]
         {
@@ -1196,6 +1199,12 @@ pub fn run() {
                     *slot = Some(error);
                 }
             }
+            if let Err(error) = recording::register_recording_shortcut(app.handle()) {
+                eprintln!("{error}");
+                if let Ok(mut slot) = shortcut_errors.recording.lock() {
+                    *slot = Some(error);
+                }
+            }
             app.manage(shortcut_errors);
             app.manage(clipboard_store);
 
@@ -1288,6 +1297,8 @@ pub fn run() {
             recording::discard_recording_file,
             recording::default_recording_path,
             recording::open_recording_folder,
+            recording::get_recording_shortcut,
+            recording::set_recording_shortcut,
             http::commands::send_http,
             http::commands::cancel_http,
             http::commands::list_http_tabs,

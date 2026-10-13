@@ -1,5 +1,6 @@
 use crate::clipboard::watcher::show_clipboard_history;
 use crate::imaging::capture::trigger_capture_overlay;
+use crate::show_main_window;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
@@ -7,16 +8,18 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const CAPTURE_ARG: &str = "--capture";
 const CLIPBOARD_HISTORY_ARG: &str = "--clipboard-history";
+const RECORDING_ARG: &str = "--recording";
 const SOCKET_FILE: &str = "attool-capture.sock";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CommandRequest {
     Capture,
     ClipboardHistory,
+    Recording,
 }
 
 impl CommandRequest {
@@ -24,6 +27,7 @@ impl CommandRequest {
         match self {
             Self::Capture => b"capture\n",
             Self::ClipboardHistory => b"clipboard-history\n",
+            Self::Recording => b"recording\n",
         }
     }
 }
@@ -41,6 +45,8 @@ fn requested_command_from_args(args: &[OsString]) -> Option<CommandRequest> {
         Some(CommandRequest::Capture)
     } else if args.iter().any(|arg| arg == CLIPBOARD_HISTORY_ARG) {
         Some(CommandRequest::ClipboardHistory)
+    } else if args.iter().any(|arg| arg == RECORDING_ARG) {
+        Some(CommandRequest::Recording)
     } else {
         None
     }
@@ -75,6 +81,7 @@ fn parse_command_message(payload: &str) -> Option<CommandRequest> {
     match payload.trim() {
         "capture" => Some(CommandRequest::Capture),
         "clipboard-history" => Some(CommandRequest::ClipboardHistory),
+        "recording" => Some(CommandRequest::Recording),
         _ => None,
     }
 }
@@ -86,6 +93,11 @@ fn trigger_command(app: &AppHandle, request: CommandRequest) -> Result<(), Strin
             Ok(())
         }
         CommandRequest::ClipboardHistory => show_clipboard_history(app),
+        CommandRequest::Recording => {
+            show_main_window(app);
+            app.emit("recording://toggle", ())
+                .map_err(|error| error.to_string())
+        }
     }
 }
 
@@ -165,6 +177,10 @@ pub fn system_clipboard_history_command() -> Option<String> {
     system_command(CLIPBOARD_HISTORY_ARG)
 }
 
+pub fn system_recording_command() -> Option<String> {
+    system_command(RECORDING_ARG)
+}
+
 fn shortcut_settings_candidates(desktop: &str) -> Vec<(&'static str, &'static [&'static str])> {
     let desktop = desktop.to_ascii_lowercase();
     if desktop.contains("cosmic") {
@@ -223,6 +239,10 @@ mod tests {
             requested_command_from_args(&[OsString::from("attool")]),
             None
         );
+        assert_eq!(
+            requested_command_from_args(&[OsString::from("attool"), OsString::from("--recording")]),
+            Some(CommandRequest::Recording)
+        );
     }
 
     #[test]
@@ -234,6 +254,10 @@ mod tests {
         assert_eq!(
             parse_command_message("clipboard-history\n"),
             Some(CommandRequest::ClipboardHistory)
+        );
+        assert_eq!(
+            parse_command_message("recording\n"),
+            Some(CommandRequest::Recording)
         );
         assert_eq!(parse_command_message("unknown\n"), None);
     }

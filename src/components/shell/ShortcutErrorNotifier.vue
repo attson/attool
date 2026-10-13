@@ -10,6 +10,7 @@ import { useMessage } from 'naive-ui';
 interface ShortcutRegisterErrors {
   clipboard: string | null;
   capture: string | null;
+  recording: string | null;
 }
 
 const message = useMessage();
@@ -30,7 +31,7 @@ onMounted(async () => {
     return;
   }
   const failed = [...new Set(
-    [errors.clipboard, errors.capture].filter((msg): msg is string => !!msg)
+    [errors.clipboard, errors.capture, errors.recording].filter((msg): msg is string => !!msg)
   )];
   for (const msg of failed) {
     const detail = msg.includes('Wayland')

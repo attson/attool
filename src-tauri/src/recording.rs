@@ -4,11 +4,164 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use uuid::Uuid;
 
 const MAX_CHUNK_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_RECORDING_SHORTCUT: &str = "CommandOrControl+Shift+R";
+
+static REGISTERED_SHORTCUT: OnceLock<Mutex<String>> = OnceLock::new();
+
+fn registered_shortcut_slot() -> &'static Mutex<String> {
+    REGISTERED_SHORTCUT.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn shortcut_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    fs::create_dir_all(&directory).map_err(|error| format!("创建应用数据目录失败：{error}"))?;
+    Ok(directory.join("recording-config.json"))
+}
+
+pub fn configured_recording_shortcut(app: &AppHandle) -> String {
+    let Ok(path) = shortcut_config_path(app) else {
+        return DEFAULT_RECORDING_SHORTCUT.to_string();
+    };
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .and_then(|value| value.get("shortcut")?.as_str().map(str::to_string))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_RECORDING_SHORTCUT.to_string())
+}
+
+fn current_recording_shortcut() -> String {
+    registered_shortcut_slot()
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_default()
+}
+
+fn write_recording_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "shortcut": shortcut }).to_string();
+    fs::write(shortcut_config_path(app)?, body)
+        .map_err(|error| format!("写入录屏快捷键配置失败：{error}"))
+}
+
+fn install_recording_shortcut(app: &AppHandle, shortcut: Shortcut) -> Result<(), String> {
+    let handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if event.state() != ShortcutState::Pressed {
+                return;
+            }
+            crate::show_main_window(&handle);
+            let _ = handle.emit("recording://toggle", ());
+        })
+        .map_err(|error| format!("注册录屏快捷键失败：{error}"))
+}
+
+pub fn register_recording_shortcut(app: &AppHandle) -> Result<(), String> {
+    if let Some(reason) = crate::imaging::capture::global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
+    let shortcut = configured_recording_shortcut(app);
+    let parsed = shortcut
+        .parse::<Shortcut>()
+        .map_err(|error| format!("解析录屏快捷键失败：{error}"))?;
+    install_recording_shortcut(app, parsed)?;
+    if let Ok(mut current) = registered_shortcut_slot().lock() {
+        *current = shortcut;
+    }
+    Ok(())
+}
+
+fn reregister_recording_shortcut(app: &AppHandle, next: &str) -> Result<(), String> {
+    if let Some(reason) = crate::imaging::capture::global_shortcut_unavailable_reason() {
+        return Err(reason.to_string());
+    }
+    let next = next.trim();
+    if next.is_empty() {
+        return Err("请填入有效的快捷键".to_string());
+    }
+    let parsed = next
+        .parse::<Shortcut>()
+        .map_err(|error| format!("快捷键格式非法：{error}"))?;
+    let previous = current_recording_shortcut();
+    if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
+        let _ = app.global_shortcut().unregister(previous_parsed);
+    }
+    if let Err(error) = install_recording_shortcut(app, parsed) {
+        if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
+            let _ = install_recording_shortcut(app, previous_parsed);
+        }
+        return Err(error);
+    }
+    if let Err(error) = write_recording_shortcut(app, next) {
+        let _ = app.global_shortcut().unregister(parsed);
+        if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
+            let _ = install_recording_shortcut(app, previous_parsed);
+        }
+        return Err(error);
+    }
+    if let Ok(mut current) = registered_shortcut_slot().lock() {
+        *current = next.to_string();
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingShortcutInfo {
+    shortcut: String,
+    default_shortcut: String,
+    unavailable_reason: Option<String>,
+    system_shortcut_command: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_recording_shortcut(app: AppHandle) -> RecordingShortcutInfo {
+    let current = current_recording_shortcut();
+    RecordingShortcutInfo {
+        shortcut: if current.is_empty() {
+            configured_recording_shortcut(&app)
+        } else {
+            current
+        },
+        default_shortcut: DEFAULT_RECORDING_SHORTCUT.to_string(),
+        unavailable_reason: crate::imaging::capture::global_shortcut_unavailable_reason()
+            .map(str::to_string),
+        system_shortcut_command: {
+            #[cfg(target_os = "linux")]
+            {
+                crate::capture_command::system_recording_command()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        },
+    }
+}
+
+#[tauri::command]
+pub fn set_recording_shortcut(
+    app: AppHandle,
+    shortcut: String,
+) -> Result<RecordingShortcutInfo, String> {
+    reregister_recording_shortcut(&app, &shortcut)?;
+    Ok(RecordingShortcutInfo {
+        shortcut,
+        default_shortcut: DEFAULT_RECORDING_SHORTCUT.to_string(),
+        unavailable_reason: None,
+        system_shortcut_command: None,
+    })
+}
 
 struct PendingRecording {
     temporary_path: PathBuf,
