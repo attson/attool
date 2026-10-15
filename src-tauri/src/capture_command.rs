@@ -1,6 +1,5 @@
 use crate::clipboard::watcher::show_clipboard_history;
-use crate::imaging::capture::trigger_capture_overlay;
-use crate::show_main_window;
+use crate::imaging::capture::{trigger_capture_overlay, trigger_recording_overlay};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
@@ -8,7 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 const CAPTURE_ARG: &str = "--capture";
 const CLIPBOARD_HISTORY_ARG: &str = "--clipboard-history";
@@ -94,9 +93,8 @@ fn trigger_command(app: &AppHandle, request: CommandRequest) -> Result<(), Strin
         }
         CommandRequest::ClipboardHistory => show_clipboard_history(app),
         CommandRequest::Recording => {
-            show_main_window(app);
-            app.emit("recording://toggle", ())
-                .map_err(|error| error.to_string())
+            trigger_recording_overlay(app);
+            Ok(())
         }
     }
 }

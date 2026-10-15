@@ -1,5 +1,5 @@
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -12,6 +12,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use uuid::Uuid;
+
+use crate::recording_preview::RecordingPreviewServer;
 
 const MAX_CHUNK_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_RECORDING_SHORTCUT: &str = "CommandOrControl+Shift+R";
@@ -64,8 +66,7 @@ fn install_recording_shortcut(app: &AppHandle, shortcut: Shortcut) -> Result<(),
             if event.state() != ShortcutState::Pressed {
                 return;
             }
-            crate::show_main_window(&handle);
-            let _ = handle.emit("recording://toggle", ());
+            crate::imaging::capture::trigger_recording_overlay(&handle);
         })
         .map_err(|error| format!("注册录屏快捷键失败：{error}"))
 }
@@ -175,6 +176,12 @@ struct PendingRecording {
 
 #[cfg(target_os = "linux")]
 enum NativeRecordingControl {
+    Start {
+        region: NativeCaptureRegion,
+        resolution: String,
+        frame_rate: u32,
+        response: mpsc::SyncSender<Result<NativeRecordingStarted, String>>,
+    },
     Pause,
     Resume,
     Stop(mpsc::SyncSender<Result<RecordingSaved, String>>),
@@ -190,6 +197,7 @@ struct NativeRecordingController {
 pub struct RecordingStore {
     sessions: Arc<Mutex<HashMap<String, PendingRecording>>>,
     completed: Arc<Mutex<HashSet<PathBuf>>>,
+    previews: Arc<RecordingPreviewServer>,
     #[cfg(target_os = "linux")]
     native_sessions: Arc<Mutex<HashMap<String, NativeRecordingController>>>,
 }
@@ -207,11 +215,22 @@ pub struct RecordingSaved {
     pub size: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayRecordingResult {
+    output_path: String,
+    size: u64,
+    source_label: String,
+    elapsed_ms: u64,
+    extension: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeRecordingCapabilities {
     supported: bool,
     audio_supported: bool,
+    window_supported: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,6 +238,25 @@ pub struct NativeRecordingCapabilities {
 pub struct NativeRecordingStarted {
     session_id: String,
     source_label: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeRecordingPrepared {
+    session_id: String,
+    source_label: String,
+    preview_path: String,
+    source_width: u32,
+    source_height: u32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeCaptureRegion {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
 }
 
 impl RecordingStore {
@@ -359,14 +397,29 @@ impl RecordingStore {
         match fs::remove_file(&path) {
             Ok(()) => {
                 completed.remove(&path);
+                self.previews.unregister(&path);
                 Ok(())
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 completed.remove(&path);
+                self.previews.unregister(&path);
                 Ok(())
             }
             Err(error) => Err(format!("清理录制缓存失败：{error}")),
         }
+    }
+
+    fn preview_url(&self, path: &str) -> Result<String, String> {
+        let path = PathBuf::from(path);
+        if !self
+            .completed
+            .lock()
+            .map_err(|_| "录制缓存状态不可用".to_string())?
+            .contains(&path)
+        {
+            return Err("录制缓存不存在或已清理".to_string());
+        }
+        self.previews.register(path)
     }
 
     fn cancel(&self, session_id: &str) -> Result<(), String> {
@@ -426,6 +479,55 @@ fn scaled_dimensions(width: u32, height: u32, resolution: &str) -> (u32, u32) {
     (scaled_width.max(2), max_height)
 }
 
+fn normalize_native_region(
+    source_width: u32,
+    source_height: u32,
+    region: NativeCaptureRegion,
+) -> Result<NativeCaptureRegion, String> {
+    let width = region.width & !1;
+    let height = region.height & !1;
+    let right = region
+        .x
+        .checked_add(width)
+        .ok_or_else(|| "录制区域横向坐标溢出".to_string())?;
+    let bottom = region
+        .y
+        .checked_add(height)
+        .ok_or_else(|| "录制区域纵向坐标溢出".to_string())?;
+    if width < 2 || height < 2 {
+        return Err("录制区域至少需要 2 × 2 像素".to_string());
+    }
+    if right > source_width || bottom > source_height {
+        return Err("录制区域超出捕获源边界".to_string());
+    }
+    Ok(NativeCaptureRegion {
+        width,
+        height,
+        ..region
+    })
+}
+
+fn native_pipeline_description(
+    source_width: u32,
+    source_height: u32,
+    region: NativeCaptureRegion,
+    resolution: &str,
+) -> Result<String, String> {
+    let region = normalize_native_region(source_width, source_height, region)?;
+    let right = source_width - region.x - region.width;
+    let bottom = source_height - region.y - region.height;
+    let (target_width, target_height) = scaled_dimensions(region.width, region.height, resolution);
+    let bitrate = if target_height <= 720 {
+        4_000_000
+    } else {
+        8_000_000
+    };
+    Ok(format!(
+        "appsrc name=source ! videoconvert ! videocrop left={} right={right} top={} bottom={bottom} ! videoscale ! video/x-raw,width={target_width},height={target_height},pixel-aspect-ratio=1/1 ! queue ! vp8enc deadline=1 cpu-used=8 threads=4 target-bitrate={bitrate} ! webmmux ! filesink name=sink",
+        region.x, region.y
+    ))
+}
+
 fn native_recording_supported() -> bool {
     cfg!(target_os = "linux")
         && std::env::var("XDG_SESSION_TYPE")
@@ -439,6 +541,7 @@ pub fn get_native_recording_capabilities() -> NativeRecordingCapabilities {
     NativeRecordingCapabilities {
         supported,
         audio_supported: !supported,
+        window_supported: !supported,
     }
 }
 
@@ -446,22 +549,22 @@ pub fn get_native_recording_capabilities() -> NativeRecordingCapabilities {
 fn run_native_recording(
     session_id: String,
     cache_dir: PathBuf,
-    resolution: String,
-    frame_rate: u32,
+    app: AppHandle,
     store: RecordingStore,
     controls: mpsc::Receiver<NativeRecordingControl>,
-    started: mpsc::SyncSender<Result<NativeRecordingStarted, String>>,
+    prepared: mpsc::SyncSender<Result<NativeRecordingPrepared, String>>,
 ) {
-    if let Err(error) = run_native_recording_inner(
-        &session_id,
-        &cache_dir,
-        &resolution,
-        frame_rate,
-        store,
-        controls,
-        &started,
-    ) {
-        let _ = started.send(Err(error));
+    let result =
+        run_native_recording_inner(&session_id, &cache_dir, store.clone(), controls, &prepared);
+    if let Ok(mut sessions) = store.native_sessions.lock() {
+        sessions.remove(&session_id);
+    }
+    if let Err(error) = result {
+        let _ = prepared.try_send(Err(error.clone()));
+        let _ = app.emit(
+            "recording://native-error",
+            serde_json::json!({ "sessionId": session_id, "message": error }),
+        );
     }
 }
 
@@ -469,11 +572,9 @@ fn run_native_recording(
 fn run_native_recording_inner(
     session_id: &str,
     cache_dir: &Path,
-    resolution: &str,
-    frame_rate: u32,
     store: RecordingStore,
     controls: mpsc::Receiver<NativeRecordingControl>,
-    started: &mpsc::SyncSender<Result<NativeRecordingStarted, String>>,
+    prepared: &mpsc::SyncSender<Result<NativeRecordingPrepared, String>>,
 ) -> Result<(), String> {
     use gst::prelude::*;
     use gstreamer as gst;
@@ -495,79 +596,157 @@ fn run_native_recording_inner(
     let first_frame = frames
         .recv_timeout(Duration::from_secs(15))
         .map_err(|_| "选择屏幕后未收到画面，请重新录制".to_string())?;
+    let source_width = first_frame.width;
+    let source_height = first_frame.height;
+    let preview_path = cache_dir.join(format!("attool-recording-source-{session_id}.png"));
+    let preview = image::RgbaImage::from_raw(source_width, source_height, first_frame.raw)
+        .ok_or_else(|| "录屏首帧像素格式无效".to_string())?;
+    preview
+        .save(&preview_path)
+        .map_err(|error| format!("保存录屏首帧失败：{error}"))?;
+    if prepared
+        .send(Ok(NativeRecordingPrepared {
+            session_id: session_id.to_string(),
+            source_label: format!("Wayland 屏幕 · {source_width} × {source_height}"),
+            preview_path: preview_path.to_string_lossy().into_owned(),
+            source_width,
+            source_height,
+        }))
+        .is_err()
+    {
+        recorder.stop().ok();
+        let _ = fs::remove_file(&preview_path);
+        return Err("录屏界面已关闭".to_string());
+    }
 
-    let (target_width, target_height) =
-        scaled_dimensions(first_frame.width, first_frame.height, resolution);
-    let bitrate = if target_height <= 720 {
-        4_000_000
-    } else {
-        8_000_000
+    let (region, resolution, frame_rate, start_response) = loop {
+        while frames.try_recv().is_ok() {}
+        match controls.recv_timeout(Duration::from_millis(50)) {
+            Ok(NativeRecordingControl::Start {
+                region,
+                resolution,
+                frame_rate,
+                response,
+            }) => break (region, resolution, frame_rate, response),
+            Ok(NativeRecordingControl::Cancel(response)) => {
+                recorder.stop().ok();
+                let _ = fs::remove_file(&preview_path);
+                let _ = response.send(Ok(()));
+                return Ok(());
+            }
+            Ok(NativeRecordingControl::Stop(response)) => {
+                recorder.stop().ok();
+                let _ = fs::remove_file(&preview_path);
+                let _ = response.send(Err("录屏尚未开始".to_string()));
+                return Ok(());
+            }
+            Ok(NativeRecordingControl::Pause | NativeRecordingControl::Resume) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                recorder.stop().ok();
+                let _ = fs::remove_file(&preview_path);
+                return Ok(());
+            }
+        }
     };
-    let pipeline = gst::parse::launch(&format!(
-        "appsrc name=source ! videoconvert ! videoscale ! video/x-raw,width={target_width},height={target_height},pixel-aspect-ratio=1/1 ! queue ! vp8enc deadline=1 cpu-used=8 threads=4 target-bitrate={bitrate} ! webmmux ! filesink name=sink"
-    ))
-    .map_err(|error| format!("创建视频编码管线失败：{error}"))?
-    .downcast::<gst::Pipeline>()
-    .map_err(|_| "视频编码管线类型无效".to_string())?;
-    let source = pipeline
-        .by_name("source")
-        .and_then(|element| element.downcast::<gstreamer_app::AppSrc>().ok())
-        .ok_or_else(|| "视频编码输入不可用".to_string())?;
-    let sink = pipeline
-        .by_name("sink")
-        .ok_or_else(|| "视频编码输出不可用".to_string())?;
+
+    let region = match normalize_native_region(source_width, source_height, region) {
+        Ok(region) => region,
+        Err(error) => {
+            let _ = start_response.send(Err(error));
+            recorder.stop().ok();
+            let _ = fs::remove_file(&preview_path);
+            return Ok(());
+        }
+    };
+    let (target_width, target_height) = scaled_dimensions(region.width, region.height, &resolution);
     let temporary_path = cache_dir.join(format!(".attool-recording-{session_id}.webm.part"));
     let output_path = cache_dir.join(format!("attool-recording-{session_id}.webm"));
-    sink.set_property("location", temporary_path.to_string_lossy().as_ref());
-    source.set_caps(Some(
-        &gst::Caps::builder("video/x-raw")
-            .field("format", "RGBA")
-            .field("width", first_frame.width as i32)
-            .field("height", first_frame.height as i32)
-            .field(
-                "framerate",
-                gst::Fraction::new(frame_rate.clamp(1, 60) as i32, 1),
-            )
-            .build(),
-    ));
-    source.set_format(gst::Format::Time);
-    source.set_is_live(true);
-    source.set_do_timestamp(true);
-    source.set_block(true);
-    pipeline
-        .set_state(gst::State::Playing)
-        .map_err(|error| format!("启动视频编码器失败：{error:?}"))?;
-    source
-        .push_buffer(gst::Buffer::from_mut_slice(first_frame.raw))
-        .map_err(|error| format!("写入首帧失败：{error:?}"))?;
-
-    started
+    let initialized = (|| {
+        let pipeline_description =
+            native_pipeline_description(source_width, source_height, region, &resolution)?;
+        let pipeline = gst::parse::launch(&pipeline_description)
+            .map_err(|error| format!("创建视频编码管线失败：{error}"))?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| "视频编码管线类型无效".to_string())?;
+        let source = pipeline
+            .by_name("source")
+            .and_then(|element| element.downcast::<gstreamer_app::AppSrc>().ok())
+            .ok_or_else(|| "视频编码输入不可用".to_string())?;
+        let sink = pipeline
+            .by_name("sink")
+            .ok_or_else(|| "视频编码输出不可用".to_string())?;
+        sink.set_property("location", temporary_path.to_string_lossy().as_ref());
+        source.set_caps(Some(
+            &gst::Caps::builder("video/x-raw")
+                .field("format", "RGBA")
+                .field("width", source_width as i32)
+                .field("height", source_height as i32)
+                .field(
+                    "framerate",
+                    gst::Fraction::new(frame_rate.clamp(1, 60) as i32, 1),
+                )
+                .build(),
+        ));
+        source.set_format(gst::Format::Time);
+        source.set_is_live(true);
+        source.set_do_timestamp(true);
+        source.set_block(true);
+        pipeline
+            .set_state(gst::State::Playing)
+            .map_err(|error| format!("启动视频编码器失败：{error:?}"))?;
+        Ok::<_, String>((pipeline, source))
+    })();
+    let (pipeline, source) = match initialized {
+        Ok(initialized) => initialized,
+        Err(error) => {
+            let _ = start_response.send(Err(error));
+            recorder.stop().ok();
+            let _ = fs::remove_file(&preview_path);
+            let _ = fs::remove_file(&temporary_path);
+            return Ok(());
+        }
+    };
+    while frames.try_recv().is_ok() {}
+    let _ = fs::remove_file(&preview_path);
+    if start_response
         .send(Ok(NativeRecordingStarted {
             session_id: session_id.to_string(),
-            source_label: format!("Wayland 屏幕 · {target_width} × {target_height}"),
+            source_label: format!("区域录屏 · {target_width} × {target_height}"),
         }))
-        .map_err(|_| "录屏界面已关闭".to_string())?;
+        .is_err()
+    {
+        recorder.stop().ok();
+        pipeline.set_state(gst::State::Null).ok();
+        let _ = fs::remove_file(&temporary_path);
+        return Err("录屏界面已关闭".to_string());
+    }
 
     let finish = loop {
         match controls.try_recv() {
             Ok(NativeRecordingControl::Pause) => {
-                recorder
-                    .stop()
-                    .map_err(|error| format!("暂停屏幕采集失败：{error}"))?;
+                if let Err(error) = recorder.stop() {
+                    break NativeFinish::Error(format!("暂停屏幕采集失败：{error}"));
+                }
                 while frames.try_recv().is_ok() {}
                 let paused_finish = loop {
                     match controls.recv() {
-                        Ok(NativeRecordingControl::Resume) => {
-                            recorder
-                                .start()
-                                .map_err(|error| format!("继续屏幕采集失败：{error}"))?;
-                            break None;
-                        }
+                        Ok(NativeRecordingControl::Resume) => match recorder.start() {
+                            Ok(()) => break None,
+                            Err(error) => {
+                                break Some(NativeFinish::Error(format!(
+                                    "继续屏幕采集失败：{error}"
+                                )))
+                            }
+                        },
                         Ok(NativeRecordingControl::Stop(response)) => {
                             break Some(NativeFinish::Save(response));
                         }
                         Ok(NativeRecordingControl::Cancel(response)) => {
                             break Some(NativeFinish::Cancel(Some(response)));
+                        }
+                        Ok(NativeRecordingControl::Start { response, .. }) => {
+                            let _ = response.send(Err("录屏已经开始".to_string()));
                         }
                         Ok(NativeRecordingControl::Pause) => {}
                         Err(_) => break Some(NativeFinish::Cancel(None)),
@@ -582,19 +761,22 @@ fn run_native_recording_inner(
             Ok(NativeRecordingControl::Cancel(response)) => {
                 break NativeFinish::Cancel(Some(response))
             }
+            Ok(NativeRecordingControl::Start { response, .. }) => {
+                let _ = response.send(Err("录屏已经开始".to_string()));
+            }
             Err(mpsc::TryRecvError::Disconnected) => break NativeFinish::Cancel(None),
             Err(mpsc::TryRecvError::Empty) => {}
         }
 
         match frames.recv_timeout(Duration::from_millis(50)) {
             Ok(frame) => {
-                source
-                    .push_buffer(gst::Buffer::from_mut_slice(frame.raw))
-                    .map_err(|error| format!("写入录屏画面失败：{error:?}"))?;
+                if let Err(error) = source.push_buffer(gst::Buffer::from_mut_slice(frame.raw)) {
+                    break NativeFinish::Error(format!("写入录屏画面失败：{error:?}"));
+                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err("屏幕采集连接已断开".to_string());
+                break NativeFinish::Error("屏幕采集连接已断开".to_string());
             }
         }
     };
@@ -649,6 +831,11 @@ fn run_native_recording_inner(
                 let _ = response.send(result);
             }
         }
+        NativeFinish::Error(error) => {
+            pipeline.set_state(gst::State::Null).ok();
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -657,6 +844,7 @@ fn run_native_recording_inner(
 enum NativeFinish {
     Save(mpsc::SyncSender<Result<RecordingSaved, String>>),
     Cancel(Option<mpsc::SyncSender<Result<(), String>>>),
+    Error(String),
 }
 
 #[cfg(target_os = "linux")]
@@ -675,12 +863,10 @@ fn native_control_sender(
 
 #[cfg(target_os = "linux")]
 #[tauri::command]
-pub async fn start_native_recording(
+pub async fn prepare_native_recording(
     app: AppHandle,
     store: tauri::State<'_, RecordingStore>,
-    resolution: String,
-    frame_rate: u32,
-) -> Result<NativeRecordingStarted, String> {
+) -> Result<NativeRecordingPrepared, String> {
     if !native_recording_supported() {
         return Err("当前会话不需要原生 Wayland 录屏".to_string());
     }
@@ -691,27 +877,27 @@ pub async fn start_native_recording(
         .join("recordings");
     let session_id = Uuid::new_v4().to_string();
     let (control_tx, control_rx) = mpsc::channel();
-    let (started_tx, started_rx) = mpsc::sync_channel(1);
+    let (prepared_tx, prepared_rx) = mpsc::sync_channel(1);
     let worker_session_id = session_id.clone();
     let worker_store = store.inner().clone();
+    let worker_app = app.clone();
     std::thread::spawn(move || {
         run_native_recording(
             worker_session_id,
             cache_dir,
-            resolution,
-            frame_rate,
+            worker_app,
             worker_store,
             control_rx,
-            started_tx,
+            prepared_tx,
         );
     });
-    let started = tauri::async_runtime::spawn_blocking(move || {
-        started_rx
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        prepared_rx
             .recv()
-            .map_err(|_| "原生录屏启动任务异常结束".to_string())?
+            .map_err(|_| "原生录屏准备任务异常结束".to_string())?
     })
     .await
-    .map_err(|error| format!("等待原生录屏启动失败：{error}"))??;
+    .map_err(|error| format!("等待原生录屏准备失败：{error}"))??;
     store
         .native_sessions
         .lock()
@@ -722,16 +908,54 @@ pub async fn start_native_recording(
                 control: control_tx,
             },
         );
-    Ok(started)
+    Ok(prepared)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+pub async fn prepare_native_recording(
+    _app: AppHandle,
+    _store: tauri::State<'_, RecordingStore>,
+) -> Result<NativeRecordingPrepared, String> {
+    Err("当前平台不支持原生 Wayland 录屏".to_string())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn start_native_recording(
+    session_id: String,
+    region: NativeCaptureRegion,
+    resolution: String,
+    frame_rate: u32,
+    store: tauri::State<'_, RecordingStore>,
+) -> Result<NativeRecordingStarted, String> {
+    let sender = native_control_sender(&store, &session_id)?;
+    let (response_tx, response_rx) = mpsc::sync_channel(1);
+    sender
+        .send(NativeRecordingControl::Start {
+            region,
+            resolution,
+            frame_rate,
+            response: response_tx,
+        })
+        .map_err(|_| "原生录屏会话已结束".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        response_rx
+            .recv()
+            .map_err(|_| "原生录屏启动任务异常退出".to_string())?
+    })
+    .await
+    .map_err(|error| format!("等待原生录屏启动失败：{error}"))?
 }
 
 #[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn start_native_recording(
-    _app: AppHandle,
-    _store: tauri::State<'_, RecordingStore>,
+    _session_id: String,
+    _region: NativeCaptureRegion,
     _resolution: String,
     _frame_rate: u32,
+    _store: tauri::State<'_, RecordingStore>,
 ) -> Result<NativeRecordingStarted, String> {
     Err("当前平台不支持原生 Wayland 录屏".to_string())
 }
@@ -906,6 +1130,28 @@ pub async fn discard_recording_file(
 }
 
 #[tauri::command]
+pub fn recording_preview_url(
+    path: String,
+    store: tauri::State<'_, RecordingStore>,
+) -> Result<String, String> {
+    store.preview_url(&path)
+}
+
+#[tauri::command]
+pub fn present_recording_result(
+    app: AppHandle,
+    result: OverlayRecordingResult,
+) -> Result<(), String> {
+    if !matches!(result.extension.as_str(), "webm" | "mp4") {
+        return Err("不支持的录屏文件格式".to_string());
+    }
+    crate::show_main_window(&app);
+    app.emit("recording://completed", result)
+        .map_err(|error| format!("发送录屏完成事件失败：{error}"))?;
+    crate::imaging::capture::close_capture_overlay(&app)
+}
+
+#[tauri::command]
 pub fn default_recording_path(file_name: String) -> Result<String, String> {
     let name = Path::new(&file_name)
         .file_name()
@@ -940,6 +1186,60 @@ mod tests {
         assert_eq!(scaled_dimensions(2560, 1440, "720"), (1280, 720));
         assert_eq!(scaled_dimensions(1920, 1080, "original"), (1920, 1080));
         assert_eq!(scaled_dimensions(1280, 720, "1080"), (1280, 720));
+    }
+
+    #[test]
+    fn normalizes_native_crop_inside_source_bounds() {
+        assert_eq!(
+            normalize_native_region(
+                1920,
+                1080,
+                NativeCaptureRegion {
+                    x: 101,
+                    y: 55,
+                    width: 801,
+                    height: 603,
+                }
+            )
+            .unwrap(),
+            NativeCaptureRegion {
+                x: 101,
+                y: 55,
+                width: 800,
+                height: 602,
+            }
+        );
+        assert!(normalize_native_region(
+            1920,
+            1080,
+            NativeCaptureRegion {
+                x: 1800,
+                y: 0,
+                width: 200,
+                height: 200,
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn native_pipeline_crops_before_scaling() {
+        let pipeline = native_pipeline_description(
+            1920,
+            1080,
+            NativeCaptureRegion {
+                x: 100,
+                y: 50,
+                width: 1280,
+                height: 720,
+            },
+            "720",
+        )
+        .unwrap();
+
+        assert!(pipeline.contains("videocrop left=100 right=540 top=50 bottom=310"));
+        assert!(pipeline.find("videocrop").unwrap() < pipeline.find("videoscale").unwrap());
+        assert!(pipeline.contains("video/x-raw,width=1280,height=720"));
     }
 
     #[test]
@@ -999,5 +1299,22 @@ mod tests {
         assert!(untracked.exists());
         store.discard(&completed.output_path).unwrap();
         assert!(!Path::new(&completed.output_path).exists());
+    }
+
+    #[test]
+    fn preview_only_serves_tracked_recordings() {
+        let cache = tempfile::tempdir().unwrap();
+        let untracked = cache.path().join("untracked.webm");
+        fs::write(&untracked, b"private").unwrap();
+        let store = RecordingStore::default();
+
+        assert!(store.preview_url(untracked.to_str().unwrap()).is_err());
+
+        let session = store.begin(cache.path()).unwrap();
+        store.append(&session.session_id, "dmlkZW8=").unwrap();
+        let completed = store.finish(&session.session_id, "webm").unwrap();
+        let url = store.preview_url(&completed.output_path).unwrap();
+
+        assert!(url.starts_with("http://127.0.0.1:"));
     }
 }

@@ -55,7 +55,7 @@
 
 - **请求-响应：** `invoke<T>('command_name', { arg })` （`@tauri-apps/api/core`）
 - **流式事件：** Rust `app_handle.emit("event-name", payload)` → 前端 `listen<T>('event-name', cb)`
-  - `download-progress`（aria2 输出解析后推送）、`clipboard-history-updated`（剪贴板监听）、`capture-overlay-init` / `capture-failed`（截图浮层）、`updater://state`（自研 updater 状态机推送）、`http-stream-message-{sessionId}`（HTTP 工具 SSE / WS 长连接的消息 envelope，一 session 一 channel）等
+  - `download-progress`（aria2 输出解析后推送）、`clipboard-history-updated`（剪贴板监听）、`capture-overlay-init` / `capture-failed`（统一捕获浮层）、`capture-overlay-recording-toggle`（录屏快捷键切换 / 停止）、`recording://completed` / `recording://native-error`（录屏结果与原生错误）、`updater://state`（自研 updater 状态机推送）、`http-stream-message-{sessionId}`（HTTP 工具 SSE / WS 长连接的消息 envelope，一 session 一 channel）等
 - **错误：** Rust 命令返回 `Result<T, String>`，前端 `try { await invoke(...) } catch (e)` 捕获
 
 ## 状态分层
@@ -66,7 +66,7 @@
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
 | 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections** |
 | updater 缓存 | 文件（`app_cache_dir/updater/`） | 已下载但未 apply 的 archive stage |
-| 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`）、HTTP cancel token 表、Updater 状态机 `UpdaterState`、**HTTP 工具的 SSE / WS 长连接 session 表**（`HttpStreamState`：`HashMap<sessionId, SessionHandle>`，每个 session 持有 cancel oneshot、send mpsc（仅 WS）、消息 buffer `Arc<Mutex<SessionBuffer>>`；带 generation 计数器防重连 race） |
+| 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`）、录屏分块文件 / Wayland 原生录制 session（`RecordingStore`）、HTTP cancel token 表、Updater 状态机 `UpdaterState`、**HTTP 工具的 SSE / WS 长连接 session 表**（`HttpStreamState`：`HashMap<sessionId, SessionHandle>`，每个 session 持有 cancel oneshot、send mpsc（仅 WS）、消息 buffer `Arc<Mutex<SessionBuffer>>`；带 generation 计数器防重连 race） |
 
 HTTP 工具的持久层存在独立 `http.sqlite3`：
 - `http_tabs` —— 每 tab 一行，spec 序列化 JSON 存 `spec_json`；`is_active` 单例约束；**v0.8.9 起加了 `kind TEXT NOT NULL DEFAULT 'http'` 列**区分 http / sse / ws（老库启动时用 `PRAGMA table_info` 探测 → `ALTER TABLE ADD COLUMN` 迁移）
@@ -190,8 +190,8 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 |---|---|---|
 | `lib.rs` | Aria2 下载（shell out `aria2c` + 进度事件）、command 注册 | `start_download` / `cancel_download` / `list_download_tasks` / `generate_qr_png` / `open_external_url` |
 | `clipboard/` | 剪贴板历史（SQLite 存储 + 系统剪贴板监听 + 快捷键面板） | `list_clipboard_items` / `restore_clipboard_item` / `clear_clipboard_history` / `get·save_clipboard_settings` |
-| `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
-| `recording.rs` | 录屏全局快捷键、分块缓存、完成预览、保存与缓存清理 | `get·set_recording_shortcut` / `begin·append·finish_recording_file` / `save·discard_recording_file` / `default_recording_path` |
+| `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图与统一捕获浮层 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
+| `recording.rs` / `recording_preview.rs` | 录屏快捷键、Web 分块缓存、Wayland 来源准备 / 区域裁剪 / 编码控制、完成结果交接、只读 Range 预览、保存与清理 | `get·set_recording_shortcut` / `prepare·start·pause·resume·stop·cancel_native_recording` / `begin·append·finish_recording_file` / `present_recording_result` / `recording_preview_url` / `save·discard_recording_file` / `default_recording_path` |
 | `ecommerce/` | 主图模板：PSD 导入 / 图层渲染 / 批量替换 | `import_psd_template` / `save·load·list·delete_ecommerce_template` / `run_batch_replace_tasks` |
 | `network/` | 网络诊断 | `ping_host` / `check_ports` / `resolve_dns` |
 | `http/` | HTTP 工具后端：请求发送（含 multipart + cancel）+ tabs/history/envs/env_vars/collections CRUD（tabs 有 `kind` 列） | `send_http` / `cancel_http` / `list·upsert·delete·set_active_http_{tab,env}` / `list·insert·delete·clear_http_history` / `list·upsert·delete_http_env_var` / `list·upsert·delete_http_collection*` |
@@ -201,6 +201,8 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 | `douyin.rs` / `bilibili.rs` / `xhs.rs` / `youtube.rs` | 视频链接解析（reqwest + 正则） | `extract_douyin_video` / `extract_bilibili_video` / `extract_youtube_video` / `resolve_douyin_url` |
 
 **截图跨平台策略**（`imaging/capture.rs` + `windows.rs`）：macOS 走 `screencapture` + CoreGraphics 窗口枚举；Linux / Windows 走 `xcap`（`Monitor::capture_image` 截屏、`Window::all` 枚举）。浮层背景帧存为 BMP（无压缩，避免 PNG deflate 的秒级延迟）。Wayland 会话下 xcap 走 xdg-desktop-portal，可能弹权限 / 部分场景失败，窗口枚举降级为空列表（区域选择仍可用）。
+
+**统一截图 / 录屏浮层**（`CaptureOverlay.vue` + `imaging/capture.rs` + `recording.rs`）：浮层默认截图，顶部可切换录屏；录屏支持区域 / 窗口 / 全屏，区域复用自由框选、移动和八方向缩放。Web MediaRecorder 路径在浮层内保留系统媒体流，用 Canvas 按源像素裁剪后再录制；Linux Wayland 先通过 Portal / PipeWire 准备来源和首帧，用户确认区域后由 GStreamer 按 `videocrop → videoscale → VP8/WebM` 开始编码。倒计时、选区边框和控制条只存在于透明浮层，边框与控制条放在裁剪范围外；停止后通过 `recording://completed` 回到主窗口的预览与保存流程。预览使用仅绑定 `127.0.0.1`、随机令牌保护的只读 HTTP Range 流，不使用 Linux WebKitGTK 无法播放的 Tauri `asset://` 媒体地址，也不把完整录屏读入前端内存。Wayland 原生路径不支持音频，窗口来源不可用时必须禁用，不退化为全屏。
 
 ### `src-tauri/src/ecommerce/`
 

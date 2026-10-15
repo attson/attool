@@ -18,7 +18,10 @@ const EDGE_RIGHT: c_int = 1;
 const EDGE_TOP: c_int = 2;
 const EDGE_BOTTOM: c_int = 3;
 const LAYER_OVERLAY: c_int = 3;
+const KEYBOARD_MODE_NONE: c_int = 0;
 const KEYBOARD_MODE_EXCLUSIVE: c_int = 1;
+const EXCLUSIVE_ZONE_NONE: c_int = 0;
+const EXCLUSIVE_ZONE_IGNORE: c_int = -1;
 
 type GtkWindowPtr = *mut gtk::ffi::GtkWindow;
 type GdkMonitorPtr = *mut gtk::gdk::ffi::GdkMonitor;
@@ -45,6 +48,7 @@ struct LayerShellApi {
 
 static LAYER_SHELL_API: OnceLock<Result<LayerShellApi, String>> = OnceLock::new();
 static HISTORY_LAYER_SHELL_ACTIVE: AtomicBool = AtomicBool::new(false);
+static CAPTURE_LAYER_SHELL_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn is_wayland_backend(
     gdk_backend: Option<&str>,
@@ -151,7 +155,15 @@ fn layer_shell_api() -> Result<&'static LayerShellApi, String> {
     }
 }
 
-pub(crate) fn configure_history_window(app: &AppHandle) -> Result<bool, String> {
+fn configure_window(
+    app: &AppHandle,
+    label: &str,
+    description: &str,
+    top: bool,
+    bottom: bool,
+    exclusive_zone: c_int,
+    active: &'static AtomicBool,
+) -> Result<bool, String> {
     if !current_backend_is_wayland() {
         return Ok(false);
     }
@@ -162,13 +174,15 @@ pub(crate) fn configure_history_window(app: &AppHandle) -> Result<bool, String> 
     }
 
     let window = app
-        .get_webview_window("clipboard-history")
-        .ok_or_else(|| "找不到剪贴板快捷面板".to_string())?;
+        .get_webview_window(label)
+        .ok_or_else(|| format!("找不到{description}"))?;
     let gtk_window = window
         .gtk_window()
-        .map_err(|error| format!("无法访问剪贴板 GTK 窗口：{error}"))?;
+        .map_err(|error| format!("无法访问{description} GTK 窗口：{error}"))?;
     if gtk_window.is_realized() {
-        return Err("剪贴板 GTK 窗口已完成初始化，无法切换为 layer-shell".to_string());
+        return Err(format!(
+            "{description} GTK 窗口已完成初始化，无法切换为 layer-shell"
+        ));
     }
 
     let window_ptr = gtk_window.as_ptr() as GtkWindowPtr;
@@ -180,9 +194,9 @@ pub(crate) fn configure_history_window(app: &AppHandle) -> Result<bool, String> 
         (api.set_layer)(window_ptr, LAYER_OVERLAY);
         (api.set_anchor)(window_ptr, EDGE_LEFT, 1);
         (api.set_anchor)(window_ptr, EDGE_RIGHT, 1);
-        (api.set_anchor)(window_ptr, EDGE_TOP, 0);
-        (api.set_anchor)(window_ptr, EDGE_BOTTOM, 1);
-        (api.set_exclusive_zone)(window_ptr, 0);
+        (api.set_anchor)(window_ptr, EDGE_TOP, top as c_int);
+        (api.set_anchor)(window_ptr, EDGE_BOTTOM, bottom as c_int);
+        (api.set_exclusive_zone)(window_ptr, exclusive_zone);
         (api.set_keyboard_mode)(window_ptr, KEYBOARD_MODE_EXCLUSIVE);
     }
 
@@ -192,12 +206,71 @@ pub(crate) fn configure_history_window(app: &AppHandle) -> Result<bool, String> 
         }
     }
 
-    HISTORY_LAYER_SHELL_ACTIVE.store(true, Ordering::Release);
+    active.store(true, Ordering::Release);
     Ok(true)
+}
+
+pub(crate) fn configure_history_window(app: &AppHandle) -> Result<bool, String> {
+    configure_window(
+        app,
+        "clipboard-history",
+        "剪贴板快捷面板",
+        false,
+        true,
+        EXCLUSIVE_ZONE_NONE,
+        &HISTORY_LAYER_SHELL_ACTIVE,
+    )
+}
+
+pub(crate) fn configure_capture_overlay(app: &AppHandle) -> Result<bool, String> {
+    configure_window(
+        app,
+        "capture-overlay",
+        "截图录屏浮层",
+        true,
+        true,
+        EXCLUSIVE_ZONE_IGNORE,
+        &CAPTURE_LAYER_SHELL_ACTIVE,
+    )
 }
 
 pub(crate) fn history_window_is_layer_shell() -> bool {
     HISTORY_LAYER_SHELL_ACTIVE.load(Ordering::Acquire)
+}
+
+pub(crate) fn capture_overlay_is_layer_shell() -> bool {
+    CAPTURE_LAYER_SHELL_ACTIVE.load(Ordering::Acquire)
+}
+
+pub(crate) fn set_capture_overlay_input_region(
+    app: &AppHandle,
+    region: Option<(i32, i32, i32, i32)>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("capture-overlay")
+        .ok_or_else(|| "找不到截图录屏浮层".to_string())?;
+    let gtk_window = window
+        .gtk_window()
+        .map_err(|error| format!("无法访问截图录屏浮层 GTK 窗口：{error}"))?;
+
+    if capture_overlay_is_layer_shell() {
+        let api = layer_shell_api()?;
+        let keyboard_mode = if region.is_some() {
+            KEYBOARD_MODE_NONE
+        } else {
+            KEYBOARD_MODE_EXCLUSIVE
+        };
+        unsafe { (api.set_keyboard_mode)(gtk_window.as_ptr() as GtkWindowPtr, keyboard_mode) };
+    }
+
+    if let Some((x, y, width, height)) = region {
+        let rectangle = gtk::cairo::RectangleInt::new(x, y, width.max(1), height.max(1));
+        let input_region = gtk::cairo::Region::create_rectangle(&rectangle);
+        gtk_window.input_shape_combine_region(Some(&input_region));
+    } else {
+        gtk_window.input_shape_combine_region(None);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

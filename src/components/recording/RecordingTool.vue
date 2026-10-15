@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import {
   NAlert,
@@ -14,6 +14,7 @@ import {
 import SystemShortcutNotice from '../ui/SystemShortcutNotice.vue';
 import SystemShortcutSetup from '../ui/SystemShortcutSetup.vue';
 import { formatShortcutForDisplay, keyEventToShortcut } from '../image/shortcut';
+import { usePendingRecordingResult, type RecordingResult } from '../image/imageBus';
 import {
   buildRecordingFileName,
   formatRecordingDuration,
@@ -77,6 +78,9 @@ const sourceLabel = ref('');
 const savedPath = ref('');
 const cachePath = ref('');
 const previewUrl = ref('');
+const previewReady = ref(false);
+const previewPlaying = ref(false);
+const previewError = ref('');
 const errorMessage = ref('');
 const saving = ref(false);
 const shortcutInfo = ref<RecordingShortcutInfo>({
@@ -90,6 +94,7 @@ const shortcutRaw = ref('');
 const shortcutError = ref('');
 const shortcutRegisterError = ref('');
 const shortcutRecorderEl = ref<HTMLDivElement | null>(null);
+const pendingRecordingResult = usePendingRecordingResult();
 
 let recorder: MediaRecorder | null = null;
 let displayStream: MediaStream | null = null;
@@ -330,6 +335,48 @@ function failRecording(error: unknown) {
   stopStreams();
 }
 
+async function loadRecordingPreview(path: string) {
+  previewReady.value = false;
+  previewPlaying.value = false;
+  previewError.value = '';
+  previewUrl.value = await invoke<string>('recording_preview_url', { path });
+  await nextTick();
+  previewEl.value?.load();
+}
+
+function onPreviewLoadedMetadata() {
+  const video = previewEl.value;
+  if (!video) return;
+  previewReady.value = true;
+  previewError.value = '';
+  if (video.duration > 0 && video.currentTime === 0) {
+    video.currentTime = Math.min(0.01, video.duration);
+  }
+}
+
+function onPreviewError() {
+  const code = previewEl.value?.error?.code;
+  previewReady.value = false;
+  previewPlaying.value = false;
+  previewError.value = code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+    ? '当前系统无法解码这段录屏，可先保存后使用系统播放器打开'
+    : '预览加载失败，可先保存录屏后重试';
+}
+
+async function togglePreviewPlayback() {
+  const video = previewEl.value;
+  if (!video || !previewUrl.value) return;
+  if (!video.paused) {
+    video.pause();
+    return;
+  }
+  try {
+    await video.play();
+  } catch (error) {
+    previewError.value = `无法播放预览：${String(error)}`;
+  }
+}
+
 async function finishRecording() {
   stopClock();
   stopStreams();
@@ -350,88 +397,47 @@ async function finishRecording() {
     });
     cachePath.value = saved.outputPath;
     bytesWritten.value = saved.size;
-    previewUrl.value = convertFileSrc(saved.outputPath);
     status.value = 'completed';
-    await nextTick();
-    previewEl.value?.load();
-    await saveCompletedRecording();
+    await loadRecordingPreview(saved.outputPath);
   } catch (error) {
     failRecording(error);
   }
 }
 
 async function startRecording() {
-  const selectedProfile = activeProfile.value;
-  if (!selectedProfile || !supported.value) return;
   errorMessage.value = '';
   status.value = 'selecting';
   savedPath.value = '';
-  cachePath.value = '';
-  previewUrl.value = '';
-  bytesWritten.value = 0;
-  sourceLabel.value = '';
-  writeQueue = Promise.resolve();
-  writeError = null;
-
   try {
-    if (nativeRecordingSupported.value) {
-      const started = await invoke<NativeRecordingStarted>('start_native_recording', {
+    await invoke('open_capture_overlay', {
+      mode: 'recording',
+      recordingOptions: {
         resolution: resolution.value,
-        frameRate: frameRate.value
-      });
-      nativeSessionId = started.sessionId;
-      sourceLabel.value = started.sourceLabel;
-      startClock();
-      status.value = 'recording';
-      return;
-    }
-    displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: videoConstraints(),
-      audio: systemAudio.value
+        frameRate: frameRate.value,
+        systemAudio: systemAudio.value,
+        microphone: microphone.value
+      }
     });
-    recordingStream = await composeRecordingStream(displayStream);
-    sourceLabel.value = displayStream.getVideoTracks()[0]?.label || '共享屏幕';
-    const session = await invoke<RecordingSession>('begin_recording_file');
-    sessionId = session.sessionId;
-
-    recorder = new MediaRecorder(recordingStream, {
-      mimeType: selectedProfile.mimeType,
-      videoBitsPerSecond: resolution.value === '720' ? 4_000_000 : 8_000_000,
-      audioBitsPerSecond: 128_000
-    });
-    recorder.addEventListener('dataavailable', (event) => {
-      if (!event.data.size || !sessionId) return;
-      writeQueue = writeQueue
-        .then(() => uploadBlob(event.data))
-        .catch((error) => {
-          writeError = error;
-          if (recorder?.state !== 'inactive') recorder?.stop();
-        });
-    });
-    recorder.addEventListener('stop', () => void finishRecording(), { once: true });
-    recorder.addEventListener('error', (event) => {
-      writeError = event.error;
-      if (recorder?.state !== 'inactive') recorder?.stop();
-    });
-    displayStream.getVideoTracks()[0]?.addEventListener('ended', () => stopRecording(), { once: true });
-
-    await nextTick();
-    if (previewEl.value) {
-      previewEl.value.srcObject = recordingStream;
-      await previewEl.value.play().catch(() => {});
-    }
-    recorder.start(1000);
-    startClock();
-    status.value = 'recording';
   } catch (error) {
-    await cancelFileSession();
-    stopStreams();
-    if (error instanceof DOMException && error.name === 'NotAllowedError') {
-      status.value = 'idle';
-      return;
-    }
-    failRecording(error);
+    errorMessage.value = String(error);
+    status.value = 'error';
+    return;
   }
+  status.value = 'idle';
+}
+
+async function applyOverlayResult(result: RecordingResult) {
+  cachePath.value = result.outputPath;
+  bytesWritten.value = result.size;
+  sourceLabel.value = result.sourceLabel;
+  elapsedMs.value = result.elapsedMs;
+  status.value = 'completed';
+  await loadRecordingPreview(result.outputPath);
+}
+
+function drainOverlayResult() {
+  const result = pendingRecordingResult.consume();
+  if (result) void applyOverlayResult(result);
 }
 
 async function saveCompletedRecording() {
@@ -472,6 +478,9 @@ function discardCachedRecording() {
     previewEl.value.load();
   }
   previewUrl.value = '';
+  previewReady.value = false;
+  previewPlaying.value = false;
+  previewError.value = '';
   if (path) void invoke('discard_recording_file', { path }).catch(() => {});
 }
 
@@ -529,11 +538,8 @@ async function stopRecording() {
       });
       cachePath.value = saved.outputPath;
       bytesWritten.value = saved.size;
-      previewUrl.value = convertFileSrc(saved.outputPath);
       status.value = 'completed';
-      await nextTick();
-      previewEl.value?.load();
-      await saveCompletedRecording();
+      await loadRecordingPreview(saved.outputPath);
     } catch (error) {
       failRecording(error);
     }
@@ -582,9 +588,14 @@ async function toggleRecordingFromShortcut() {
 onMounted(() => {
   void loadRecordingShortcut();
   void loadNativeRecordingCapabilities();
+  drainOverlayResult();
   if (typeof MediaRecorder !== 'undefined') {
     profile.value = selectRecordingProfile((mimeType) => MediaRecorder.isTypeSupported(mimeType));
   }
+});
+
+watch(pendingRecordingResult.pending, (result) => {
+  if (result) drainOverlayResult();
 });
 
 onBeforeUnmount(() => {
@@ -639,8 +650,34 @@ onBeforeUnmount(() => {
             :src="previewUrl || undefined"
             :controls="status === 'completed'"
             :muted="status !== 'completed'"
+            preload="metadata"
             playsinline
+            @loadedmetadata="onPreviewLoadedMetadata"
+            @canplay="previewReady = true"
+            @play="previewPlaying = true"
+            @pause="previewPlaying = false"
+            @ended="previewPlaying = false"
+            @error="onPreviewError"
           ></video>
+
+          <button
+            v-if="status === 'completed' && previewUrl && !previewPlaying && !previewError"
+            class="preview-play-button"
+            type="button"
+            :disabled="!previewReady"
+            :title="previewReady ? '播放预览' : '正在加载预览'"
+            :aria-label="previewReady ? '播放预览' : '正在加载预览'"
+            @click="togglePreviewPlayback"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <polygon points="8 5 19 12 8 19" />
+            </svg>
+          </button>
+
+          <div v-if="status === 'completed' && previewError" class="preview-error">
+            <span>{{ previewError }}</span>
+            <n-button size="small" secondary @click="togglePreviewPlayback">重试播放</n-button>
+          </div>
 
           <div v-if="status === 'idle'" class="stage-empty">
             <svg class="stage-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -928,6 +965,52 @@ onBeforeUnmount(() => {
   max-height: calc(100vh - 190px);
   object-fit: contain;
   background: var(--bg-base);
+}
+
+.preview-play-button {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-overlay);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+}
+
+.preview-play-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preview-play-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.preview-play-button svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  fill: currentColor;
+}
+
+.preview-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--bg-base);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
 }
 
 .stage-empty {

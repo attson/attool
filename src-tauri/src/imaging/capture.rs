@@ -1,9 +1,9 @@
 use std::fs;
-use std::path::PathBuf;
-#[cfg(target_os = "macos")]
+use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl,
     WebviewWindowBuilder,
@@ -13,6 +13,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
 const OVERLAY_DESKTOP_FRAME_EXTENSION: &str = "png";
+const OVERLAY_UNMAP_SETTLE_TIME: Duration = Duration::from_millis(120);
+const OVERLAY_READY_TIMEOUT: Duration = Duration::from_secs(1);
 const WAYLAND_SHORTCUT_UNAVAILABLE: &str = "当前是 Wayland 会话，内置全局快捷键仅支持 X11";
 
 fn select_primary_or_first<T>(primary: Option<T>, available: Vec<T>) -> Option<T> {
@@ -33,9 +35,92 @@ pub(crate) fn primary_or_first_monitor(app: &AppHandle) -> Result<Monitor, Strin
 
 /// Currently-registered shortcut string (Tauri format like "CommandOrControl+Shift+A").
 static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
+static OVERLAY_OPEN: OnceLock<Mutex<()>> = OnceLock::new();
+static OVERLAY_HIDDEN_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+static OVERLAY_READY: OnceLock<(Mutex<bool>, Condvar)> = OnceLock::new();
 
 fn registered_slot() -> &'static Mutex<String> {
     REGISTERED.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn overlay_open_slot() -> &'static Mutex<()> {
+    OVERLAY_OPEN.get_or_init(|| Mutex::new(()))
+}
+
+fn overlay_hidden_at_slot() -> &'static Mutex<Option<Instant>> {
+    OVERLAY_HIDDEN_AT.get_or_init(|| Mutex::new(None))
+}
+
+fn overlay_ready_slot() -> &'static (Mutex<bool>, Condvar) {
+    OVERLAY_READY.get_or_init(|| (Mutex::new(false), Condvar::new()))
+}
+
+fn capture_mode_needs_desktop_frame(initial_mode: &str) -> bool {
+    initial_mode != "recording"
+}
+
+fn overlay_settle_delay(last_hidden: Option<Instant>, now: Instant) -> Duration {
+    let Some(hidden_at) = last_hidden else {
+        return Duration::ZERO;
+    };
+    OVERLAY_UNMAP_SETTLE_TIME.saturating_sub(now.saturating_duration_since(hidden_at))
+}
+
+fn wait_for_overlay_unmap() {
+    let last_hidden = overlay_hidden_at_slot().lock().ok().and_then(|slot| *slot);
+    let delay = overlay_settle_delay(last_hidden, Instant::now());
+    if !delay.is_zero() {
+        std::thread::sleep(delay);
+    }
+}
+
+fn mark_capture_overlay_hidden() {
+    if let Ok(mut slot) = overlay_hidden_at_slot().lock() {
+        *slot = Some(Instant::now());
+    }
+}
+
+pub fn mark_capture_overlay_ready() {
+    let (ready, signal) = overlay_ready_slot();
+    if let Ok(mut ready) = ready.lock() {
+        *ready = true;
+        signal.notify_all();
+    }
+}
+
+fn wait_for_capture_overlay_ready() -> Result<(), String> {
+    let (ready, signal) = overlay_ready_slot();
+    let ready = ready
+        .lock()
+        .map_err(|_| "截图浮层就绪状态异常".to_string())?;
+    if *ready {
+        return Ok(());
+    }
+    let (ready, _) = signal
+        .wait_timeout_while(ready, OVERLAY_READY_TIMEOUT, |ready| !*ready)
+        .map_err(|_| "截图浮层就绪状态异常".to_string())?;
+    if *ready {
+        Ok(())
+    } else {
+        Err("截图浮层初始化超时".to_string())
+    }
+}
+
+fn capture_overlay_is_ready() -> bool {
+    overlay_ready_slot()
+        .0
+        .lock()
+        .map(|ready| *ready)
+        .unwrap_or(false)
+}
+
+fn parse_cosmic_screenshot_path(stdout: &[u8]) -> Option<PathBuf> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(PathBuf::from)
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -90,7 +175,10 @@ fn write_stored_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> 
 }
 
 pub fn current_shortcut() -> String {
-    registered_slot().lock().map(|g| g.clone()).unwrap_or_default()
+    registered_slot()
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default()
 }
 
 pub fn register_capture_shortcut(app: &AppHandle) -> Result<(), String> {
@@ -165,7 +253,22 @@ fn install_handler(app: &AppHandle, shortcut: Shortcut) -> Result<(), String> {
 pub fn trigger_capture_overlay(app: &AppHandle) {
     let inner = app.clone();
     std::thread::spawn(move || {
-        if let Err(err) = open_capture_overlay(&inner) {
+        if let Err(err) = open_capture_overlay(&inner, "screenshot", None) {
+            let _ = inner.emit("capture-failed", err);
+        }
+    });
+}
+
+pub fn trigger_recording_overlay(app: &AppHandle) {
+    if let Some(overlay) = app.get_webview_window("capture-overlay") {
+        if overlay.is_visible().unwrap_or(false) {
+            let _ = overlay.emit("capture-overlay-recording-toggle", ());
+            return;
+        }
+    }
+    let inner = app.clone();
+    std::thread::spawn(move || {
+        if let Err(err) = open_capture_overlay(&inner, "recording", None) {
             let _ = inner.emit("capture-failed", err);
         }
     });
@@ -176,47 +279,98 @@ pub fn trigger_capture_overlay(app: &AppHandle) {
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OverlayInitPayload {
+    request_id: String,
     image_path: String,
     screen_width: f64,
     screen_height: f64,
+    usable_height: f64,
+    covers_system_ui: bool,
     scale_factor: f64,
     windows: Vec<super::windows::WindowRect>,
+    initial_mode: String,
+    recording_options: OverlayRecordingOptions,
+}
+
+fn desktop_bottom_panel_inset(desktop: &str, anchor: &str, size: &str) -> f64 {
+    if !desktop.to_ascii_lowercase().contains("cosmic") || !anchor.eq_ignore_ascii_case("bottom") {
+        return 0.0;
+    }
+    match size.to_ascii_lowercase().as_str() {
+        "s" => 40.0,
+        "m" => 52.0,
+        "l" => 64.0,
+        _ => 52.0,
+    }
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayRecordingOptions {
+    pub resolution: String,
+    pub frame_rate: u32,
+    pub system_audio: bool,
+    pub microphone: bool,
+}
+
+impl Default for OverlayRecordingOptions {
+    fn default() -> Self {
+        Self {
+            resolution: "original".to_string(),
+            frame_rate: 30,
+            system_audio: true,
+            microphone: false,
+        }
+    }
 }
 
 /// Take a silent full-desktop screenshot and hand it to the transparent overlay window,
 /// which then handles region select + on-canvas annotation.
-pub fn open_capture_overlay(app: &AppHandle) -> Result<(), String> {
-    run_open_overlay(app)
+pub fn open_capture_overlay(
+    app: &AppHandle,
+    initial_mode: &str,
+    recording_options: Option<OverlayRecordingOptions>,
+) -> Result<(), String> {
+    run_open_overlay(app, initial_mode, recording_options)
 }
 
-fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
+fn run_open_overlay(
+    app: &AppHandle,
+    initial_mode: &str,
+    recording_options: Option<OverlayRecordingOptions>,
+) -> Result<(), String> {
+    let Ok(_open_guard) = overlay_open_slot().try_lock() else {
+        return Ok(());
+    };
     let overlay = app
         .get_webview_window("capture-overlay")
         .ok_or_else(|| "找不到截图覆盖窗".to_string())?;
+    if overlay.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
 
-    // Hide overlay if it's somehow visible, so it isn't captured. Also give the desktop a moment to repaint.
-    let _ = overlay.hide();
-    std::thread::sleep(std::time::Duration::from_millis(120));
-
-    // Snap the whole desktop silently, no cursor.
-    // Keep this in a WebView-supported format because the overlay renders it with <img>.
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let cache_root = dirs::cache_dir()
-        .or_else(dirs::home_dir)
-        .ok_or_else(|| "无法确定缓存目录".to_string())?;
-    let dir = cache_root.join("attool").join("captures");
-    fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
-    let image_path = dir.join(format!(
-        "attool-desktop-{ts}.{OVERLAY_DESKTOP_FRAME_EXTENSION}"
-    ));
-
-    capture_fullscreen_silent(&image_path)?;
-    if !image_path.is_file() {
-        return Err("桌面截图失败：未生成截图文件".to_string());
-    }
+    let needs_desktop_frame = capture_mode_needs_desktop_frame(initial_mode);
+    let image_path = if needs_desktop_frame {
+        wait_for_overlay_unmap();
+        let cache_root = dirs::cache_dir()
+            .or_else(dirs::home_dir)
+            .ok_or_else(|| "无法确定缓存目录".to_string())?;
+        let dir = cache_root.join("attool").join("captures");
+        fs::create_dir_all(&dir).map_err(|error| format!("创建缓存目录失败：{error}"))?;
+        let path = dir.join(format!(
+            "attool-desktop-{ts}.{OVERLAY_DESKTOP_FRAME_EXTENSION}"
+        ));
+        capture_fullscreen_silent(&path)?;
+        if !path.is_file() {
+            return Err("桌面截图失败：未生成截图文件".to_string());
+        }
+        path
+    } else {
+        PathBuf::new()
+    };
 
     // Position overlay to cover the selected monitor
     let monitor = primary_or_first_monitor(app)?;
@@ -227,33 +381,70 @@ fn run_open_overlay(app: &AppHandle) -> Result<(), String> {
     let logical_height = physical_size.height as f64 / scale;
     let logical_x = physical_pos.x as f64 / scale;
     let logical_y = physical_pos.y as f64 / scale;
-
-    overlay
-        .set_position(LogicalPosition::new(logical_x, logical_y))
-        .map_err(|error| format!("移动覆盖窗失败：{error}"))?;
+    let work_area = monitor.work_area();
+    let reported_work_bottom = ((work_area.position.y as f64 + work_area.size.height as f64
+        - physical_pos.y as f64)
+        / scale)
+        .clamp(0.0, logical_height);
+    let panel_inset = desktop_bottom_panel_inset(
+        &std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        &std::env::var("COSMIC_PANEL_ANCHOR").unwrap_or_default(),
+        &std::env::var("COSMIC_PANEL_SIZE").unwrap_or_default(),
+    );
+    #[cfg(target_os = "linux")]
+    let layer_shell_active = crate::clipboard::layer_shell::capture_overlay_is_layer_shell();
+    #[cfg(not(target_os = "linux"))]
+    let layer_shell_active = false;
+    let usable_height = if layer_shell_active {
+        logical_height
+    } else {
+        reported_work_bottom.min((logical_height - panel_inset).max(1.0))
+    };
+    if !layer_shell_active {
+        overlay
+            .set_position(LogicalPosition::new(logical_x, logical_y))
+            .map_err(|error| format!("移动覆盖窗失败：{error}"))?;
+    }
     overlay
         .set_size(LogicalSize::new(logical_width, logical_height))
         .map_err(|error| format!("调整覆盖窗尺寸失败：{error}"))?;
 
     let payload = OverlayInitPayload {
+        request_id: ts.to_string(),
         image_path: image_path.to_string_lossy().into_owned(),
         screen_width: logical_width,
         screen_height: logical_height,
+        usable_height,
+        covers_system_ui: layer_shell_active,
         scale_factor: scale,
-        windows: super::windows::list_visible_windows(scale),
+        windows: if needs_desktop_frame {
+            super::windows::list_visible_windows(scale)
+        } else {
+            Vec::new()
+        },
+        initial_mode: if initial_mode == "recording" {
+            "recording".to_string()
+        } else {
+            "screenshot".to_string()
+        },
+        recording_options: recording_options.unwrap_or_default(),
     };
-    let _ = overlay.emit("capture-overlay-init", payload.clone());
-
+    let was_ready = capture_overlay_is_ready();
+    if !was_ready {
+        overlay
+            .show()
+            .map_err(|error| format!("显示覆盖窗失败：{error}"))?;
+        wait_for_capture_overlay_ready()?;
+    }
     overlay
-        .show()
-        .map_err(|error| format!("显示覆盖窗失败：{error}"))?;
+        .emit("capture-overlay-init", payload)
+        .map_err(|error| format!("初始化覆盖窗失败：{error}"))?;
+    if was_ready {
+        overlay
+            .show()
+            .map_err(|error| format!("显示覆盖窗失败：{error}"))?;
+    }
     let _ = overlay.set_focus();
-    // Re-emit shortly after show so the webview has time to attach the listener on first launch
-    let overlay_clone = overlay.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(180));
-        let _ = overlay_clone.emit("capture-overlay-init", payload);
-    });
     Ok(())
 }
 
@@ -289,6 +480,18 @@ fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .contains("cosmic")
+    {
+        match capture_fullscreen_with_cosmic(path) {
+            Ok(()) => return Ok(()),
+            Err(error) => eprintln!("COSMIC 截图快速路径不可用，回退到 xcap：{error}"),
+        }
+    }
+
     use xcap::Monitor;
     let monitors = Monitor::all().map_err(|error| format!("枚举显示器失败：{error}"))?;
     let monitor = monitors
@@ -299,10 +502,49 @@ fn capture_fullscreen_silent(path: &std::path::Path) -> Result<(), String> {
     let image = monitor
         .capture_image()
         .map_err(|error| format!("截图失败（Wayland 会话可能受限，建议使用 X11 登录）：{error}"))?;
-    // save() 按扩展名选择编码器；path 用 .bmp 走无压缩,避免 PNG deflate 的秒级耗时
+    // Compatibility fallback for desktops without a native fast path.
     image
         .save(path)
         .map_err(|error| format!("保存截图失败：{error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn capture_fullscreen_with_cosmic(path: &Path) -> Result<(), String> {
+    let output_dir = path
+        .parent()
+        .ok_or_else(|| "截图缓存目录无效".to_string())?;
+    let output = Command::new("cosmic-screenshot")
+        .arg("--interactive=false")
+        .arg("--modal=false")
+        .arg("--notify=false")
+        .arg("--save-dir")
+        .arg(output_dir)
+        .output()
+        .map_err(|error| format!("启动 cosmic-screenshot 失败：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cosmic-screenshot 退出码 {}：{}",
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let generated = parse_cosmic_screenshot_path(&output.stdout)
+        .ok_or_else(|| "cosmic-screenshot 未返回截图路径".to_string())?;
+    if !generated.is_file() {
+        return Err(format!(
+            "cosmic-screenshot 未生成文件：{}",
+            generated.display()
+        ));
+    }
+    if generated != path {
+        fs::rename(&generated, path)
+            .or_else(|_| {
+                fs::copy(&generated, path)?;
+                fs::remove_file(&generated)
+            })
+            .map_err(|error| format!("保存 COSMIC 截图失败：{error}"))?;
+    }
     Ok(())
 }
 
@@ -311,6 +553,7 @@ pub fn close_capture_overlay(app: &AppHandle) -> Result<(), String> {
         overlay
             .hide()
             .map_err(|error| format!("隐藏覆盖窗失败：{error}"))?;
+        mark_capture_overlay_hidden();
     }
     Ok(())
 }
@@ -350,7 +593,9 @@ pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathB
     }
 
     if let Some(overlay) = app.get_webview_window("capture-overlay") {
-        let _ = overlay.hide();
+        if overlay.hide().is_ok() {
+            mark_capture_overlay_hidden();
+        }
     }
 
     Ok(path)
@@ -426,7 +671,9 @@ pub fn pin_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathBuf,
     let _ = win.set_focus();
 
     if let Some(overlay) = app.get_webview_window("capture-overlay") {
-        let _ = overlay.hide();
+        if overlay.hide().is_ok() {
+            mark_capture_overlay_hidden();
+        }
     }
     Ok(path)
 }
@@ -511,14 +758,20 @@ mod tests {
 
     #[test]
     fn overlay_desktop_frame_uses_a_webview_supported_image_format() {
-        assert!(
-            matches!(OVERLAY_DESKTOP_FRAME_EXTENSION, "png" | "jpg" | "jpeg" | "webp"),
+        assert!(matches!(OVERLAY_DESKTOP_FRAME_EXTENSION, "png" | "jpg" | "jpeg" | "webp"),
             "overlay background must use a WebView-supported image format"
         );
         assert_ne!(
             OVERLAY_DESKTOP_FRAME_EXTENSION, "bmp",
             "WKWebView does not reliably render BMP, which leaves the capture overlay blank"
         );
+    }
+
+    #[test]
+    fn reserves_space_for_a_bottom_cosmic_panel() {
+        assert_eq!(desktop_bottom_panel_inset("COSMIC", "Bottom", "L"), 64.0);
+        assert_eq!(desktop_bottom_panel_inset("COSMIC", "Top", "L"), 0.0);
+        assert_eq!(desktop_bottom_panel_inset("GNOME", "Bottom", "L"), 0.0);
     }
 
     #[test]
@@ -530,5 +783,34 @@ mod tests {
     fn falls_back_to_first_monitor_when_primary_is_unavailable() {
         assert_eq!(select_primary_or_first(None, vec![1, 2]), Some(1));
         assert_eq!(select_primary_or_first::<u8>(None, vec![]), None);
+    }
+
+    #[test]
+    fn recording_overlay_does_not_need_a_desktop_frame() {
+        assert!(!capture_mode_needs_desktop_frame("recording"));
+        assert!(capture_mode_needs_desktop_frame("screenshot"));
+    }
+
+    #[test]
+    fn compositor_wait_only_covers_the_unsettled_remainder() {
+        let now = std::time::Instant::now();
+        assert_eq!(overlay_settle_delay(None, now), std::time::Duration::ZERO);
+        assert_eq!(
+            overlay_settle_delay(Some(now - std::time::Duration::from_millis(40)), now),
+            std::time::Duration::from_millis(80)
+        );
+        assert_eq!(
+            overlay_settle_delay(Some(now - std::time::Duration::from_millis(120)), now),
+            std::time::Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn parses_cosmic_screenshot_output_path() {
+        assert_eq!(
+            parse_cosmic_screenshot_path(b"/tmp/captures/Screenshot_2026-10-15.png\n"),
+            Some(PathBuf::from("/tmp/captures/Screenshot_2026-10-15.png"))
+        );
+        assert_eq!(parse_cosmic_screenshot_path(b"\n"), None);
     }
 }

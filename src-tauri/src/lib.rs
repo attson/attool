@@ -13,6 +13,7 @@ pub mod imaging;
 pub mod network;
 mod qrcode;
 mod recording;
+mod recording_preview;
 mod xhs;
 mod youtube;
 
@@ -1154,6 +1155,12 @@ pub fn run() {
                 Ok(false) => {}
                 Err(error) => eprintln!("{error}"),
             }
+            #[cfg(target_os = "linux")]
+            match clipboard::layer_shell::configure_capture_overlay(app.handle()) {
+                Ok(true) => eprintln!("截图录屏浮层已启用 Wayland layer-shell Overlay 层"),
+                Ok(false) => {}
+                Err(error) => eprintln!("{error}"),
+            }
 
             #[cfg(target_os = "linux")]
             if let Err(error) = capture_command::start_listener(app.handle()) {
@@ -1301,11 +1308,14 @@ pub fn run() {
             recording::cancel_recording_file,
             recording::save_recording_file,
             recording::discard_recording_file,
+            recording::recording_preview_url,
+            recording::present_recording_result,
             recording::default_recording_path,
             recording::open_recording_folder,
             recording::get_recording_shortcut,
             recording::set_recording_shortcut,
             recording::get_native_recording_capabilities,
+            recording::prepare_native_recording,
             recording::start_native_recording,
             recording::pause_native_recording,
             recording::resume_native_recording,
@@ -1397,6 +1407,8 @@ pub fn run() {
             imaging::commands::set_capture_shortcut,
             imaging::commands::open_system_shortcut_settings,
             imaging::commands::open_capture_overlay,
+            imaging::commands::mark_capture_overlay_ready,
+            imaging::commands::set_capture_overlay_input_region,
             imaging::commands::close_capture_overlay,
             imaging::commands::commit_capture_overlay,
             imaging::commands::pin_capture_overlay,

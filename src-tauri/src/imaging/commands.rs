@@ -2,8 +2,9 @@ use super::capture::{
     capture_screen as run_capture, close_capture_overlay as run_close_overlay,
     commit_capture_overlay as run_commit_overlay, configured_shortcut,
     current_shortcut as current_capture_shortcut, global_shortcut_unavailable_reason,
+    mark_capture_overlay_ready as run_mark_overlay_ready,
     open_capture_overlay as run_open_overlay, pin_capture_overlay as run_pin_overlay,
-    reregister_capture_shortcut, DEFAULT_CAPTURE_SHORTCUT,
+    reregister_capture_shortcut, OverlayRecordingOptions, DEFAULT_CAPTURE_SHORTCUT,
 };
 use tauri::AppHandle;
 use super::compress::compress_image as run_compress;
@@ -314,11 +315,64 @@ pub fn open_system_shortcut_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn open_capture_overlay(app: AppHandle) -> Result<(), String> {
+pub async fn open_capture_overlay(
+    app: AppHandle,
+    mode: Option<String>,
+    recording_options: Option<OverlayRecordingOptions>,
+) -> Result<(), String> {
     // Off-thread so screencapture -x (blocking) doesn't stall the tauri event loop
-    tauri::async_runtime::spawn_blocking(move || run_open_overlay(&app))
-        .await
-        .map_err(|error| format!("覆盖窗启动异常：{error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        run_open_overlay(
+            &app,
+            mode.as_deref().unwrap_or("screenshot"),
+            recording_options,
+        )
+    })
+    .await
+    .map_err(|error| format!("覆盖窗启动异常：{error}"))?
+}
+
+#[tauri::command]
+pub fn mark_capture_overlay_ready() {
+    run_mark_overlay_ready();
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureOverlayInputRegion {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[tauri::command]
+pub async fn set_capture_overlay_input_region(
+    app: AppHandle,
+    region: Option<CaptureOverlayInputRegion>,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let main_app = app.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let result = crate::clipboard::layer_shell::set_capture_overlay_input_region(
+                &main_app,
+                region.map(|value| (value.x, value.y, value.width, value.height)),
+            );
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("切换浮层输入区域失败：{error}"))?;
+        return receiver
+            .await
+            .map_err(|_| "切换浮层输入区域未完成".to_string())?;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, region);
+        Ok(())
+    }
 }
 
 #[tauri::command]

@@ -10,6 +10,14 @@ interface CaptureModeRequest {
   toggle: boolean;
 }
 const requestedCaptureMode = ref<CaptureModeRequest | null>(null);
+export interface RecordingResult {
+  outputPath: string;
+  size: number;
+  sourceLabel: string;
+  elapsedMs: number;
+  extension: 'webm' | 'mp4';
+}
+const pendingRecordingResult = ref<RecordingResult | null>(null);
 
 export function setPendingAnnotateImage(path: string) {
   pendingAnnotate.value = path;
@@ -21,6 +29,10 @@ export function requestImageTab(name: string) {
 
 export function requestCaptureMode(mode: CaptureMode, toggle = false) {
   requestedCaptureMode.value = { mode, toggle };
+}
+
+export function publishRecordingResult(result: RecordingResult) {
+  pendingRecordingResult.value = result;
 }
 
 export function usePendingAnnotateImage() {
@@ -51,6 +63,17 @@ export function useRequestedCaptureMode() {
     consume(): CaptureModeRequest | null {
       const value = requestedCaptureMode.value;
       requestedCaptureMode.value = null;
+      return value;
+    }
+  };
+}
+
+export function usePendingRecordingResult() {
+  return {
+    pending: pendingRecordingResult,
+    consume(): RecordingResult | null {
+      const value = pendingRecordingResult.value;
+      pendingRecordingResult.value = null;
       return value;
     }
   };

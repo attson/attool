@@ -39,7 +39,12 @@ import { useUpdater } from './composables/useUpdater';
 import { useUpdaterPrefs } from './composables/useUpdaterPrefs';
 import type { DownloadEventPayload, DownloadTask, StartDownloadRequest } from './types/download';
 import type { Tool } from './types/tool';
-import { requestCaptureMode, requestImageTab } from './components/image/imageBus';
+import {
+  publishRecordingResult,
+  requestCaptureMode,
+  requestImageTab,
+  type RecordingResult
+} from './components/image/imageBus';
 
 const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
 const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
@@ -177,7 +182,7 @@ const jsonToolVisited = ref(initialToolId === 'json');
 
 let unlistenProgress: Promise<UnlistenFn> | undefined;
 let unlistenCaptureFail: Promise<UnlistenFn> | undefined;
-let unlistenRecordingToggle: Promise<UnlistenFn> | undefined;
+let unlistenRecordingCompleted: Promise<UnlistenFn> | undefined;
 
 onMounted(() => {
   if (isClipboardHistoryWindow || isCaptureOverlayWindow || isCapturePinWindow) return;
@@ -219,10 +224,11 @@ onMounted(() => {
     console.warn('[capture]', msg);
   });
 
-  unlistenRecordingToggle = listen('recording://toggle', () => {
+  unlistenRecordingCompleted = listen<RecordingResult>('recording://completed', (event) => {
+    publishRecordingResult(event.payload);
     selectTool('image');
     requestImageTab('capture');
-    requestCaptureMode('recording', true);
+    requestCaptureMode('recording');
   });
 
   window.addEventListener('keydown', handleHotkey);
@@ -248,7 +254,7 @@ function handleHotkey(event: KeyboardEvent) {
 onUnmounted(() => {
   unlistenProgress?.then((dispose) => dispose()).catch(() => undefined);
   unlistenCaptureFail?.then((dispose) => dispose()).catch(() => undefined);
-  unlistenRecordingToggle?.then((dispose) => dispose()).catch(() => undefined);
+  unlistenRecordingCompleted?.then((dispose) => dispose()).catch(() => undefined);
   window.removeEventListener('keydown', handleHotkey);
 });
 
