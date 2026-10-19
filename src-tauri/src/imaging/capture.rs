@@ -8,7 +8,6 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl,
     WebviewWindowBuilder,
 };
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+A";
@@ -581,15 +580,11 @@ pub fn commit_capture_overlay(app: &AppHandle, png_base64: &str) -> Result<PathB
     let path = dir.join(format!("attool-capture-{ts}.png"));
     fs::write(&path, &bytes).map_err(|error| format!("写文件失败：{error}"))?;
 
-    // Decode PNG → RGBA and write as image to the clipboard.
+    // Decode once so the platform clipboard backend can publish compatible image formats.
     let dyn_img = image::load_from_memory(&bytes).map_err(|error| format!("PNG 解码失败：{error}"))?;
-    let rgba = dyn_img.to_rgba8();
-    let (w, h) = (rgba.width(), rgba.height());
-    let raw = rgba.into_raw();
-    let image = tauri::image::Image::new_owned(raw, w, h);
-    if let Err(error) = app.clipboard().write_image(&image) {
+    if let Err(error) = crate::clipboard::image_writer::write_image(app, &dyn_img) {
         // Non-fatal: file was saved, just log
-        eprintln!("[capture] clipboard write_image failed: {error}");
+        eprintln!("[capture] clipboard image write failed: {error}");
     }
 
     if let Some(overlay) = app.get_webview_window("capture-overlay") {

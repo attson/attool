@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{image::Image, AppHandle, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use super::{
@@ -111,18 +111,23 @@ pub async fn restore_clipboard_item(
         .find(|item| item.id == id)
         .ok_or_else(|| "剪贴板历史不存在".to_string())?;
 
-    match item.kind {
-        ClipboardItemKind::Text => app.clipboard().write_text(item.content_text.clone()),
-        ClipboardItemKind::Files => app.clipboard().write_text(item.file_paths.join("\n")),
+    let result = match item.kind {
+        ClipboardItemKind::Text => app
+            .clipboard()
+            .write_text(item.content_text.clone())
+            .map_err(|error| error.to_string()),
+        ClipboardItemKind::Files => app
+            .clipboard()
+            .write_text(item.file_paths.join("\n"))
+            .map_err(|error| error.to_string()),
         ClipboardItemKind::Image => {
             let path = item.asset_path.ok_or_else(|| "剪贴板图片资源不存在".to_string())?;
-            let decoded = image::open(path).map_err(|error| format!("读取剪贴板图片失败：{error}"))?.to_rgba8();
-            let (width, height) = decoded.dimensions();
-            let image = Image::new_owned(decoded.into_raw(), width, height);
-            app.clipboard().write_image(&image)
+            let decoded = image::open(path)
+                .map_err(|error| format!("读取剪贴板图片失败：{error}"))?;
+            super::image_writer::write_image(&app, &decoded)
         }
-    }
-    .map_err(|error| format!("写入剪贴板失败：{error}"))?;
+    };
+    result.map_err(|error| format!("写入剪贴板失败：{error}"))?;
 
     store.touch_copied(&id)
 }
