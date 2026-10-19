@@ -1567,9 +1567,9 @@ function onKeydown(event: KeyboardEvent) {
       event.preventDefault();
       void resumeRecording();
     }
-  } else if ((event.metaKey || event.ctrlKey) && (event.key === 'Enter' || event.key === 'Return')) {
+  } else if (event.key === 'Enter' || event.key === 'Return') {
     event.preventDefault();
-    if (hasSelection.value) confirm();
+    if (hasSelection.value) void confirm();
   } else if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     redo();
@@ -1916,7 +1916,7 @@ onUnmounted(() => {
             <line x1="18" y1="6" x2="6" y2="18"/>
           </svg>
         </button>
-        <button class="confirm" @click="confirm" title="完成 ⌘↩">
+        <button class="confirm" @click="confirm" title="完成 Enter">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="5,13 10,18 19,6"/>
           </svg>
@@ -1945,7 +1945,7 @@ onUnmounted(() => {
 
     <!-- Instructions when nothing selected yet -->
     <div v-if="captureMode === 'screenshot' && !selection && !isSelecting" class="hint-banner">
-      拖动选择区域 · Esc 取消 · Ctrl/⌘ + Enter 完成
+      拖动选择区域 · Esc 取消 · Enter 完成
     </div>
 
     <div

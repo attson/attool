@@ -389,6 +389,7 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
+ "wl-clipboard-rs",
  "xcap",
 ]
 

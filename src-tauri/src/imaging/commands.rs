@@ -416,16 +416,10 @@ pub async fn pin_capture_overlay(
 
 #[tauri::command]
 pub async fn copy_pin_image(app: AppHandle, path: String) -> Result<(), String> {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = fs::read(&path).map_err(|error| format!("读文件失败：{error}"))?;
         let img = image::load_from_memory(&bytes).map_err(|error| format!("PNG 解码失败：{error}"))?;
-        let rgba = img.to_rgba8();
-        let (w, h) = (rgba.width(), rgba.height());
-        let raw = rgba.into_raw();
-        let image = tauri::image::Image::new_owned(raw, w, h);
-        app.clipboard()
-            .write_image(&image)
+        crate::clipboard::image_writer::write_image(&app, &img)
             .map_err(|error| format!("写剪贴板失败：{error}"))?;
         Ok::<_, String>(())
     })
