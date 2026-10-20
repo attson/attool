@@ -11,17 +11,13 @@ thread_local! {
 pub(crate) fn write_image(app: &AppHandle, image: &DynamicImage) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        // Some compositors advertise Wayland image targets to XWayland clients but serve empty data.
-        let wayland_result = write_wayland_image(image);
-        let x11_result = write_x11_image(app, image);
-        if wayland_result.is_ok() || x11_result.is_ok() {
-            return Ok(());
+        if std::env::var_os("DISPLAY").is_some() {
+            // Claiming both selections races COSMIC's clipboard bridge: its delayed Wayland-to-X11
+            // claim can replace our valid X11 owner with an offer whose image payload is empty.
+            // Publishing only to X11 lets the compositor bridge the same owner to Wayland clients.
+            return write_x11_image(app, image);
         }
-        return Err(format!(
-            "Wayland clipboard: {}; X11 clipboard: {}",
-            wayland_result.unwrap_err(),
-            x11_result.unwrap_err()
-        ));
+        return write_wayland_image(image);
     }
 
     let rgba = image.to_rgba8();
