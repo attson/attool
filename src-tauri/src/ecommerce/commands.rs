@@ -1,28 +1,23 @@
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::State;
 
 use super::{
+    models::{
+        BatchOutputItem, BatchRunMode, BatchTaskInput, TemplateAsset, TemplateProject,
+        TemplateSummary,
+    },
+    psd_bridge::import_psd,
     render::run_batch_tasks,
-    models::{BatchOutputItem, BatchRunMode, BatchTaskInput, TemplateAsset, TemplateProject, TemplateSummary},
-    psd_bridge::import_psd_with_bridge,
     storage::EcommerceStore,
 };
 
 #[tauri::command]
 pub async fn import_psd_template(
     psd_path: String,
-    app: AppHandle,
     store: State<'_, EcommerceStore>,
 ) -> Result<TemplateProject, String> {
-    let bridge = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|dir| dir.join("python/psd_template_bridge.py"))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/psd_template_bridge.py"));
-    let project = import_psd_with_bridge(&bridge, PathBuf::from(psd_path).as_path(), store.root_dir())?;
+    let project = import_psd(PathBuf::from(psd_path).as_path(), store.root_dir())?;
     store.save_template(project)
 }
 
@@ -82,8 +77,7 @@ pub async fn import_template_asset_from_path(
     store: State<'_, EcommerceStore>,
 ) -> Result<TemplateAsset, String> {
     let source = PathBuf::from(&source_path);
-    let bytes = std::fs::read(&source)
-        .map_err(|error| format!("读取图片失败：{error}"))?;
+    let bytes = std::fs::read(&source).map_err(|error| format!("读取图片失败：{error}"))?;
     let name = source
         .file_name()
         .map(|os| os.to_string_lossy().into_owned())
@@ -105,7 +99,6 @@ pub async fn delete_template_asset(
 ) -> Result<(), String> {
     store.delete_asset(&asset_id)
 }
-
 
 #[tauri::command]
 pub async fn run_batch_replace_tasks(

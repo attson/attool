@@ -15,7 +15,7 @@
 | 编辑器 | Monaco Editor（JSON 工具） |
 | 截图 | macOS core-graphics / Linux·Windows xcap 0.8 |
 | 更新 | 自研 updater（Ed25519 签名 SHA256SUMS + 平台专用 apply 脚本，覆盖 mac/win/**Linux**） |
-| 外部命令 | `aria2c`（下载）、`python3 + psd-tools`（PSD 解析） |
+| 外部命令 | `aria2c`（下载）；PSD 解析器以 PyInstaller sidecar 随正式包分发 |
 
 ## 常用命令
 
@@ -135,8 +135,8 @@ docs/superpowers/                # superpowers 流程产物（每任务 1 份 sp
   - `verify.rs` 校验 `SHA256SUMS.sig`（Ed25519 detached）+ 匹配单文件 sha256
   - `download.rs` reqwest 流式下载，边下边算 sha，150ms 节流进度事件；支持 cancel + 断点复用（stage 目录同名文件校验过就跳过）
   - `apply/macos.rs` tar 解 `.app.tar.gz` + rename swap `.app.old` + `open` 拉起
-  - `apply/windows.rs` PowerShell Expand-Archive + embed `update-windows.bat`（timeout + copy /y + start）
-  - `apply/linux.rs` embed `install-linux.sh`（等父进程死 + tar 解 + mv 覆盖 / 失败走 `pkexec` 提权 + `setsid` 分离）
+  - `apply/windows.rs` PowerShell Expand-Archive + embed `update-windows.bat`（timeout + 同步替换主程序和 PSD sidecar + start）
+  - `apply/linux.rs` embed `install-linux.sh`（等父进程死 + tar 解 + 同步替换主程序和 PSD sidecar / 失败走 `pkexec` 提权 + `setsid` 分离）
 - UI：sidebar 底部齿轮打开 `SettingsModal`；topbar 下方 `UpdateBanner`；发现新版点"现在安装"触发 download + apply
 
 ### 密钥（Ed25519）
@@ -169,8 +169,8 @@ AT.Tool_<v>_arm64.deb
 
 AT.Tool_<v>_arm64.app.tar.gz    # updater 归档（macOS .app 打包）
 AT.Tool_<v>_amd64.app.tar.gz
-AT.Tool_<v>_amd64.exe.zip       # updater 归档（Windows exe 打包）
-AT.Tool_<v>_amd64.tar.gz        # updater 归档（Linux 二进制 + layer-shell 运行库）
+AT.Tool_<v>_amd64.exe.zip       # updater 归档（Windows exe + PSD sidecar）
+AT.Tool_<v>_amd64.tar.gz        # updater 归档（Linux 二进制 + PSD sidecar + layer-shell 运行库）
 AT.Tool_<v>_arm64.tar.gz
 ```
 

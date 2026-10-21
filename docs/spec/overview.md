@@ -18,7 +18,7 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 
 ### 主图模板（`id: template`）
 
-- PSD 导入（依赖本机 `python3 + psd-tools`，桥接脚本在 `src-tauri/src/ecommerce/psd_bridge/`）
+- PSD 导入（正式包内置 `psd-bridge` sidecar，包含 Python 运行时与 `psd-tools`）
 - 图层支持图片 / 文本 / 形状 / 组，可拖拽、改尺寸、重排序
 - 字段占位：图层名标 `{{field_name}}` 后，批量任务中按行替换
 - 批量任务：对单个图层注入多组变体，按笛卡尔展开生成所有结果，渲染成 PNG
@@ -113,7 +113,7 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 打包后用户机器上需要：
 
 - `aria2c`（下载工具用）—— `brew install aria2` / `apt install aria2`
-- `python3` + `psd-tools`（PSD 导入用）—— `python3 -m pip install --user psd-tools`
+- `psd-bridge` sidecar 随安装包和应用内更新分发，最终用户无需安装 Python
 - `pkexec`（Linux in-app 升级提权，一般随桌面环境自带）—— `apt install policykit-1`
 - 网络访问 GitHub API（`api.github.com/repos/attson/attool/releases/latest`）+ Releases 静态资源 —— 仅在自动 / 手动检查更新时使用，可在 Settings 中关闭"启动时自动检查更新"
 

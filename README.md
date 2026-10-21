@@ -45,7 +45,6 @@
 | 依赖 | 用途 | 安装 |
 |---|---|---|
 | `aria2c` | 下载工具调用 | `brew install aria2` / `apt install aria2` / `choco install aria2` |
-| `python3` + `psd-tools` | PSD 模板解析 | `python3 -m pip install --user psd-tools` |
 | `pkexec` | Linux in-app 升级提权（一般随桌面环境自带） | `apt install policykit-1` |
 | `ollama serve`（可选） | 本地 AI 对话 provider | https://ollama.com/download |
 
@@ -71,6 +70,14 @@ pnpm test           # vitest run
 pnpm build          # tsc + vite build
 pnpm tauri:build    # 全量打包桌面应用
 ```
+
+PSD 解析器会随正式安装包和应用内更新一起分发，最终用户无需安装 Python。本地执行 `pnpm tauri:build` 前需准备 sidecar 构建环境：
+
+```bash
+python3 -m pip install -r src-tauri/python/requirements-build.txt
+```
+
+开发模式未构建 sidecar 时仍可直接使用本机 `python3 + psd-tools` 调试 PSD 导入。
 
 **dev build 里 updater 自动禁用**（`build.rs` 找不到 `ATTOOL_UPDATE_VERIFY_PUBLIC_KEY` 环境变量，公钥文件为空，客户端不会误拉线上升级）。
 
