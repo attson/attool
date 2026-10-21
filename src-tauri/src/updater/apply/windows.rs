@@ -44,9 +44,6 @@ pub fn apply_windows(app: &AppHandle, staged: &Path) -> Result<(), String> {
         .find(|p| p.extension().and_then(|s| s.to_str()) == Some("exe"))
         .ok_or("解压后未找到 .exe")?;
     let new_sidecar = extracted_dir.join("sidecar").join("psd-bridge.exe");
-    if !new_sidecar.is_file() {
-        return Err("解压后未找到 PSD 解析器".to_string());
-    }
     let current_sidecar = current_exe.with_file_name("psd-bridge.exe");
 
     Command::new("cmd")

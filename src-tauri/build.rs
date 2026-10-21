@@ -6,9 +6,25 @@ fn main() {
     // and include_str!() it from the main crate. This preserves the multi-line
     // PEM as-is (empty file → updater disabled).
     let pk = std::env::var("ATTOOL_UPDATE_VERIFY_PUBLIC_KEY").unwrap_or_default();
-    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"))
-        .join("verify_public_key.pem");
+    let out =
+        PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("verify_public_key.pem");
     fs::write(&out, pk.as_bytes()).expect("write verify_public_key.pem");
     println!("cargo:rerun-if-env-changed=ATTOOL_UPDATE_VERIFY_PUBLIC_KEY");
+
+    let target = std::env::var("TARGET").expect("TARGET");
+    let extension = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let bridge = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(format!("psd-bridge-{target}{extension}"));
+    println!("cargo:rerun-if-changed={}", bridge.display());
+    println!(
+        "cargo:rustc-env=ATTOOL_PSD_BRIDGE_PATH={}",
+        bridge.display()
+    );
+
     tauri_build::build()
 }

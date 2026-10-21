@@ -1,7 +1,9 @@
 @echo off
 REM attool auto-update installer for Windows.
-REM Args: %1 = new exe, %2 = current exe, %3 = new PSD sidecar, %4 = current PSD sidecar
+REM Args: %1 = new exe, %2 = current exe, optional %3/%4 = PSD sidecar paths
 timeout /t 2 /nobreak > nul
+if exist "%~3" goto retry_sidecar
+goto retry
 :retry_sidecar
 copy /y "%~3" "%~4"
 if errorlevel 1 (
