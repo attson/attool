@@ -1111,6 +1111,11 @@ pub(crate) fn show_main_window(app: &AppHandle) {
 
 pub fn run() {
     #[cfg(target_os = "linux")]
+    if clipboard::image_writer::run_x11_clipboard_owner_if_requested() {
+        return;
+    }
+
+    #[cfg(target_os = "linux")]
     let external_command = capture_command::requested_command();
     #[cfg(target_os = "linux")]
     if let Some(request) = external_command {
