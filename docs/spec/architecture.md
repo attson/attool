@@ -43,7 +43,7 @@
 │                                                          │
 │  本机外部进程 / 系统能力                                   │
 │  ├─ aria2c           HTTP/FTP/BT 下载                    │
-│  ├─ python3 + psd-tools   PSD 解析                        │
+│  ├─ psd-bridge sidecar    自带 Python + psd-tools        │
 │  ├─ xcap / core-graphics  屏幕截图                        │
 │  ├─ gtk-layer-shell  Wayland 剪贴板面板底部定位           │
 │  ├─ pkexec           Linux 升级提权（updater）             │
@@ -209,7 +209,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 - `mod.rs` —— pub use；register_handlers
 - `models.rs` —— TemplateProject / TemplateLayer / TemplateAsset 结构
 - `commands.rs` —— `import_psd_template` / `save_ecommerce_template` / `list_ecommerce_templates` / `load_ecommerce_template` / `rename_ecommerce_template` / `delete_ecommerce_template` / `list_template_assets` / `delete_template_asset` / 批量导出系列
-- `psd_bridge.rs` —— shell out 到 `python3 src-tauri/python/psd_template_bridge.py`
+- `psd_bridge.rs` —— release 调用安装目录内的 PyInstaller `psd-bridge` sidecar；debug 缺 sidecar 时可回退本机 Python
 - `render.rs` —— 把 `TemplateProject` 渲染成 PNG（用于批量导出）
 - `storage.rs` —— rusqlite 表创建 / CRUD
 

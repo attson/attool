@@ -7,10 +7,11 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
+    "build:psd-sidecar": "node .github/scripts/build-psd-sidecar.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "tauri build --config src-tauri/tauri.release.conf.json",
     "test": "vitest run"
   },
   "dependencies": {

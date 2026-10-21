@@ -6,8 +6,8 @@ use tauri::AppHandle;
 const UPDATE_BAT: &str = include_str!("../scripts/update-windows.bat");
 
 pub fn apply_windows(app: &AppHandle, staged: &Path) -> Result<(), String> {
-    let current_exe = std::env::current_exe()
-        .map_err(|error| format!("获取当前 exe 路径失败：{error}"))?;
+    let current_exe =
+        std::env::current_exe().map_err(|error| format!("获取当前 exe 路径失败：{error}"))?;
     let tmp = std::env::temp_dir();
     let script_path = tmp.join(format!("attool-update-{}.bat", std::process::id()));
     std::fs::write(&script_path, UPDATE_BAT)
@@ -36,13 +36,18 @@ pub fn apply_windows(app: &AppHandle, staged: &Path) -> Result<(), String> {
         return Err("Expand-Archive exit != 0".to_string());
     }
 
-    // 找出解压出来的 exe（应该只有一个）
+    // 根目录只放主程序，sidecar 放子目录以兼容只扫描根目录 exe 的旧 updater。
     let new_exe = std::fs::read_dir(&extracted_dir)
         .map_err(|error| format!("读取 extract 目录失败：{error}"))?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .find(|p| p.extension().and_then(|s| s.to_str()) == Some("exe"))
         .ok_or("解压后未找到 .exe")?;
+    let new_sidecar = extracted_dir.join("sidecar").join("psd-bridge.exe");
+    if !new_sidecar.is_file() {
+        return Err("解压后未找到 PSD 解析器".to_string());
+    }
+    let current_sidecar = current_exe.with_file_name("psd-bridge.exe");
 
     Command::new("cmd")
         .args([
@@ -52,6 +57,10 @@ pub fn apply_windows(app: &AppHandle, staged: &Path) -> Result<(), String> {
             script_path.to_str().ok_or("script 路径非 UTF-8")?,
             new_exe.to_str().ok_or("new_exe 路径非 UTF-8")?,
             current_exe.to_str().ok_or("current_exe 路径非 UTF-8")?,
+            new_sidecar.to_str().ok_or("new_sidecar 路径非 UTF-8")?,
+            current_sidecar
+                .to_str()
+                .ok_or("current_sidecar 路径非 UTF-8")?,
         ])
         .spawn()
         .map_err(|error| format!("拉起更新脚本失败：{error}"))?;

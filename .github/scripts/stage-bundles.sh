@@ -7,10 +7,10 @@
 #   macos-arm64   -> AT.Tool_<v>_arm64.dmg (user installer)
 #                    AT.Tool_<v>_arm64.app.tar.gz (updater archive; contains "AT Tool.app")
 #   macos-x64     -> AT.Tool_<v>_amd64.dmg + AT.Tool_<v>_amd64.app.tar.gz
-#   linux-x64     -> AT.Tool_<v>_amd64.deb + AT.Tool_<v>_amd64.tar.gz (binary + layer-shell runtime)
+#   linux-x64     -> AT.Tool_<v>_amd64.deb + AT.Tool_<v>_amd64.tar.gz (binary + PSD sidecar + layer-shell runtime)
 #   linux-arm64   -> AT.Tool_<v>_arm64.deb + AT.Tool_<v>_arm64.tar.gz
 #   windows-x64   -> AT.Tool_<v>_amd64.exe (NSIS installer) + AT.Tool_<v>_amd64.exe.zip
-#                    (updater archive; contains "AT Tool.exe")
+#                    (updater archive; contains "AT Tool.exe" + sidecar/psd-bridge.exe)
 #
 # GitHub renames spaces to dots when uploading assets, so we produce dotted
 # names here to match what expected_asset_name() computes on the client.
@@ -60,13 +60,18 @@ case "$LABEL" in
       ls -la "$TARGET_BIN" >&2
       exit 1
     fi
+    PSD_SIDECAR="$TARGET_BIN/psd-bridge"
+    if [ ! -f "$PSD_SIDECAR" ]; then
+      echo "ERROR: $PSD_SIDECAR not found" >&2
+      exit 1
+    fi
     LAYER_SHELL_LIB=$(dpkg-query -L libgtk-layer-shell0 | awk '/\/libgtk-layer-shell\.so\.0$/{print; exit}')
     if [ -z "$LAYER_SHELL_LIB" ] || [ ! -e "$LAYER_SHELL_LIB" ]; then
       echo "ERROR: libgtk-layer-shell.so.0 not found" >&2
       exit 1
     fi
     cp -L "$LAYER_SHELL_LIB" "$TARGET_BIN/libgtk-layer-shell.so.0"
-    (cd "$TARGET_BIN" && tar -czf "$STAGE/${STEM}_${ARCH}.tar.gz" attool libgtk-layer-shell.so.0)
+    (cd "$TARGET_BIN" && tar -czf "$STAGE/${STEM}_${ARCH}.tar.gz" attool psd-bridge libgtk-layer-shell.so.0)
     ;;
 
   windows-x64)
@@ -87,11 +92,21 @@ case "$LABEL" in
         exit 1
       fi
     fi
+    PSD_SIDECAR="$TARGET_BIN/psd-bridge.exe"
+    if [ ! -f "$PSD_SIDECAR" ]; then
+      echo "ERROR: $PSD_SIDECAR not found" >&2
+      exit 1
+    fi
+    PACKAGE_DIR=$(mktemp -d)
+    trap 'rm -rf "$PACKAGE_DIR"' EXIT
+    cp "$EXE_SRC" "$PACKAGE_DIR/AT Tool.exe"
+    mkdir -p "$PACKAGE_DIR/sidecar"
+    cp "$PSD_SIDECAR" "$PACKAGE_DIR/sidecar/psd-bridge.exe"
     # zip on windows runner may not be present; try 7z (default on GH windows runners)
     if command -v 7z >/dev/null 2>&1; then
-      7z a "$STAGE/${STEM}_amd64.exe.zip" "$EXE_SRC" > /dev/null
+      (cd "$PACKAGE_DIR" && 7z a "$STAGE/${STEM}_amd64.exe.zip" "AT Tool.exe" "sidecar/psd-bridge.exe" > /dev/null)
     else
-      (cd "$(dirname "$EXE_SRC")" && zip -q "$STAGE/${STEM}_amd64.exe.zip" "$(basename "$EXE_SRC")")
+      (cd "$PACKAGE_DIR" && zip -q "$STAGE/${STEM}_amd64.exe.zip" "AT Tool.exe" "sidecar/psd-bridge.exe")
     fi
     ;;
 

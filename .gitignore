@@ -4,6 +4,7 @@ node_modules/
 # build outputs
 dist/
 src-tauri/target/
+src-tauri/binaries/
 
 # Tauri generated files
 src-tauri/gen/
