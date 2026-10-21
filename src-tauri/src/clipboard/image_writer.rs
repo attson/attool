@@ -3,25 +3,22 @@ use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[cfg(target_os = "linux")]
-thread_local! {
-    static X11_CLIPBOARD: std::cell::RefCell<Option<(gtk::gdk::Display, gtk::Clipboard)>> =
-        const { std::cell::RefCell::new(None) };
-}
+const X11_OWNER_ENV: &str = "ATTOOL_X11_CLIPBOARD_OWNER";
+
+#[cfg(target_os = "linux")]
+static X11_OWNER_PROCESS: std::sync::OnceLock<std::sync::Mutex<Option<std::process::Child>>> =
+    std::sync::OnceLock::new();
 
 pub(crate) fn write_image(app: &AppHandle, image: &DynamicImage) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        // Some compositors advertise Wayland image targets to XWayland clients but serve empty data.
-        let wayland_result = write_wayland_image(image);
-        let x11_result = write_x11_image(app, image);
-        if wayland_result.is_ok() || x11_result.is_ok() {
-            return Ok(());
+        if std::env::var_os("DISPLAY").is_some() {
+            // Claiming both selections races COSMIC's clipboard bridge: its delayed Wayland-to-X11
+            // claim can replace our valid X11 owner with an offer whose image payload is empty.
+            // A dedicated X11 process also keeps GDK's event loop isolated from the Wayland UI.
+            return write_x11_image(image);
         }
-        return Err(format!(
-            "Wayland clipboard: {}; X11 clipboard: {}",
-            wayland_result.unwrap_err(),
-            x11_result.unwrap_err()
-        ));
+        return write_wayland_image(image);
     }
 
     let rgba = image.to_rgba8();
@@ -33,35 +30,98 @@ pub(crate) fn write_image(app: &AppHandle, image: &DynamicImage) -> Result<(), S
 }
 
 #[cfg(target_os = "linux")]
-fn write_x11_image(app: &AppHandle, image: &DynamicImage) -> Result<(), String> {
-    let display_name =
-        std::env::var("DISPLAY").map_err(|_| "DISPLAY is not available".to_string())?;
-    let rgba = image.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    let pixels = rgba.into_raw();
+fn write_x11_image(image: &DynamicImage) -> Result<(), String> {
+    use image::ImageFormat;
+    use std::{
+        io::{BufRead, BufReader, Cursor, Write},
+        process::{Command, Stdio},
+    };
 
-    app.run_on_main_thread(move || {
-        if let Err(error) = set_x11_clipboard_image(&display_name, pixels, width, height) {
-            eprintln!("[capture] X11 clipboard image write failed: {error}");
-        }
-    })
-    .map_err(|error| error.to_string())
+    let mut encoded = Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, ImageFormat::Png)
+        .map_err(|error| format!("encode X11 clipboard image: {error}"))?;
+
+    let process_slot = X11_OWNER_PROCESS.get_or_init(|| std::sync::Mutex::new(None));
+    let mut process_slot = process_slot
+        .lock()
+        .map_err(|_| "X11 clipboard owner lock is poisoned".to_string())?;
+    if let Some(mut previous) = process_slot.take() {
+        let _ = previous.kill();
+        let _ = previous.wait();
+    }
+
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("resolve X11 clipboard owner executable: {error}"))?;
+    let mut child = Command::new(executable)
+        .env(X11_OWNER_ENV, "1")
+        .env("GDK_BACKEND", "x11")
+        .env(
+            "ATTOOL_CLIPBOARD_PARENT_PID",
+            std::process::id().to_string(),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("start X11 clipboard owner: {error}"))?;
+
+    let write_result = child
+        .stdin
+        .take()
+        .ok_or_else(|| "X11 clipboard owner stdin is unavailable".to_string())
+        .and_then(|mut stdin| {
+            stdin
+                .write_all(encoded.get_ref())
+                .map_err(|error| format!("send image to X11 clipboard owner: {error}"))
+        });
+    if let Err(error) = write_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "X11 clipboard owner stdout is unavailable".to_string())?;
+    let mut response = String::new();
+    BufReader::new(stdout)
+        .read_line(&mut response)
+        .map_err(|error| format!("read X11 clipboard owner status: {error}"))?;
+    if response.trim() != "READY" {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(response
+            .strip_prefix("ERROR ")
+            .unwrap_or("X11 clipboard owner exited before it was ready")
+            .trim()
+            .to_string());
+    }
+
+    *process_slot = Some(child);
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn set_x11_clipboard_image(
-    display_name: &str,
-    pixels: Vec<u8>,
-    width: u32,
-    height: u32,
-) -> Result<(), String> {
+fn run_x11_clipboard_owner() -> Result<(), String> {
+    use std::io::{Read, Write};
+
+    gtk::init().map_err(|error| format!("initialize GTK X11 clipboard owner: {error}"))?;
+    let mut encoded = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut encoded)
+        .map_err(|error| format!("read X11 clipboard image: {error}"))?;
+    let image = image::load_from_memory(&encoded)
+        .map_err(|error| format!("decode X11 clipboard image: {error}"))?
+        .to_rgba8();
+    let (width, height) = image.dimensions();
     let width = i32::try_from(width).map_err(|_| "image width exceeds X11 limit".to_string())?;
     let height = i32::try_from(height).map_err(|_| "image height exceeds X11 limit".to_string())?;
     let row_stride = width
         .checked_mul(4)
         .ok_or_else(|| "image row stride exceeds X11 limit".to_string())?;
     let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_mut_slice(
-        pixels,
+        image.into_raw(),
         gtk::gdk_pixbuf::Colorspace::Rgb,
         true,
         8,
@@ -69,22 +129,41 @@ fn set_x11_clipboard_image(
         height,
         row_stride,
     );
+    let display =
+        gtk::gdk::Display::default().ok_or_else(|| "X11 display is not available".to_string())?;
+    let clipboard = gtk::Clipboard::default(&display)
+        .ok_or_else(|| "X11 clipboard is not available".to_string())?;
+    clipboard.set_image(&pixbuf);
+    display.flush();
 
-    X11_CLIPBOARD.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        if slot.is_none() {
-            let display = gtk::gdk::Display::open(display_name)
-                .ok_or_else(|| format!("cannot open X11 display {display_name}"))?;
-            let clipboard = gtk::Clipboard::default(&display)
-                .ok_or_else(|| "X11 clipboard is not available".to_string())?;
-            *slot = Some((display, clipboard));
+    let parent_pid = std::env::var("ATTOOL_CLIPBOARD_PARENT_PID").unwrap_or_default();
+    gtk::glib::timeout_add_seconds_local(1, move || {
+        if parent_pid.is_empty() || std::path::Path::new("/proc").join(&parent_pid).exists() {
+            gtk::glib::ControlFlow::Continue
+        } else {
+            gtk::main_quit();
+            gtk::glib::ControlFlow::Break
         }
+    });
 
-        let (display, clipboard) = slot.as_ref().expect("X11 clipboard initialized");
-        clipboard.set_image(&pixbuf);
-        display.flush();
-        Ok(())
-    })
+    println!("READY");
+    std::io::stdout()
+        .flush()
+        .map_err(|error| format!("report X11 clipboard owner status: {error}"))?;
+    gtk::main();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn run_x11_clipboard_owner_if_requested() -> bool {
+    if std::env::var_os(X11_OWNER_ENV).as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return false;
+    }
+
+    if let Err(error) = run_x11_clipboard_owner() {
+        println!("ERROR {}", error.to_string().replace(['\r', '\n'], " "));
+    }
+    true
 }
 
 #[cfg(target_os = "linux")]
