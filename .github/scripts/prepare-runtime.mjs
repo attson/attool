@@ -5,7 +5,7 @@ import { basename, resolve } from 'node:path';
 
 const GSTREAMER_ELEMENTS = ['appsrc', 'videoconvert', 'videocrop', 'videoscale', 'queue', 'vp8enc', 'webmmux', 'filesink'];
 
-const target = process.env.TAURI_ENV_TARGET_TRIPLE || process.argv[2];
+const target = process.env.TAURI_ENV_TARGET_TRIPLE || process.argv.slice(2).find((argument) => argument !== '--');
 if (!target) {
   console.error('TAURI_ENV_TARGET_TRIPLE or an explicit target triple is required');
   process.exit(1);
