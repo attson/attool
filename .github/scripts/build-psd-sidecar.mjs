@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -41,6 +41,10 @@ const result = spawnSync(
     '--noupx',
     '--collect-all',
     'psd_tools',
+    '--collect-all',
+    'yt_dlp',
+    '--collect-all',
+    'yt_dlp_ejs',
     '--name',
     name,
     '--distpath',
@@ -68,5 +72,15 @@ const smoke = spawnSync(output, ['--help'], { encoding: 'utf8' });
 if (smoke.status !== 0) {
   console.error(smoke.stderr || smoke.stdout || 'PSD sidecar smoke test failed');
   process.exit(smoke.status || 1);
+}
+const manifest = JSON.parse(readFileSync('src-tauri/runtime-manifest.json', 'utf8'));
+const versionSmoke = spawnSync(output, ['--runtime-version'], { encoding: 'utf8' });
+if (
+  versionSmoke.status !== 0 ||
+  !versionSmoke.stdout.includes(`"ytDlp": "${manifest.ytDlp.version}"`) ||
+  !versionSmoke.stdout.includes(`"ytDlpEjs": "${manifest.ytDlp.ejs.version}"`)
+) {
+  console.error(versionSmoke.stderr || versionSmoke.stdout || 'Shared Python runtime version smoke test failed');
+  process.exit(versionSmoke.status || 1);
 }
 console.log(`PSD sidecar ready: ${output}`);

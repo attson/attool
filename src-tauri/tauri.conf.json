@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build && pnpm build:psd-sidecar",
+    "beforeBuildCommand": "pnpm build && pnpm build:runtime && pnpm build:psd-sidecar",
     "frontendDist": "../dist"
   },
   "app": {
@@ -98,7 +98,10 @@
     "linux": {
       "deb": {
         "depends": [
-          "libgtk-layer-shell0"
+          "libgtk-layer-shell0",
+          "libgstreamer1.0-0",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good"
         ]
       }
     }

@@ -1,0 +1,45 @@
+{
+  "tesseract": {
+    "version": "5.5.3",
+    "vcpkgCommit": "67972e92edd181d433927b42d8ab4bfa52ac164a"
+  },
+  "tessdata": {
+    "commit": "65727574dfcd264acbb0c3e07860e4e9e9b22185",
+    "languages": [
+      "eng",
+      "chi_sim",
+      "chi_tra",
+      "jpn"
+    ]
+  },
+  "aria2": {
+    "version": "1.37.0",
+    "commit": "02f2d0d8472b3c38c29b4dba8c75ebd5fdd2899a",
+    "sourceSha256": "8e7021c6d5e8f8240c9cc19482e0c8589540836747744724d86bf8af5a21f0e8",
+    "windowsAssetSha256": "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288"
+  },
+  "ytDlp": {
+    "version": "2026.10.21",
+    "sha256": "cbf748d7d17cd37647c4b9f07b6c25f24384bfd4361407ee5ec519e753d22539",
+    "wheelSha256": "94a3a3e2c423129d0bbd2f1be000c4171fa1226c29e251c84aff868f2851c247",
+    "ejs": {
+      "version": "0.8.0",
+      "sha256": "d5fa1639f63b5c4af8d932495f60689d5370f1a095782c944f7f62a303eb104e",
+      "wheelSha256": "79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4"
+    }
+  },
+  "quickJs": {
+    "version": "0.17.0",
+    "assets": {
+      "aarch64-apple-darwin": { "name": "qjs-darwin-arm64", "sha256": "8be3ddfe3397d2e692e4e1e8972ee9d032a0a580505d2f8b4ea528cf1b651c11" },
+      "x86_64-apple-darwin": { "name": "qjs-darwin-x86_64", "sha256": "9e5e101b4fd13cda3204222ca9f8be35412c41dcdef3745829633b7a67245412" },
+      "aarch64-unknown-linux-gnu": { "name": "qjs-linux-aarch64", "sha256": "3372133484edf50a69f3c67903af41206d22a061e930e3cfb63269272ef56d2e" },
+      "x86_64-unknown-linux-gnu": { "name": "qjs-linux-x86_64", "sha256": "0bfc02511a9f549c28b53880d988fc7cd5d361e90c5e8afdfcd7dc6774ceace5" },
+      "x86_64-pc-windows-msvc": { "name": "qjs-windows-x86_64.exe", "sha256": "2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77" }
+    }
+  },
+  "gstreamer": {
+    "abi": "1.0",
+    "minimumVersion": "1.24"
+  }
+}

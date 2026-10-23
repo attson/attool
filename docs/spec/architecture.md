@@ -26,6 +26,7 @@
 │  Rust（src-tauri/src/）                                  │
 │  ├─ build.rs         注入 updater 公钥 → OUT_DIR/*.pem     │
 │  ├─ lib.rs           run() + Aria2 下载 + command 注册    │
+│  ├─ embedded_runtime / bundled_tools  内置运行时释放与定位 │
 │  ├─ clipboard/       历史存储 + 系统剪贴板监听（SQLite）   │
 │  ├─ imaging/         压缩/转换/EXIF/OCR/截图（xcap）       │
 │  ├─ recording.rs    录屏分块缓存 / 保存 / 清理             │
@@ -41,9 +42,10 @@
 │                                                          │
 │           ↕ Command::new / xcap / reqwest                │
 │                                                          │
-│  本机外部进程 / 系统能力                                   │
-│  ├─ aria2c           HTTP/FTP/BT 下载                    │
-│  ├─ psd-bridge sidecar    自带 Python + psd-tools        │
+│  内置运行时 / 系统能力                                     │
+│  ├─ aria2c / tesseract    内嵌并释放到版本化缓存           │
+│  ├─ psd-bridge sidecar    Python + psd-tools + yt-dlp    │
+│  ├─ QuickJS / GStreamer plugins  YouTube / Linux 录屏    │
 │  ├─ xcap / core-graphics  屏幕截图                        │
 │  ├─ gtk-layer-shell  Wayland 剪贴板面板底部定位           │
 │  ├─ pkexec           Linux 升级提权（updater）             │
@@ -188,7 +190,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 
 | 模块 | 职责 | 关键 command |
 |---|---|---|
-| `lib.rs` | Aria2 下载（shell out `aria2c` + 进度事件）、command 注册 | `start_download` / `cancel_download` / `list_download_tasks` / `generate_qr_png` / `open_external_url` |
+| `lib.rs` | Aria2 下载（正式版启动内置 `aria2c` + 进度事件）、command 注册 | `start_download` / `cancel_download` / `list_download_tasks` / `generate_qr_png` / `open_external_url` |
 | `clipboard/` | 剪贴板历史（SQLite 存储 + 系统剪贴板监听 + 快捷键面板） | `list_clipboard_items` / `restore_clipboard_item` / `clear_clipboard_history` / `get·save_clipboard_settings` |
 | `imaging/` | 图片压缩 / 转换 / EXIF / OCR / 截图与统一捕获浮层 | `compress_images` / `convert_images` / `read·strip_image_exif` / `ocr_image` / `capture_screen` / `open·commit·pin_capture_overlay` / `get·set_capture_shortcut` |
 | `recording.rs` / `recording_preview.rs` | 录屏快捷键、Web 分块缓存、Wayland 来源准备 / 区域裁剪 / 编码控制、完成结果交接、只读 Range 预览、保存与清理 | `get·set_recording_shortcut` / `prepare·start·pause·resume·stop·cancel_native_recording` / `begin·append·finish_recording_file` / `present_recording_result` / `recording_preview_url` / `save·discard_recording_file` / `default_recording_path` |
@@ -198,7 +200,17 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 | `http/stream/` | SSE / WebSocket 长连接会话（v0.8.9+）：`HttpStreamState` 管理 sessions、消息 buffer、cancel 与发送通道；SSE 用 reqwest bytes_stream + 自写 UTF-8 安全帧解析；WS 用 tokio-tungstenite | `open_stream` / `close_stream` / `send_ws_message` / `list_stream_messages` |
 | `updater/` | 自研更新：check / verify / download / apply | `updater_get_state` / `updater_check` / `updater_download` / `updater_apply` / `updater_cancel` |
 | `qrcode.rs` | 二维码生成 | `generate_qr_png` |
-| `douyin.rs` / `bilibili.rs` / `xhs.rs` / `youtube.rs` | 视频链接解析（reqwest + 正则） | `extract_douyin_video` / `extract_bilibili_video` / `extract_youtube_video` / `resolve_douyin_url` |
+| `douyin.rs` / `bilibili.rs` / `xhs.rs` / `youtube.rs` | 视频链接解析；YouTube 通过共享 Python sidecar 调用内置 yt-dlp / EJS / QuickJS | `extract_douyin_video` / `extract_bilibili_video` / `extract_youtube_video` / `resolve_douyin_url` |
+
+### 内置运行时
+
+- `runtime-manifest.json` 固定 Tesseract、tessdata、Aria2、yt-dlp、yt-dlp-ejs、QuickJS-ng 与 Linux GStreamer ABI 的版本和来源校验值。
+- CI 在五个发布目标编译前准备并 smoke-test 对应资产；`build.rs` 只在 release 构建中要求资产完整，并把文件生成为 `include_bytes!` 定义嵌入主程序。
+- `embedded_runtime.rs` 把各运行时释放到用户缓存的 `attool/runtime/<name>/<version>/`。文件按内容校验，经同目录临时文件原子落盘；损坏文件会自动修复，旧版本目录尽力清理。
+- 正式版只使用内置运行时；debug 可通过 `ATTOOL_*` 环境变量指定开发程序，缺省时允许使用系统 `PATH`。
+- OCR 始终传入私有 `tessdata` 目录，只接受界面公开的语言组合。YouTube 与 PSD 导入复用同一个 PyInstaller sidecar，但使用独立调用模式和 JSON 输出。
+- Linux Wayland 录屏在 `gst::init()` 前设置私有插件目录和 registry；Deb 继续声明 GStreamer 核心 ABI 与基础包依赖。
+- 内置组件不自行更新，也不在首次调用时下载；它们只随通过 SHA256SUMS 和 Ed25519 校验的 AT Tool 更新升级。
 
 **截图跨平台策略**（`imaging/capture.rs` + `windows.rs`）：macOS 走 `screencapture` + CoreGraphics 窗口枚举；Linux / Windows 走 `xcap`（`Monitor::capture_image` 截屏、`Window::all` 枚举）。浮层背景帧存为 BMP（无压缩，避免 PNG deflate 的秒级延迟）。Wayland 会话下 xcap 走 xdg-desktop-portal，可能弹权限 / 部分场景失败，窗口枚举降级为空列表（区域选择仍可用）。
 

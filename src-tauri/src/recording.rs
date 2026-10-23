@@ -580,6 +580,7 @@ fn run_native_recording_inner(
     use gstreamer as gst;
 
     fs::create_dir_all(cache_dir).map_err(|error| format!("创建录制缓存失败：{error}"))?;
+    configure_bundled_gstreamer()?;
     gst::init().map_err(|error| format!("初始化视频编码器失败：{error}"))?;
 
     let monitor = xcap::Monitor::all()
@@ -837,6 +838,30 @@ fn run_native_recording_inner(
             return Err(error);
         }
     }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[cfg(debug_assertions)]
+fn configure_bundled_gstreamer() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[cfg(not(debug_assertions))]
+fn configure_bundled_gstreamer() -> Result<(), String> {
+    let runtime = crate::bundled_tools::gstreamer()
+        .map_err(|error| format!("AT Tool 内置 GStreamer 运行时损坏：{error}"))?;
+    let plugins = runtime.root.join("plugins");
+    if !plugins.is_dir() {
+        return Err(
+            "AT Tool 内置 GStreamer 运行时损坏：缺少插件目录，请重新安装或更新 AT Tool".to_string(),
+        );
+    }
+    let registry = runtime.root.join("registry.bin");
+    std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
+    std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", "");
+    std::env::set_var("GST_REGISTRY_1_0", registry);
     Ok(())
 }
 

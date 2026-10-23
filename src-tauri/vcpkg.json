@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "attool-runtime",
+  "version-string": "1",
+  "builtin-baseline": "67972e92edd181d433927b42d8ab4bfa52ac164a",
+  "dependencies": [
+    "c-ares",
+    "libssh2",
+    "libxml2",
+    "openssl",
+    "sqlite3",
+    "tesseract"
+  ]
+}

@@ -16,11 +16,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,         target: aarch64-apple-darwin,      label: macos-arm64 }
-          - { os: macos-15-intel,   target: x86_64-apple-darwin,       label: macos-x64   }
-          - { os: ubuntu-24.04,     target: x86_64-unknown-linux-gnu,  label: linux-x64   }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, label: linux-arm64 }
-          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    label: windows-x64 }
+          - { os: macos-14,         target: aarch64-apple-darwin,      vcpkg: arm64-osx,   label: macos-arm64 }
+          - { os: macos-15-intel,   target: x86_64-apple-darwin,       vcpkg: x64-osx,     label: macos-x64   }
+          - { os: ubuntu-24.04,     target: x86_64-unknown-linux-gnu,  vcpkg: x64-linux,   label: linux-x64   }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, vcpkg: arm64-linux, label: linux-arm64 }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    vcpkg: x64-windows-static, label: windows-x64 }
     runs-on: ${{ matrix.os }}
     environment: prod
     env:
@@ -65,6 +65,8 @@ jobs:
             libpipewire-0.3-dev \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-good \
+            patchelf \
             libgbm-dev \
             clang \
             libxcb1-dev \
@@ -97,11 +99,44 @@ jobs:
           cache: pip
           cache-dependency-path: src-tauri/python/requirements-build.txt
 
+      - name: Set up pinned vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 67972e92edd181d433927b42d8ab4bfa52ac164a
+          runVcpkgInstall: false
+
+      - name: Build pinned native runtimes
+        shell: bash
+        run: |
+          INSTALL_ROOT="${RUNNER_TEMP}/attool-vcpkg"
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "${{ matrix.vcpkg }}" \
+            --x-manifest-root=src-tauri \
+            --x-install-root="$INSTALL_ROOT"
+          PREFIX="$INSTALL_ROOT/${{ matrix.vcpkg }}"
+          TESSERACT=$(find "$PREFIX/tools/tesseract" -maxdepth 2 -type f \( -name tesseract -o -name tesseract.exe \) | head -1)
+          test -n "$TESSERACT"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then ARIA2_NAME=aria2c.exe; else ARIA2_NAME=aria2c; fi
+          ARIA2="${RUNNER_TEMP}/attool-native/$ARIA2_NAME"
+          ATTOOL_NATIVE_RUNTIME_PREFIX="$PREFIX" node .github/scripts/build-aria2.mjs "${{ matrix.target }}" "$ARIA2"
+          echo "ATTOOL_TESSERACT_PATH=$TESSERACT" >> "$GITHUB_ENV"
+          echo "ATTOOL_ARIA2_PATH=$ARIA2" >> "$GITHUB_ENV"
+          echo "ATTOOL_NATIVE_RUNTIME_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
       - name: Install PSD sidecar build dependencies
-        run: python -m pip install -r src-tauri/python/requirements-build.txt
+        shell: bash
+        run: |
+          python -m pip install -r src-tauri/python/requirements-build.txt
+          PYTHON=python node .github/scripts/install-yt-dlp.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare and smoke-test bundled runtimes
+        shell: bash
+        run: |
+          pnpm build:runtime -- "${{ matrix.target }}"
+          node .github/scripts/smoke-runtime.mjs "${{ matrix.target }}"
 
       - name: Build Tauri bundle
         shell: bash
@@ -110,6 +145,24 @@ jobs:
       - name: Stage and rename artifacts
         shell: bash
         run: bash .github/scripts/stage-bundles.sh "${{ matrix.target }}" "${{ matrix.label }}" "${{ runner.temp }}/stage"
+
+      - name: Enforce package size budget
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BASELINE="${RUNNER_TEMP}/attool-size-baseline"
+          mkdir -p "$BASELINE"
+          case "${{ matrix.label }}" in
+            macos-arm64) PATTERN='AT.Tool_*_arm64.dmg' ;;
+            macos-x64) PATTERN='AT.Tool_*_amd64.dmg' ;;
+            linux-arm64) PATTERN='AT.Tool_*_arm64.deb' ;;
+            linux-x64) PATTERN='AT.Tool_*_amd64.deb' ;;
+            windows-x64) PATTERN='AT.Tool_*_amd64.exe' ;;
+          esac
+          BASELINE_TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          gh release download "$BASELINE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$PATTERN" --dir "$BASELINE"
+          node .github/scripts/check-package-size.mjs "${{ matrix.label }}" "${{ runner.temp }}/stage" "$BASELINE"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -145,6 +198,12 @@ jobs:
       - name: Generate SHA256SUMS
         working-directory: ${{ runner.temp }}/all-bundles
         run: |
+          ARIA2_VERSION=$(node -e "process.stdout.write(require('${{ github.workspace }}/src-tauri/runtime-manifest.json').aria2.version)")
+          ARIA2_SHA256=$(node -e "process.stdout.write(require('${{ github.workspace }}/src-tauri/runtime-manifest.json').aria2.sourceSha256)")
+          curl --retry 3 -fsSL \
+            "https://github.com/aria2/aria2/releases/download/release-${ARIA2_VERSION}/aria2-${ARIA2_VERSION}.tar.gz" \
+            -o aria2-1.37.0-source.tar.gz
+          printf '%s  %s\n' "$ARIA2_SHA256" aria2-1.37.0-source.tar.gz | sha256sum --check --strict
           find . -maxdepth 1 -type f \
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.exe' \
                -o -name '*.tar.gz' -o -name '*.zip' \) \

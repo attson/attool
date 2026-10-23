@@ -1,9 +1,11 @@
 mod bilibili;
+mod bundled_tools;
 mod clipboard;
 #[cfg(target_os = "linux")]
 mod capture_command;
 mod updater;
 mod douyin;
+mod embedded_runtime;
 #[cfg(target_os = "linux")]
 mod gpu_linux;
 pub mod ai;
@@ -43,6 +45,28 @@ use tokio::{
 };
 
 const DOWNLOAD_EVENT: &str = "download-progress";
+
+fn spawn_aria2(program: &Path, args: &[String]) -> std::io::Result<tokio::process::Child> {
+    Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+}
+
+fn aria2_program() -> Result<PathBuf, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        return crate::bundled_tools::aria2().map(|runtime| runtime.entrypoint);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        Ok(std::env::var_os("ATTOOL_ARIA2_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("aria2c")))
+    }
+}
 
 type DownloadTasks = Arc<DownloadState>;
 
@@ -238,6 +262,7 @@ async fn start_download(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let aria2 = aria2_program()?;
     insert_download_task(
         &state.db_path,
         &id,
@@ -246,31 +271,25 @@ async fn start_download(
         file_name.as_deref(),
     )?;
 
-    let mut child = Command::new("aria2c")
-        .args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            let message = if error.kind() == std::io::ErrorKind::NotFound {
-                "未找到 aria2c。请先安装 aria2（macOS 可执行：brew install aria2）。".to_string()
-            } else {
-                format!("启动 aria2c 失败：{error}")
-            };
-            let payload = DownloadEventPayload {
-                id: id.clone(),
-                status: DownloadStatus::Failed,
-                progress: 0.0,
-                speed: None,
-                eta: None,
-                message: Some(message.clone()),
-            started_at: None,
-            finished_at: None,
-            local_path: None,
-            };
-            persist_download_event(&state.db_path, &payload);
-            message
-        })?;
+    let mut child = spawn_aria2(&aria2, &args).map_err(|error| {
+        let message = format!(
+            "AT Tool 内置下载运行时启动失败（{}）：{error}。请重新安装或更新 AT Tool。",
+            aria2.display()
+        );
+        let payload = DownloadEventPayload {
+            id: id.clone(),
+            status: DownloadStatus::Failed,
+            progress: 0.0,
+            speed: None,
+            eta: None,
+            message: Some(message.clone()),
+        started_at: None,
+        finished_at: None,
+        local_path: None,
+        };
+        persist_download_event(&state.db_path, &payload);
+        message
+    })?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -286,9 +305,9 @@ async fn start_download(
             speed: None,
             eta: None,
             message: Some("aria2 任务已创建".to_string()),
-        started_at: None,
-        finished_at: None,
-        local_path: None,
+            started_at: None,
+            finished_at: None,
+            local_path: None,
         },
     );
 
@@ -1154,6 +1173,10 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            #[cfg(not(debug_assertions))]
+            bundled_tools::notices()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+
             #[cfg(target_os = "linux")]
             match clipboard::layer_shell::configure_history_window(app.handle()) {
                 Ok(true) => eprintln!("剪贴板面板已启用 Wayland layer-shell 底部定位"),
@@ -1425,4 +1448,34 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running AT Tool");
+}
+
+#[cfg(all(test, unix))]
+mod bundled_aria2_tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::spawn_aria2;
+
+    #[tokio::test]
+    async fn starts_the_supplied_aria2_runtime_instead_of_searching_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = directory.path().join("aria2c");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 41\nprintf 'aria2 version 1.37.0'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&program).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&program, permissions).unwrap();
+
+        let child = spawn_aria2(&program, &["--version".to_string()]).unwrap();
+        let output = child.wait_with_output().await.unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "aria2 version 1.37.0"
+        );
+    }
 }
