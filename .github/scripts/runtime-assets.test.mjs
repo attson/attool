@@ -25,9 +25,11 @@ describe('bundled runtime manifest', () => {
   it('runs runtime preparation before every release build', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+    const prepareRuntime = readFileSync('.github/scripts/prepare-runtime.mjs', 'utf8');
 
     expect(packageJson.scripts['build:runtime']).toBeTruthy();
     expect(tauriConfig.build.beforeBuildCommand).toContain('pnpm build:runtime');
+    expect(prepareRuntime).toContain("process.argv.slice(2).find((argument) => argument !== '--')");
   });
 
   it('embeds prepared runtime files into the release executable', () => {
