@@ -54,11 +54,13 @@ describe('bundled runtime manifest', () => {
   it('declares the Linux GStreamer ABI and stages every recording element', () => {
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
     const prepareRuntime = readFileSync('.github/scripts/prepare-runtime.mjs', 'utf8');
+    const workflow = readFileSync('.github/workflows/build.yml', 'utf8');
     const dependencies = tauriConfig.bundle.linux.deb.depends;
 
     expect(dependencies).toContain('libgstreamer1.0-0');
     expect(dependencies).toContain('gstreamer1.0-plugins-base');
     expect(dependencies).toContain('gstreamer1.0-plugins-good');
+    expect(workflow).toContain('gstreamer1.0-tools');
     for (const element of ['appsrc', 'videoconvert', 'videocrop', 'videoscale', 'queue', 'vp8enc', 'webmmux', 'filesink']) {
       expect(prepareRuntime).toContain(`'${element}'`);
     }
@@ -87,6 +89,12 @@ describe('bundled runtime manifest', () => {
     expect(installer).toContain('manifest.ytDlp.sha256');
     expect(installer).toContain('manifest.ytDlp.ejs.sha256');
     expect(installer).toContain("createHash('sha256')");
+  });
+
+  it('allows smoke checks that only require a successful exit status', () => {
+    const smokeRuntime = readFileSync('.github/scripts/smoke-runtime.mjs', 'utf8');
+
+    expect(smokeRuntime).toContain('expected !== undefined && !output.includes(expected)');
   });
 
   it('ships third-party notices, corresponding aria2 source, and size budgets', () => {

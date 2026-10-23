@@ -44,7 +44,7 @@ console.log(`Bundled runtime smoke test passed: ${target}`);
 function assertCommand(program, args, expected, env = process.env) {
   const result = spawnSync(program, args, { encoding: 'utf8', env });
   const output = `${result.stdout || ''}\n${result.stderr || ''}`;
-  if (result.status !== 0 || !output.includes(expected)) {
+  if (result.status !== 0 || (expected !== undefined && !output.includes(expected))) {
     throw new Error(`${program} ${args.join(' ')} failed or omitted ${expected}: ${output.trim()}`);
   }
   return output;
