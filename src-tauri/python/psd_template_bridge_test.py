@@ -1,11 +1,27 @@
 import unittest
 import sys
+import types
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from psd_tools.constants import Tag
+try:
+    from psd_tools.constants import Tag
+except ModuleNotFoundError:
+    class Tag:
+        VECTOR_ORIGINATION_DATA = object()
+        SOLID_COLOR_SHEET_SETTING = object()
+        VECTOR_STROKE_CONTENT_DATA = object()
+        VECTOR_STROKE_DATA = object()
 
-from psd_template_bridge import first_text_style, shape_layer_data
+    psd_tools = types.ModuleType("psd_tools")
+    psd_tools.PSDImage = object
+    constants = types.ModuleType("psd_tools.constants")
+    constants.Tag = Tag
+    sys.modules["psd_tools"] = psd_tools
+    sys.modules["psd_tools.constants"] = constants
+
+from psd_template_bridge import extract_youtube, first_text_style, shape_layer_data
 
 
 class BBox:
@@ -77,6 +93,40 @@ class ShapeLayer:
 
 
 class PsdTemplateBridgeTest(unittest.TestCase):
+    def test_extracts_youtube_metadata_without_downloading_media(self):
+        calls = {}
+
+        class FakeYoutubeDL:
+            def __init__(self, options):
+                calls["options"] = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def extract_info(self, url, download):
+                calls["url"] = url
+                calls["download"] = download
+                return {"title": "Example", "url": "https://media.example/video.mp4"}
+
+            def sanitize_info(self, info):
+                calls["sanitized"] = True
+                return info
+
+        fake_module = type("FakeYtDlp", (), {"YoutubeDL": FakeYoutubeDL})
+        with patch.dict(sys.modules, {"yt_dlp": fake_module}):
+            result = extract_youtube("https://youtu.be/example", "http://127.0.0.1:7890", "/runtime/qjs")
+
+        self.assertEqual(result["title"], "Example")
+        self.assertEqual(calls["url"], "https://youtu.be/example")
+        self.assertFalse(calls["download"])
+        self.assertTrue(calls["sanitized"])
+        self.assertTrue(calls["options"]["skip_download"])
+        self.assertEqual(calls["options"]["proxy"], "http://127.0.0.1:7890")
+        self.assertEqual(calls["options"]["js_runtimes"], {"quickjs": {"path": "/runtime/qjs"}})
+
     def test_converts_photoshop_tracking_to_letter_spacing_pixels(self):
         style = first_text_style(TextLayer())
 

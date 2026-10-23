@@ -97,12 +97,6 @@ function mergeParagraphs() {
           <n-select v-model:value="langs" :options="langOptions" />
         </label>
 
-        <p class="note">
-          依赖本机 tesseract：macOS <code>brew install tesseract tesseract-lang</code> /
-          Ubuntu <code>apt install tesseract-ocr tesseract-ocr-chi-sim</code> /
-          Windows 装 UB-Mannheim tesseract 并加入 PATH。
-        </p>
-
         <n-alert v-if="notice" type="info" :bordered="false">{{ notice }}</n-alert>
 
         <n-button
@@ -149,18 +143,6 @@ function mergeParagraphs() {
 .form { display: grid; gap: 12px; }
 .field { display: grid; gap: 6px; }
 .lbl { font-size: var(--fs-xxs); color: var(--text-muted); }
-.note {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-}
-.note code {
-  padding: 1px 6px;
-  background: var(--bg-elev);
-  border-radius: 3px;
-  font-family: var(--font-mono, monospace);
-}
 .actions {
   display: flex;
   gap: 8px;

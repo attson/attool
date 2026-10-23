@@ -10,7 +10,7 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 
 ### Aria2 下载（`id: aria2`）
 
-- shell out 到本机 `aria2c`，支持单服务器多连接、文件分片、批量 URL 提交、实时进度回传
+- 使用正式包内置的 Aria2 1.37.0，支持单服务器多连接、文件分片、批量 URL 提交、实时进度回传；最终用户无需安装 `aria2c`
 - 任务状态：`queued | running | completed | failed | cancelled`
 - 进度通过 Tauri event `download-progress` 流式推送给前端；任务历史存 SQLite
 - Tauri 命令：`start_download` / `cancel_download` / `list_download_tasks` / `open_download_folder` 等
@@ -75,8 +75,8 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 |---|---|---|
 | 剪贴板（`clipboard`） | 历史记录、图片/文本预览、Paste 风格恢复、快捷键自定义、独立浮窗 | `clipboard/`（SQLite + 系统剪贴板监听） |
 | JSON（`json`） | 格式化、JSONPath 查询、对比、YAML/CSV/XML 转换；对比支持独立切换只看 Key 与解析嵌套 JSON 字符串；浏览器式多工作页，运行期间保留各页内容与功能 pane 状态 | 纯前端（Monaco） |
-| 视频链接抽取（`douyin`） | 抖音 / B站 / 小红书 / YouTube 链接与文案解析 | `douyin/bilibili/xhs/youtube.rs` |
-| 图片（`image`） | 统一捕获工作台（截图 / 录屏）、压缩、格式转换、EXIF、标注、OCR | `imaging/`（含 xcap 截图）+ `recording.rs` |
+| 视频链接抽取（`douyin`） | 抖音 / B站 / 小红书 / YouTube 链接与文案解析；YouTube 使用内置 yt-dlp + EJS + QuickJS | `douyin/bilibili/xhs/youtube.rs` |
+| 图片（`image`） | 统一捕获工作台（截图 / 录屏）、压缩、格式转换、EXIF、标注、OCR；OCR 内置 Tesseract 与中英日语言模型 | `imaging/`（含 xcap 截图）+ `recording.rs` |
 | 文本（`text`） | 整理、排序、大小写、拆合、正则抽取、对比 | 纯前端 |
 | 网络（`network`） | URL 分解、Ping、端口、DNS | `network/` |
 | 编码（`codec`） | Base64/URL/Unicode/Hex/Hash/JWT | 纯前端 |
@@ -110,11 +110,19 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 
 ## 运行时依赖
 
-打包后用户机器上需要：
+正式包随主程序内置并按版本释放以下应用运行时，最终用户无需另行安装：
 
-- `aria2c`（下载工具用）—— `brew install aria2` / `apt install aria2`
-- `psd-bridge` sidecar 随安装包和应用内更新分发，最终用户无需安装 Python
-- `pkexec`（Linux in-app 升级提权，一般随桌面环境自带）—— `apt install policykit-1`
-- 网络访问 GitHub API（`api.github.com/repos/attson/attool/releases/latest`）+ Releases 静态资源 —— 仅在自动 / 手动检查更新时使用，可在 Settings 中关闭"启动时自动检查更新"
+- Tesseract 5.5.3，以及 `eng` / `chi_sim` / `chi_tra` / `jpn` 语言模型
+- Aria2 1.37.0
+- `psd-bridge` sidecar 自带的 Python、`psd-tools`、yt-dlp 2026.10.21 与 yt-dlp-ejs 0.8.0
+- QuickJS-ng 0.17.0，用于 yt-dlp 的 YouTube JavaScript challenge
+- Linux Wayland 录屏所需的 GStreamer 插件与 libvpx；GStreamer 1.0 ABI 由 Deb 依赖保证
 
-未来可考虑把 aria2c 静态编译进 sidecar、或把 PSD 解析改成纯 Rust（`psd` crate）。
+这些文件释放到用户缓存中的版本化目录；缺失或损坏时从主程序内嵌内容自动重建。正式版不从系统 `PATH` 回退查找上述程序，也不在首次使用时联网下载组件。
+
+仍由系统提供的边界：
+
+- `pkexec`（Linux in-app 升级提权，一般随桌面环境自带）
+- PowerShell / `cmd`、`open` / `xdg-open`、`screencapture`、`ping`、桌面 Portal / PipeWire
+- 可选的本地 Ollama 服务
+- 网络访问 GitHub API（`api.github.com/repos/attson/attool/releases/latest`）和 Releases 静态资源，仅用于应用更新；可在 Settings 中关闭"启动时自动检查更新"

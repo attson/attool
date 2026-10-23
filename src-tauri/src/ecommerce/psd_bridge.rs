@@ -20,19 +20,24 @@ fn embedded_bridge_source() -> &'static [u8] {
     EMBEDDED_BRIDGE_SOURCE
 }
 
+#[cfg(not(debug_assertions))]
+pub(crate) fn runtime_bridge_path() -> Result<PathBuf, String> {
+    materialize_embedded_bridge(
+        &dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("attool"),
+        env!("CARGO_PKG_VERSION"),
+        EMBEDDED_BRIDGE_BINARY,
+    )
+}
+
 pub fn import_psd(psd_path: &Path, output_dir: &Path) -> Result<TemplateProject, String> {
     validate_psd_path(psd_path)?;
     std::fs::create_dir_all(output_dir)
         .map_err(|error| format!("创建模板输出目录失败：{error}"))?;
 
     #[cfg(not(debug_assertions))]
-    let sidecar = materialize_embedded_bridge(
-        &dirs::cache_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("attool"),
-        env!("CARGO_PKG_VERSION"),
-        EMBEDDED_BRIDGE_BINARY,
-    )?;
+    let sidecar = runtime_bridge_path()?;
 
     #[cfg(debug_assertions)]
     let sidecar = {
@@ -67,6 +72,7 @@ fn sidecar_path_for_executable(executable: &Path) -> Result<PathBuf, String> {
     Ok(directory.join(format!("psd-bridge{}", std::env::consts::EXE_SUFFIX)))
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
 fn materialize_embedded_bridge(
     cache_root: &Path,
     version: &str,
@@ -101,6 +107,7 @@ fn materialize_embedded_bridge(
     Ok(destination)
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
 fn file_matches(path: &Path, expected: &[u8]) -> bool {
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
@@ -127,6 +134,7 @@ fn file_matches(path: &Path, expected: &[u8]) -> bool {
     true
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
 fn set_executable(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {

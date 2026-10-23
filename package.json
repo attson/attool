@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
+    "build:runtime": "node .github/scripts/prepare-runtime.mjs",
     "build:psd-sidecar": "node .github/scripts/build-psd-sidecar.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
