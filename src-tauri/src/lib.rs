@@ -1430,6 +1430,7 @@ pub fn run() {
             imaging::commands::strip_image_exif,
             imaging::commands::write_binary_file,
             imaging::commands::ocr_image,
+            imaging::commands::ocr_capture_overlay,
             imaging::commands::capture_screen,
             imaging::commands::get_capture_shortcut,
             imaging::commands::set_capture_shortcut,

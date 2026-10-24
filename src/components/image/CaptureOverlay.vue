@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useMessage } from 'naive-ui';
 import {
@@ -22,6 +23,11 @@ import {
   recordingShortcutAction,
   type CaptureRecordingState
 } from '../recording/captureRecording';
+import {
+  captureOcrAllowsGlobalShortcut,
+  initialCaptureOcrState,
+  nextCaptureOcrState
+} from './captureOcr';
 
 interface WindowRect {
   owner: string;
@@ -119,6 +125,7 @@ const coversSystemUi = ref(false);
 const scale = ref(1);
 const message = useMessage();
 const overlayWindow = getCurrentWindow();
+const ocrState = ref(initialCaptureOcrState());
 
 function updateViewportMetrics() {
   viewportW.value = Math.max(1, window.innerWidth);
@@ -363,7 +370,7 @@ const previewSourceSize = computed(() => {
 const toolbarStyle = computed(() => {
   if (!selection.value) return { display: 'none' };
   const sel = selection.value;
-  const toolbarW = 1020;
+  const toolbarW = 1060;
   const toolbarH = 58;
   const margin = 8;
   const position = positionCaptureToolbar(
@@ -891,7 +898,7 @@ function reselect() {
   resetState();
 }
 
-async function composeCanvas(): Promise<HTMLCanvasElement | null> {
+async function composeCanvas(includeAnnotations = true): Promise<HTMLCanvasElement | null> {
   const sel = selection.value;
   if (!sel) return null;
   const out = document.createElement('canvas');
@@ -917,10 +924,59 @@ async function composeCanvas(): Promise<HTMLCanvasElement | null> {
     out.width,
     out.height
   );
-  for (const shape of shapes.value) {
-    drawShape(ctx, shape, scale.value);
+  if (includeAnnotations) {
+    for (const shape of shapes.value) {
+      drawShape(ctx, shape, scale.value);
+    }
   }
   return out;
+}
+
+async function runCaptureOcr() {
+  if (!selection.value || ocrState.value.phase === 'recognizing') return;
+  ocrState.value = nextCaptureOcrState(ocrState.value, { type: 'start' });
+  const requestId = ocrState.value.requestId;
+  const canvas = await composeCanvas(false).catch((error) => {
+    ocrState.value = nextCaptureOcrState(ocrState.value, {
+      type: 'fail',
+      requestId,
+      error: `截图合成失败：${String(error)}`
+    });
+    return null;
+  });
+  if (!canvas) return;
+
+  try {
+    const dataUrl = canvas.toDataURL('image/png');
+    const response = await invoke<{ text: string }>('ocr_capture_overlay', {
+      request: { pngBase64: dataUrl.split(',')[1] }
+    });
+    ocrState.value = nextCaptureOcrState(ocrState.value, {
+      type: 'resolve',
+      requestId,
+      text: response.text
+    });
+  } catch (error) {
+    ocrState.value = nextCaptureOcrState(ocrState.value, {
+      type: 'fail',
+      requestId,
+      error: String(error)
+    });
+  }
+}
+
+function closeCaptureOcr() {
+  ocrState.value = nextCaptureOcrState(ocrState.value, { type: 'close' });
+}
+
+async function copyCaptureOcrText() {
+  if (!ocrState.value.text.trim()) return;
+  try {
+    await writeText(ocrState.value.text);
+    message.success('识别结果已复制到剪贴板');
+  } catch (error) {
+    message.error(`复制失败：${String(error)}`);
+  }
 }
 
 async function saveToFile() {
@@ -1489,6 +1545,7 @@ async function syncOverlayInputRegion(restrictToControls: boolean) {
 }
 
 async function cancel() {
+  ocrState.value = nextCaptureOcrState(ocrState.value, { type: 'reset' });
   if (captureMode.value === 'recording') await cleanupRecordingSource();
   await invoke('close_capture_overlay').catch(() => {});
   resetState();
@@ -1512,6 +1569,7 @@ function resetState() {
   pencilPoints.value = [];
   hoveredWindow.value = null;
   tool.value = 'cursor';
+  ocrState.value = nextCaptureOcrState(ocrState.value, { type: 'reset' });
 }
 
 async function confirm() {
@@ -1556,6 +1614,8 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault();
     void cancel();
+  } else if (!captureOcrAllowsGlobalShortcut(ocrState.value.phase, event.key)) {
+    return;
   } else if (captureMode.value === 'recording') {
     if ((event.metaKey || event.ctrlKey) && (event.key === 'Enter' || event.key === 'Return')) {
       event.preventDefault();
@@ -1897,6 +1957,14 @@ onUnmounted(() => {
             <path d="M12 3 L21 12 L12 21 L3 12 Z"/>
           </svg>
         </button>
+        <button
+          class="ocr-action"
+          :disabled="ocrState.phase === 'recognizing'"
+          title="识别选区文字"
+          @click="runCaptureOcr"
+        >
+          <span>{{ ocrState.phase === 'recognizing' ? '···' : 'OCR' }}</span>
+        </button>
         <button @click="saveToFile" title="保存到文件 ⌘S">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="4" x2="12" y2="16"/>
@@ -1923,6 +1991,55 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <div v-if="captureMode === 'screenshot' && ocrState.phase === 'recognizing'" class="ocr-backdrop" />
+
+    <section
+      v-if="captureMode === 'screenshot' && ocrState.phase !== 'idle'"
+      class="ocr-panel"
+      aria-label="OCR 识别结果"
+      @mousedown.stop
+      @click.stop
+    >
+      <template v-if="ocrState.phase === 'recognizing'">
+        <div class="ocr-status">
+          <span class="ocr-spinner" />
+          <strong>正在识别选区文字</strong>
+          <small>英文 + 简体中文</small>
+        </div>
+      </template>
+      <template v-else-if="ocrState.phase === 'success'">
+        <header class="ocr-panel-header">
+          <strong>OCR 识别结果</strong>
+          <small>英文 + 简体中文</small>
+        </header>
+        <textarea v-model="ocrState.text" class="ocr-result" aria-label="OCR 识别文字" />
+        <footer class="ocr-panel-actions">
+          <button type="button" @click="closeCaptureOcr">关闭</button>
+          <button type="button" class="primary" @click="copyCaptureOcrText">复制全部</button>
+        </footer>
+      </template>
+      <template v-else-if="ocrState.phase === 'empty'">
+        <div class="ocr-status">
+          <strong>未识别到文字</strong>
+          <small>请调整选区后重试，当前选区和标注会保留。</small>
+          <div class="ocr-status-actions">
+            <button type="button" @click="closeCaptureOcr">关闭</button>
+            <button type="button" class="primary" @click="runCaptureOcr">重试</button>
+          </div>
+        </div>
+      </template>
+      <template v-else>
+        <div class="ocr-status error">
+          <strong>文字识别失败</strong>
+          <small>{{ ocrState.error }}</small>
+          <div class="ocr-status-actions">
+            <button type="button" @click="closeCaptureOcr">关闭</button>
+            <button type="button" class="primary" @click="runCaptureOcr">重试</button>
+          </div>
+        </div>
+      </template>
+    </section>
 
     <!-- Floating text input anchored to the click point, always fresh per click -->
     <input
@@ -2162,6 +2279,14 @@ onUnmounted(() => {
 .toolbar button.cancel { color: #ef4444; }
 .toolbar button.confirm { color: #10b981; }
 .toolbar button.pin { color: #ef4444; }
+.toolbar button.ocr-action {
+  min-width: 44px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
 .swatch {
   width: 22px !important;
   min-width: 22px !important;
@@ -2176,6 +2301,98 @@ onUnmounted(() => {
   background: currentColor;
   border-radius: 50%;
 }
+.ocr-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 61;
+  width: min(560px, calc(100vw - 48px));
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  cursor: default;
+}
+.ocr-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: var(--bg-base);
+  opacity: 0.58;
+  cursor: wait;
+}
+.ocr-panel-header,
+.ocr-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.ocr-panel-header { border-bottom: 1px solid var(--line); }
+.ocr-panel-header strong { font-size: var(--fs-lg); }
+.ocr-panel-header small,
+.ocr-status small { color: var(--text-muted); font-size: var(--fs-xs); }
+.ocr-result {
+  box-sizing: border-box;
+  width: calc(100% - 28px);
+  min-height: 180px;
+  max-height: 50vh;
+  margin: 14px;
+  padding: 10px 12px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--bg-base);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  user-select: text;
+}
+.ocr-result:focus { border-color: var(--accent); }
+.ocr-panel-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+.ocr-panel button {
+  min-width: 72px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.ocr-panel button:hover { border-color: var(--text-faint); }
+.ocr-panel button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.ocr-status {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 24px;
+  text-align: center;
+}
+.ocr-status.error strong { color: var(--error); }
+.ocr-status-actions { display: flex; gap: 8px; margin-top: 8px; }
+.ocr-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-pill);
+  animation: ocr-spin 800ms linear infinite;
+}
+@keyframes ocr-spin { to { transform: rotate(360deg); } }
 .text-input {
   position: absolute;
   min-width: 100px;
