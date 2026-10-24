@@ -178,11 +178,11 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 - `SseTool` —— sse kind：`SseRequestEditor`（URL + Params + Headers + Auth + Settings 含 lastEventId）+ 连接控制条 + `StreamMessageList`
 - `WsTool` —— ws kind：`WsRequestEditor`（URL + Params + Headers + Auth + Protocol 含 subprotocols）+ 连接控制条 + `StreamMessageList` + 发送框 + 发送模板选择
 - `StreamMessageList` —— sse / ws 共享的消息流视图：按 `messageTone` 分色（Open / Closed / Error / BufferTruncated / WsBinary / SseEvent · WsText），自动滚动到底部
-- `HttpEnvModal` —— 环境 + 变量 CRUD 弹窗（共用）
+- `HttpEnvModal` —— 环境 + 变量 CRUD 弹窗（共用），变量名输入提供 `baseUrl` / `token` / `apiKey` 建议并保留自由输入
 - `HttpOpenApiImportModal` + `openapiImport.ts` —— 读取 OAS 3.x JSON，按 path 首段生成集合目录，支持 base URL 覆盖为真实 URL 或 `{{baseUrl}}`
-- `curl.ts` / `variables.ts` / `httpApi.ts` / `streamApi.ts` / `streamMessageTone.ts` / `types.ts` —— 纯函数与类型，vitest 覆盖 40+ 用例（含 OpenAPI 导入、集合 store、SSE / WS store 测试与 tone 分色测试）
+- `curl.ts` / `variables.ts` / `httpApi.ts` / `streamApi.ts` / `streamMessageTone.ts` / `types.ts` —— 纯函数与类型；`variables.ts` 统一展开变量并在执行副本中用有效 `baseUrl` 补全 HTTP / SSE / WS 相对 URL，WS 基址同步转换协议；vitest 覆盖 OpenAPI 导入、集合 store、URL 解析、SSE / WS store 与 tone 分色
 
-状态全部走 `useHttpStore` 单例；子组件通过 props 拿 spec（union：`HttpRequestSpec | SseSpec | WsSpec`），通过 emit 触发修改；`useHttpStore` 用 300ms debounce 把 tabs 写回 SQLite（关闭 / 发送 / 拖拽即时 flush）。SSE / WS 的 `openStream / closeStream / sendWsMessage / listStreamMessages` 也挂在同一个 store 上，`openStream` 在调后端前做 `{{var}}` 展开（`applyVarsToSseSpec` / `applyVarsToWsSpec`），`sendWsMessage` 也走 `resolveVars`。
+状态全部走 `useHttpStore` 单例；子组件通过 props 拿 spec（union：`HttpRequestSpec | SseSpec | WsSpec`），通过 emit 触发修改；`useHttpStore` 用 300ms debounce 把 tabs 写回 SQLite（关闭 / 发送 / 拖拽即时 flush）。HTTP `send` 与 SSE / WS `openStream` 都在调后端前生成已展开、已补全 URL 的执行副本；解析失败会复位发送 / 连接状态且不调用底层 API。`sendWsMessage` 走 `resolveVars`，原始 tab spec 始终保留用户输入。
 
 ### 后端模块概览
 

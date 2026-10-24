@@ -77,6 +77,7 @@
 - Composable：`src/composables/useTheme.ts`，注入 `KVStorage` + `ThemeRoot`，默认 `localStorage` + `document.documentElement`
 - 状态持久化：`localStorage.attool.theme = 'dark' | 'light'`，默认 `dark`
 - Naive UI：`<n-config-provider :theme="..." :theme-overrides="...">` 在 `darkTheme + darkOverrides` 与 `null + lightOverrides` 之间切换
+- Monaco：普通编辑器与差异编辑器只读取 `<html data-theme>`；首次挂载和运行时主题切换分别应用 `vs-dark` / `vs`，组件卸载时断开监听并释放 editor / model
 - 入口：sidebar 底栏的太阳/月亮按钮（折叠态隐藏）
 
 ## 外壳骨架

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { NButton, NInput, NModal, NTabs, NTabPane } from 'naive-ui';
+import { NAutoComplete, NButton, NInput, NModal, NTabs, NTabPane } from 'naive-ui';
 import type { HttpEnv, HttpEnvVar } from './types';
+import { COMMON_ENV_VAR_OPTIONS } from './variables';
 
 const props = defineProps<{
   show: boolean;
@@ -138,11 +139,12 @@ function looksLikeToken(v: string): boolean {
         <div v-else class="vars">
           <div v-for="v in currentVars" :key="v.id" class="var-row">
             <input type="checkbox" :checked="v.enabled" @change="(e: any) => updateVarEnabled(v, e.target.checked)" />
-            <input
-              class="kv-input mono"
+            <n-auto-complete
               :value="v.key"
+              :options="COMMON_ENV_VAR_OPTIONS"
+              size="small"
               placeholder="变量名"
-              @input="(e: any) => updateVarKey(v, e.target.value)"
+              @update:value="(value: string) => updateVarKey(v, value)"
             />
             <input
               class="kv-input mono"

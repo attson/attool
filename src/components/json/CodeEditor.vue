@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { loadMonaco } from '../../composables/useMonacoLoader';
 import type { editor as MonacoEditor } from 'monaco-editor';
+import { watchMonacoTheme, type MonacoThemeName } from '../../theme/monacoTheme';
 
 const LARGE_INPUT = 1_000_000;
 const LONG_LINE = 50_000;
@@ -57,6 +58,8 @@ const instance = shallowRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
 let suppress = false;
 // 记录上次跑 resolveLargeOptions 时的长度，用来限流 maxLineLength 的 O(n) 扫描。
 let lastResolvedLen = 0;
+let stopWatchingTheme: (() => void) | null = null;
+let unmounted = false;
 const RESOLVE_LEN_DELTA = 16_384;
 
 function maybeResolve(editor: MonacoEditor.IStandaloneCodeEditor, value: string) {
@@ -70,6 +73,12 @@ function maybeResolve(editor: MonacoEditor.IStandaloneCodeEditor, value: string)
 onMounted(async () => {
   if (!container.value) return;
   const monaco = await loadMonaco();
+  if (unmounted || !container.value) return;
+  let initialTheme: MonacoThemeName = 'vs-dark';
+  stopWatchingTheme = watchMonacoTheme((theme) => {
+    initialTheme = theme;
+    monaco.editor.setTheme(theme);
+  });
   const initialOpts = resolveLargeOptions(props.modelValue);
   lastResolvedLen = props.modelValue.length;
   const editor = monaco.editor.create(container.value, {
@@ -85,7 +94,7 @@ onMounted(async () => {
     wordWrap: initialOpts.wordWrap,
     folding: initialOpts.folding,
     renderValidationDecorations: initialOpts.renderValidationDecorations,
-    theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs',
+    theme: initialTheme,
   });
   editor.onDidChangeModelContent(() => {
     if (suppress) return;
@@ -130,6 +139,9 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  unmounted = true;
+  stopWatchingTheme?.();
+  stopWatchingTheme = null;
   instance.value?.dispose();
   instance.value = null;
 });

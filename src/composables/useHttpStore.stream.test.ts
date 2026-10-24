@@ -7,7 +7,7 @@ interface CapturedListener {
   cb: (m: StreamMessage) => void;
 }
 
-function makeMockApi() {
+function makeMockApi(baseUrl?: string) {
   const calls: Array<{ fn: string; args: unknown }> = [];
   const listeners: CapturedListener[] = [];
   const unlisten = vi.fn();
@@ -21,15 +21,31 @@ function makeMockApi() {
     async insertHistory() {},
     async deleteHistory() {},
     async clearHistory() {},
-    async listEnvs() { return []; },
+    async listEnvs() {
+      return baseUrl ? [{ id: 'dev', name: 'dev', isActive: true, orderIndex: 0 }] : [];
+    },
     async upsertEnv() {},
     async deleteEnv() {},
     async setActiveEnv() {},
-    async listEnvVars() { return []; },
+    async listEnvVars(envId: string) {
+      return baseUrl && envId === 'dev'
+        ? [{ id: 'base-url', envId, key: 'baseUrl', value: baseUrl, enabled: true, orderIndex: 0 }]
+        : [];
+    },
     async upsertEnvVar() {},
     async deleteEnvVar() {},
     async sendHttp() { throw new Error('not used'); },
     async cancelHttp() { return true; },
+    async listCollections() { return []; },
+    async listCollectionFolders() { return []; },
+    async listCollectionRequests() { return []; },
+    async upsertCollection() {},
+    async upsertCollectionFolder() {},
+    async upsertCollectionRequest() {},
+    async deleteCollection() {},
+    async deleteCollectionFolder() {},
+    async deleteCollectionRequest() {},
+    async fetchOpenApiUrl() { return ''; },
     // stream 部分
     async openStream(sessionId: string, kind: 'sse' | 'ws', spec: unknown) {
       calls.push({ fn: 'openStream', args: { sessionId, kind, spec } });
@@ -94,6 +110,18 @@ describe('useHttpStore stream', () => {
     expect(calls.some(c => c.fn === 'sendWsMessage' && (c.args as any).text === 'b')).toBe(true);
   });
 
+  it('opens a WebSocket relative URL with the active environment baseUrl', async () => {
+    const { api, calls } = makeMockApi('https://api.example.com/v1');
+    const store = _resetHttpStoreForTest(api as any);
+    await store.init();
+    const tab = await store.newTab(undefined, undefined, 'ws');
+
+    await store.openStream(tab.id, 'ws', { url: '/socket' } as any);
+
+    const call = calls.find((entry) => entry.fn === 'openStream');
+    expect((call?.args as any).spec.url).toBe('wss://api.example.com/v1/socket');
+  });
+
   it('closeTab triggers closeStream + unlisten for stream tab', async () => {
     const { api, calls, unlisten } = makeMockApi();
     const store = _resetHttpStoreForTest(api as any);
@@ -103,5 +131,21 @@ describe('useHttpStore stream', () => {
     await store.closeTab(tab.id);
     expect(calls.some(c => c.fn === 'closeStream' && (c.args as any).sessionId === tab.id)).toBe(true);
     expect(unlisten).toHaveBeenCalled();
+  });
+
+  it('rejects a relative stream URL without baseUrl and cleans up the listener', async () => {
+    const { api, calls, listeners, unlisten } = makeMockApi();
+    const store = _resetHttpStoreForTest(api as any);
+    await store.init();
+    const tab = await store.newTab(undefined, undefined, 'sse');
+
+    await expect(store.openStream(tab.id, 'sse', { url: '/events' } as any)).rejects.toThrow(
+      '相对 URL 需要配置有效的 baseUrl'
+    );
+
+    expect(calls.some((call) => call.fn === 'openStream')).toBe(false);
+    expect(tab.session).toEqual({ status: 'error', error: '相对 URL 需要配置有效的 baseUrl' });
+    expect(listeners).toHaveLength(0);
+    expect(unlisten).not.toHaveBeenCalled();
   });
 });
