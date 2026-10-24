@@ -7,6 +7,12 @@ export interface VarContext {
 
 const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}/g;
 
+export const COMMON_ENV_VAR_OPTIONS = [
+  { label: 'baseUrl', value: 'baseUrl' },
+  { label: 'token', value: 'token' },
+  { label: 'apiKey', value: 'apiKey' }
+] as const;
+
 export function makeVarContext(
   activeVars: Array<{ key: string; value: string; enabled: boolean }>,
   globalVars: Array<{ key: string; value: string; enabled: boolean }>
@@ -30,6 +36,43 @@ export function resolveVars(input: string, ctx: VarContext): string {
     const found = lookupVar(name, ctx);
     return found !== undefined ? found : raw;
   });
+}
+
+export type RequestUrlKind = 'http' | 'sse' | 'ws';
+
+export function resolveRequestUrl(input: string, ctx: VarContext, kind: RequestUrlKind): string {
+  const unknownVars = collectUnknownVars(input, ctx);
+  if (unknownVars.length > 0) {
+    throw new Error(`变量未定义：${unknownVars.join(', ')}`);
+  }
+  const resolved = resolveVars(input, ctx);
+  if (/^(?:https?|wss?):\/\//i.test(resolved)) return resolved;
+
+  const baseUrl = lookupVar('baseUrl', ctx)?.trim();
+  if (!baseUrl) throw new Error('相对 URL 需要配置有效的 baseUrl');
+  let parsedBase: URL;
+  try {
+    parsedBase = new URL(baseUrl);
+  } catch {
+    throw new Error('相对 URL 需要配置有效的 baseUrl');
+  }
+  const allowedProtocols = kind === 'ws'
+    ? new Set(['http:', 'https:', 'ws:', 'wss:'])
+    : new Set(['http:', 'https:']);
+  if (
+    !allowedProtocols.has(parsedBase.protocol)
+    || !parsedBase.host
+    || /[?#]/.test(baseUrl)
+    || !/^(?:https?|wss?):\/\//i.test(baseUrl)
+  ) {
+    throw new Error('相对 URL 需要配置有效的 baseUrl');
+  }
+  if (kind === 'ws') {
+    if (parsedBase.protocol === 'https:') parsedBase.protocol = 'wss:';
+    if (parsedBase.protocol === 'http:') parsedBase.protocol = 'ws:';
+  }
+  const effectiveBase = parsedBase.toString();
+  return `${effectiveBase.replace(/\/+$/, '')}/${resolved.replace(/^\/+/, '')}`;
 }
 
 export function collectVars(input: string): string[] {
@@ -81,7 +124,7 @@ export function applyVarsToSseSpec(spec: SseSpec, ctx: VarContext): SseSpec {
   const auth = spec.auth ?? { type: 'none' as const };
   return {
     ...spec,
-    url: resolveVars(spec.url ?? '', ctx),
+    url: resolveRequestUrl(spec.url ?? '', ctx, 'sse'),
     headers: resolveKvListPub(spec.headers, ctx),
     queryParams: resolveKvListPub(spec.queryParams, ctx),
     auth: {
@@ -98,7 +141,7 @@ export function applyVarsToWsSpec(spec: WsSpec, ctx: VarContext): WsSpec {
   const auth = spec.auth ?? { type: 'none' as const };
   return {
     ...spec,
-    url: resolveVars(spec.url ?? '', ctx),
+    url: resolveRequestUrl(spec.url ?? '', ctx, 'ws'),
     headers: resolveKvListPub(spec.headers, ctx),
     queryParams: resolveKvListPub(spec.queryParams, ctx),
     auth: {
@@ -113,7 +156,7 @@ export function applyVarsToWsSpec(spec: WsSpec, ctx: VarContext): WsSpec {
 export function applyVarsToSpec(spec: HttpRequestSpec, ctx: VarContext): HttpRequestSpec {
   return {
     ...spec,
-    url: resolveVars(spec.url, ctx),
+    url: resolveRequestUrl(spec.url, ctx, 'http'),
     headers: resolveKvList(spec.headers, ctx),
     queryParams: resolveKvList(spec.queryParams, ctx),
     body: spec.bodyType === 'multipart' ? spec.body : resolveVars(spec.body, ctx),

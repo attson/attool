@@ -39,7 +39,8 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 **共用能力**（所有 kind 都有）：
 
 - 多 tab（浏览器风格 + / ✕ / 中键关闭），每 tab 一份 spec；改动 300ms debounce upsert 到 SQLite，app 重启完整恢复
-- 多环境变量：dev / staging / prod 自由建；URL / headers / query / body（HTTP） / 发送内容（WS）里 `{{var}}` 字面替换；active 环境优先于全局
+- 多环境变量：dev / staging / prod 自由建；变量名可从 `baseUrl` / `token` / `apiKey` 建议中选择，也可自由输入；URL / headers / query / body（HTTP） / 发送内容（WS）里 `{{var}}` 字面替换；active 环境优先于全局
+- 相对 URL 自动补全：HTTP / SSE / WebSocket 在执行副本中把相对路径拼到有效 `baseUrl`，不改写 tab、集合或输入框中的原值；WebSocket 自动映射 `http → ws`、`https → wss`；缺少有效基址或 URL 仍含未定义变量时，在调用底层网络 API 前明确失败
 - Auth：Bearer / Basic，发送 / 握手时 inject Authorization header（不出现在 headers 表格）
 - 快捷键 `⌘Enter` / `⌘T` / `⌘W` / `⌘B` / `⌘E`
 

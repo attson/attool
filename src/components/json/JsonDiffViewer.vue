@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { loadMonaco } from '../../composables/useMonacoLoader';
 import type { editor as MonacoEditor } from 'monaco-editor';
+import { watchMonacoTheme, type MonacoThemeName } from '../../theme/monacoTheme';
 
 const props = defineProps<{
   original: string;
@@ -13,6 +14,8 @@ const container = ref<HTMLDivElement | null>(null);
 const instance = shallowRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
 const originalModel = shallowRef<MonacoEditor.ITextModel | null>(null);
 const modifiedModel = shallowRef<MonacoEditor.ITextModel | null>(null);
+let stopWatchingTheme: (() => void) | null = null;
+let unmounted = false;
 
 function viewHeight(height: number | string | undefined): string {
   if (typeof height === 'number') return `${height}px`;
@@ -22,6 +25,12 @@ function viewHeight(height: number | string | undefined): string {
 onMounted(async () => {
   if (!container.value) return;
   const monaco = await loadMonaco();
+  if (unmounted || !container.value) return;
+  let initialTheme: MonacoThemeName = 'vs-dark';
+  stopWatchingTheme = watchMonacoTheme((theme) => {
+    initialTheme = theme;
+    monaco.editor.setTheme(theme);
+  });
   originalModel.value = monaco.editor.createModel(props.original, 'json');
   modifiedModel.value = monaco.editor.createModel(props.modified, 'json');
 
@@ -40,7 +49,7 @@ onMounted(async () => {
     renderOverviewRuler: true,
     ignoreTrimWhitespace: false,
     renderIndicators: true,
-    theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs',
+    theme: initialTheme,
   });
   editor.setModel({
     original: originalModel.value,
@@ -58,6 +67,9 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  unmounted = true;
+  stopWatchingTheme?.();
+  stopWatchingTheme = null;
   instance.value?.dispose();
   originalModel.value?.dispose();
   modifiedModel.value?.dispose();

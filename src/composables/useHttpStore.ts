@@ -230,6 +230,15 @@ function createStore(api: FullApi) {
     if (!tab) throw new Error('tab not found');
     tab.session = { status: 'connecting' };
     tab.messages = [];
+    let resolvedSpec: SseSpec | WsSpec;
+    try {
+      resolvedSpec = kind === 'sse'
+        ? applyVarsToSseSpec(spec as SseSpec, varContext.value)
+        : applyVarsToWsSpec(spec as WsSpec, varContext.value);
+    } catch (err) {
+      tab.session = { status: 'error', error: String((err as Error).message ?? err) };
+      throw err;
+    }
     const unlisten = await api.listen(sessionId, (msg: StreamMessage) => {
       tab.messages!.push(msg);
       if (msg.kind === 'open') tab.session = { status: 'open', openedAt: msg.atMs };
@@ -237,9 +246,6 @@ function createStore(api: FullApi) {
       else if (msg.kind === 'error') tab.session = { status: 'error', error: msg.message, openedAt: (tab.session as HttpSession)?.openedAt };
     });
     streamUnlisten.set(sessionId, unlisten);
-    const resolvedSpec = kind === 'sse'
-      ? applyVarsToSseSpec(spec as SseSpec, varContext.value)
-      : applyVarsToWsSpec(spec as WsSpec, varContext.value);
     try {
       await api.openStream(sessionId, kind, resolvedSpec);
     } catch (err) {
@@ -333,19 +339,20 @@ function createStore(api: FullApi) {
     const httpSpec = tab.spec as HttpRequestSpec;
     tab.lastError = null;
     tab.sending = true;
-    const spec = applyVarsToSpec(httpSpec, varContext.value);
-    const cancelId = ulid();
-    tab.cancelTokenId = cancelId;
-    await flushDirtyNow();
     const start = Date.now();
+    let spec: HttpRequestSpec | null = null;
     try {
+      spec = applyVarsToSpec(httpSpec, varContext.value);
+      const cancelId = ulid();
+      tab.cancelTokenId = cancelId;
+      await flushDirtyNow();
       const resp = await api.sendHttp(spec, cancelId);
       tab.lastResponse = resp;
       if (httpSpec.saveToHistory) {
         const item: HttpHistoryItem = {
           id: ulid(),
           method: httpSpec.method,
-          url: spec.url,
+          url: spec?.url ?? httpSpec.url,
           status: resp.status,
           elapsedMs: resp.elapsedMs,
           bodyBytes: resp.bodyBytes,
@@ -365,7 +372,7 @@ function createStore(api: FullApi) {
         const item: HttpHistoryItem = {
           id: ulid(),
           method: httpSpec.method,
-          url: spec.url,
+          url: spec?.url ?? httpSpec.url,
           status: null,
           elapsedMs: Date.now() - start,
           bodyBytes: null,
