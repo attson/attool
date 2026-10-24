@@ -14,6 +14,8 @@ use super::ocr::run_tesseract;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
 // ---- compress ----
@@ -230,6 +232,45 @@ pub async fn ocr_image(request: OcrRequest) -> Result<OcrResponse, String> {
     })
     .await
     .map_err(|error| format!("OCR 异常：{error}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureOverlayOcrRequest {
+    pub png_base64: String,
+}
+
+fn ocr_capture_overlay_with<F>(
+    request: CaptureOverlayOcrRequest,
+    run_ocr: F,
+) -> Result<OcrResponse, String>
+where
+    F: FnOnce(&Path, &str) -> Result<String, String>,
+{
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(request.png_base64.trim())
+        .map_err(|error| format!("Base64 解码失败：{error}"))?;
+    let mut input = tempfile::Builder::new()
+        .prefix("attool-ocr-")
+        .suffix(".png")
+        .tempfile()
+        .map_err(|error| format!("创建 OCR 临时文件失败：{error}"))?;
+    input
+        .write_all(&bytes)
+        .map_err(|error| format!("写入 OCR 临时文件失败：{error}"))?;
+    let text = run_ocr(input.path(), "eng+chi_sim")?;
+    Ok(OcrResponse { text })
+}
+
+#[tauri::command]
+pub async fn ocr_capture_overlay(
+    request: CaptureOverlayOcrRequest,
+) -> Result<OcrResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ocr_capture_overlay_with(request, run_tesseract)
+    })
+    .await
+    .map_err(|error| format!("截图 OCR 异常：{error}"))?
 }
 
 // ---- capture ----
@@ -454,4 +495,49 @@ pub async fn write_binary_file(path: String, base64: String) -> Result<(), Strin
     })
     .await
     .map_err(|error| format!("写入任务异常：{error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use base64::Engine;
+
+    use super::{ocr_capture_overlay_with, CaptureOverlayOcrRequest};
+
+    #[test]
+    fn capture_overlay_ocr_uses_bundled_default_language_and_cleans_input() {
+        let observed_path = RefCell::new(None);
+        let request = CaptureOverlayOcrRequest {
+            png_base64: base64::engine::general_purpose::STANDARD.encode(b"selection png"),
+        };
+
+        let response = ocr_capture_overlay_with(request, |path, langs| {
+            assert_eq!(langs, "eng+chi_sim");
+            assert_eq!(std::fs::read(path).unwrap(), b"selection png");
+            observed_path.replace(Some(path.to_path_buf()));
+            Ok("人员与组织".to_string())
+        })
+        .unwrap();
+
+        assert_eq!(response.text, "人员与组织");
+        assert!(!observed_path.into_inner().unwrap().exists());
+    }
+
+    #[test]
+    fn capture_overlay_ocr_cleans_input_when_recognition_fails() {
+        let observed_path = RefCell::new(None);
+        let request = CaptureOverlayOcrRequest {
+            png_base64: base64::engine::general_purpose::STANDARD.encode(b"selection png"),
+        };
+
+        let error = ocr_capture_overlay_with(request, |path, _| {
+            observed_path.replace(Some(path.to_path_buf()));
+            Err("识别失败".to_string())
+        })
+        .unwrap_err();
+
+        assert_eq!(error, "识别失败");
+        assert!(!observed_path.into_inner().unwrap().exists());
+    }
 }
