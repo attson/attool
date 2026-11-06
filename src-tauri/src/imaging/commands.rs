@@ -411,8 +411,10 @@ pub async fn set_capture_overlay_input_region(
 
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (app, region);
-        Ok(())
+        super::capture::set_macos_overlay_input_region(
+            &app,
+            region.map(|value| (value.x, value.y, value.width, value.height)),
+        )
     }
 }
 

@@ -5,7 +5,7 @@ use std::process::Command;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -37,6 +37,28 @@ static REGISTERED: OnceLock<Mutex<String>> = OnceLock::new();
 static OVERLAY_OPEN: OnceLock<Mutex<()>> = OnceLock::new();
 static OVERLAY_HIDDEN_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 static OVERLAY_READY: OnceLock<(Mutex<bool>, Condvar)> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static MACOS_INPUT_STATE: OnceLock<Mutex<MacosInputState>> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug)]
+struct PhysicalInputRegion {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl PhysicalInputRegion {
+    fn contains(self, x: f64, y: f64) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct MacosInputState {
+    generation: u64,
+}
 
 fn registered_slot() -> &'static Mutex<String> {
     REGISTERED.get_or_init(|| Mutex::new(String::new()))
@@ -56,6 +78,139 @@ fn overlay_ready_slot() -> &'static (Mutex<bool>, Condvar) {
 
 fn capture_mode_needs_desktop_frame(initial_mode: &str) -> bool {
     initial_mode != "recording"
+}
+
+fn overlay_usable_height(
+    logical_height: f64,
+    reported_work_bottom: f64,
+    panel_inset: f64,
+    covers_system_ui: bool,
+) -> f64 {
+    if covers_system_ui {
+        logical_height
+    } else {
+        reported_work_bottom.min((logical_height - panel_inset).max(1.0))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_overlay_level(app: &AppHandle, overlay: &WebviewWindow) -> Result<(), String> {
+    use std::ffi::{c_char, c_void};
+    use std::sync::mpsc;
+
+    // Tauri's always-on-top level remains below Dock; the capture selector must cover system UI.
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGWindowLevelForKey(key: i32) -> i32;
+    }
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn sel_registerName(name: *const c_char) -> *const c_void;
+        fn objc_msgSend();
+    }
+
+    const CG_SCREEN_SAVER_WINDOW_LEVEL_KEY: i32 = 13;
+    let window = overlay
+        .ns_window()
+        .map_err(|error| format!("读取截图覆盖窗句柄失败：{error}"))? as usize;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let result = unsafe {
+            let selector = sel_registerName(b"setLevel:\0".as_ptr().cast());
+            if selector.is_null() {
+                Err("读取 macOS 窗口层级接口失败".to_string())
+            } else {
+                let level = CGWindowLevelForKey(CG_SCREEN_SAVER_WINDOW_LEVEL_KEY) - 1;
+                let send: unsafe extern "C" fn(*mut c_void, *const c_void, isize) =
+                    std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                send(window as *mut c_void, selector, level as isize);
+                Ok(())
+            }
+        };
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("切换截图覆盖窗层级失败：{error}"))?;
+    receiver
+        .recv()
+        .map_err(|_| "切换截图覆盖窗层级未完成".to_string())?
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_macos_overlay_level(_app: &AppHandle, _overlay: &WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn set_macos_overlay_input_region(
+    app: &AppHandle,
+    region: Option<(i32, i32, i32, i32)>,
+) -> Result<(), String> {
+    let overlay = app
+        .get_webview_window("capture-overlay")
+        .ok_or_else(|| "找不到截图覆盖窗".to_string())?;
+    let state = MACOS_INPUT_STATE.get_or_init(|| Mutex::new(MacosInputState::default()));
+    let generation = {
+        let mut state = state
+            .lock()
+            .map_err(|_| "录屏浮层输入状态异常".to_string())?;
+        state.generation = state.generation.wrapping_add(1);
+        if region.is_none() {
+            overlay
+                .set_ignore_cursor_events(false)
+                .map_err(|error| format!("恢复录屏浮层输入失败：{error}"))?;
+            return Ok(());
+        }
+        state.generation
+    };
+
+    let (x, y, width, height) = region.expect("region checked above");
+    let origin = overlay
+        .outer_position()
+        .map_err(|error| format!("读取录屏浮层位置失败：{error}"))?;
+    let scale = overlay
+        .scale_factor()
+        .map_err(|error| format!("读取录屏浮层缩放失败：{error}"))?;
+    let region = PhysicalInputRegion {
+        x: origin.x as f64 + x as f64 * scale,
+        y: origin.y as f64 + y as f64 * scale,
+        width: width.max(0) as f64 * scale,
+        height: height.max(0) as f64 * scale,
+    };
+
+    std::thread::spawn(move || {
+        let mut last_ignore = None;
+        loop {
+            let Ok(state) = state.lock() else {
+                return;
+            };
+            if state.generation != generation {
+                return;
+            }
+            let Ok(cursor) = overlay.cursor_position() else {
+                drop(state);
+                std::thread::sleep(Duration::from_millis(16));
+                continue;
+            };
+            let ignore = !region.contains(cursor.x, cursor.y);
+            if last_ignore != Some(ignore) {
+                if overlay.set_ignore_cursor_events(ignore).is_err() {
+                    return;
+                }
+                last_ignore = Some(ignore);
+            }
+            drop(state);
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    });
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn set_macos_overlay_input_region(
+    _app: &AppHandle,
+    _region: Option<(i32, i32, i32, i32)>,
+) -> Result<(), String> {
+    Ok(())
 }
 
 fn overlay_settle_delay(last_hidden: Option<Instant>, now: Instant) -> Duration {
@@ -394,11 +549,13 @@ fn run_open_overlay(
     let layer_shell_active = crate::clipboard::layer_shell::capture_overlay_is_layer_shell();
     #[cfg(not(target_os = "linux"))]
     let layer_shell_active = false;
-    let usable_height = if layer_shell_active {
-        logical_height
-    } else {
-        reported_work_bottom.min((logical_height - panel_inset).max(1.0))
-    };
+    let covers_system_ui = layer_shell_active || cfg!(target_os = "macos");
+    let usable_height = overlay_usable_height(
+        logical_height,
+        reported_work_bottom,
+        panel_inset,
+        covers_system_ui,
+    );
     if !layer_shell_active {
         overlay
             .set_position(LogicalPosition::new(logical_x, logical_y))
@@ -407,6 +564,7 @@ fn run_open_overlay(
     overlay
         .set_size(LogicalSize::new(logical_width, logical_height))
         .map_err(|error| format!("调整覆盖窗尺寸失败：{error}"))?;
+    set_macos_overlay_level(app, &overlay)?;
 
     let payload = OverlayInitPayload {
         request_id: ts.to_string(),
@@ -414,7 +572,7 @@ fn run_open_overlay(
         screen_width: logical_width,
         screen_height: logical_height,
         usable_height,
-        covers_system_ui: layer_shell_active,
+        covers_system_ui,
         scale_factor: scale,
         windows: if needs_desktop_frame {
             super::windows::list_visible_windows(scale)
@@ -549,6 +707,7 @@ fn capture_fullscreen_with_cosmic(path: &Path) -> Result<(), String> {
 
 pub fn close_capture_overlay(app: &AppHandle) -> Result<(), String> {
     if let Some(overlay) = app.get_webview_window("capture-overlay") {
+        set_macos_overlay_input_region(app, None)?;
         overlay
             .hide()
             .map_err(|error| format!("隐藏覆盖窗失败：{error}"))?;
@@ -784,6 +943,26 @@ mod tests {
     fn recording_overlay_does_not_need_a_desktop_frame() {
         assert!(!capture_mode_needs_desktop_frame("recording"));
         assert!(capture_mode_needs_desktop_frame("screenshot"));
+    }
+
+    #[test]
+    fn system_ui_overlay_uses_the_full_monitor_height() {
+        assert_eq!(overlay_usable_height(900.0, 820.0, 0.0, true), 900.0);
+        assert_eq!(overlay_usable_height(900.0, 820.0, 0.0, false), 820.0);
+    }
+
+    #[test]
+    fn overlay_input_region_only_contains_its_control_bounds() {
+        let region = PhysicalInputRegion {
+            x: 100.0,
+            y: 200.0,
+            width: 240.0,
+            height: 56.0,
+        };
+        assert!(region.contains(100.0, 200.0));
+        assert!(region.contains(339.0, 255.0));
+        assert!(!region.contains(99.0, 220.0));
+        assert!(!region.contains(180.0, 257.0));
     }
 
     #[test]
