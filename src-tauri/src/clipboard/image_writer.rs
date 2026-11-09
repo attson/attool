@@ -6,8 +6,46 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 const X11_OWNER_ENV: &str = "ATTOOL_X11_CLIPBOARD_OWNER";
 
 #[cfg(target_os = "linux")]
+const X11_OWNER_START_ATTEMPTS: usize = 3;
+
+#[cfg(target_os = "linux")]
+const X11_OWNER_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(40);
+
+#[cfg(target_os = "linux")]
 static X11_OWNER_PROCESS: std::sync::OnceLock<std::sync::Mutex<Option<std::process::Child>>> =
     std::sync::OnceLock::new();
+
+#[cfg(target_os = "linux")]
+fn replace_owner_with_retry<T>(
+    owner: &mut Option<T>,
+    attempts: usize,
+    mut start_candidate: impl FnMut() -> Result<T, String>,
+    mut stop_owner: impl FnMut(&mut T),
+    mut wait_before_retry: impl FnMut(),
+) -> Result<(), String> {
+    let attempts = attempts.max(1);
+    let mut last_error = None;
+
+    for attempt in 0..attempts {
+        match start_candidate() {
+            Ok(candidate) => {
+                let previous = owner.replace(candidate);
+                if let Some(mut previous) = previous {
+                    stop_owner(&mut previous);
+                }
+                return Ok(());
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < attempts {
+                    wait_before_retry();
+                }
+            }
+        }
+    }
+
+    Err(last_error.expect("at least one owner start attempt"))
+}
 
 pub(crate) fn write_image(app: &AppHandle, image: &DynamicImage) -> Result<(), String> {
     #[cfg(target_os = "linux")]
@@ -32,10 +70,7 @@ pub(crate) fn write_image(app: &AppHandle, image: &DynamicImage) -> Result<(), S
 #[cfg(target_os = "linux")]
 fn write_x11_image(image: &DynamicImage) -> Result<(), String> {
     use image::ImageFormat;
-    use std::{
-        io::{BufRead, BufReader, Cursor, Write},
-        process::{Command, Stdio},
-    };
+    use std::io::Cursor;
 
     let mut encoded = Cursor::new(Vec::new());
     image
@@ -46,10 +81,22 @@ fn write_x11_image(image: &DynamicImage) -> Result<(), String> {
     let mut process_slot = process_slot
         .lock()
         .map_err(|_| "X11 clipboard owner lock is poisoned".to_string())?;
-    if let Some(mut previous) = process_slot.take() {
-        let _ = previous.kill();
-        let _ = previous.wait();
-    }
+
+    replace_owner_with_retry(
+        &mut process_slot,
+        X11_OWNER_START_ATTEMPTS,
+        || start_x11_owner(encoded.get_ref()),
+        stop_x11_owner,
+        || std::thread::sleep(X11_OWNER_RETRY_DELAY),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn start_x11_owner(encoded: &[u8]) -> Result<std::process::Child, String> {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        process::{Command, Stdio},
+    };
 
     let executable = std::env::current_exe()
         .map_err(|error| format!("resolve X11 clipboard owner executable: {error}"))?;
@@ -65,41 +112,47 @@ fn write_x11_image(image: &DynamicImage) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("start X11 clipboard owner: {error}"))?;
 
-    let write_result = child
-        .stdin
-        .take()
-        .ok_or_else(|| "X11 clipboard owner stdin is unavailable".to_string())
-        .and_then(|mut stdin| {
-            stdin
-                .write_all(encoded.get_ref())
-                .map_err(|error| format!("send image to X11 clipboard owner: {error}"))
-        });
-    if let Err(error) = write_result {
-        let _ = child.kill();
-        let _ = child.wait();
+    let ready_result = (|| {
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| "X11 clipboard owner stdin is unavailable".to_string())
+            .and_then(|mut stdin| {
+                stdin
+                    .write_all(encoded)
+                    .map_err(|error| format!("send image to X11 clipboard owner: {error}"))
+            })?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "X11 clipboard owner stdout is unavailable".to_string())?;
+        let mut response = String::new();
+        BufReader::new(stdout)
+            .read_line(&mut response)
+            .map_err(|error| format!("read X11 clipboard owner status: {error}"))?;
+        if response.trim() != "READY" {
+            return Err(response
+                .strip_prefix("ERROR ")
+                .unwrap_or("X11 clipboard owner exited before it was ready")
+                .trim()
+                .to_string());
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = ready_result {
+        stop_x11_owner(&mut child);
         return Err(error);
     }
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "X11 clipboard owner stdout is unavailable".to_string())?;
-    let mut response = String::new();
-    BufReader::new(stdout)
-        .read_line(&mut response)
-        .map_err(|error| format!("read X11 clipboard owner status: {error}"))?;
-    if response.trim() != "READY" {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(response
-            .strip_prefix("ERROR ")
-            .unwrap_or("X11 clipboard owner exited before it was ready")
-            .trim()
-            .to_string());
-    }
+    Ok(child)
+}
 
-    *process_slot = Some(child);
-    Ok(())
+#[cfg(target_os = "linux")]
+fn stop_x11_owner(owner: &mut std::process::Child) {
+    let _ = owner.kill();
+    let _ = owner.wait();
 }
 
 #[cfg(target_os = "linux")]
@@ -220,8 +273,13 @@ fn encode_wayland_formats(image: &DynamicImage) -> Result<Vec<(&'static str, Vec
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::encode_wayland_formats;
+    use super::{encode_wayland_formats, replace_owner_with_retry};
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
+    use std::{
+        cell::Cell,
+        sync::{mpsc, Arc, Barrier, Mutex},
+        thread,
+    };
 
     #[test]
     fn encodes_rgba_png_and_common_wayland_fallbacks() {
@@ -263,5 +321,142 @@ mod tests {
 
         assert_eq!(png.color(), image::ColorType::Rgba8);
         assert_eq!(bmp.get_pixel(0, 0).0, [255, 255, 255]);
+    }
+
+    #[test]
+    fn keeps_previous_owner_when_candidate_fails() {
+        let mut owner = Some("previous");
+        let mut stopped = Vec::new();
+
+        let result = replace_owner_with_retry(
+            &mut owner,
+            1,
+            || Err("candidate failed".to_string()),
+            |owner| stopped.push(*owner),
+            || {},
+        );
+
+        assert_eq!(result, Err("candidate failed".to_string()));
+        assert_eq!(owner, Some("previous"));
+        assert!(stopped.is_empty());
+    }
+
+    #[test]
+    fn replaces_owner_before_stopping_previous_owner() {
+        let mut owner = Some("previous");
+        let candidate_started = Cell::new(false);
+        let stopped_after_start = Cell::new(false);
+
+        replace_owner_with_retry(
+            &mut owner,
+            1,
+            || {
+                candidate_started.set(true);
+                Ok("candidate")
+            },
+            |_| stopped_after_start.set(candidate_started.get()),
+            || {},
+        )
+        .expect("candidate should replace previous owner");
+
+        assert_eq!(owner, Some("candidate"));
+        assert!(stopped_after_start.get());
+    }
+
+    #[test]
+    fn retries_candidate_start_and_keeps_last_error() {
+        let mut owner = Some("previous");
+        let attempts = Cell::new(0);
+        let waits = Cell::new(0);
+
+        replace_owner_with_retry(
+            &mut owner,
+            3,
+            || {
+                let attempt = attempts.get() + 1;
+                attempts.set(attempt);
+                (attempt == 3)
+                    .then_some("candidate")
+                    .ok_or_else(|| format!("failure {attempt}"))
+            },
+            |_| {},
+            || waits.set(waits.get() + 1),
+        )
+        .expect("third attempt should succeed");
+
+        assert_eq!(attempts.get(), 3);
+        assert_eq!(waits.get(), 2);
+        assert_eq!(owner, Some("candidate"));
+
+        let result = replace_owner_with_retry(
+            &mut owner,
+            2,
+            || Err("last failure".to_string()),
+            |_| {},
+            || {},
+        );
+        assert_eq!(result, Err("last failure".to_string()));
+        assert_eq!(owner, Some("candidate"));
+    }
+
+    #[test]
+    fn serializes_concurrent_owner_replacements() {
+        let owner = Arc::new(Mutex::new(Some("initial")));
+        let stopped = Arc::new(Mutex::new(Vec::new()));
+        let (first_started_tx, first_started_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+
+        let first_owner = Arc::clone(&owner);
+        let first_stopped = Arc::clone(&stopped);
+        let first = thread::spawn(move || {
+            let mut owner = first_owner.lock().expect("owner lock");
+            replace_owner_with_retry(
+                &mut owner,
+                1,
+                || {
+                    first_started_tx.send(()).expect("report first start");
+                    release_first_rx.recv().expect("release first start");
+                    Ok("first")
+                },
+                |owner| first_stopped.lock().expect("stopped lock").push(*owner),
+                || {},
+            )
+        });
+
+        first_started_rx
+            .recv()
+            .expect("first candidate should start");
+        let second_ready = Arc::new(Barrier::new(2));
+        let second_owner = Arc::clone(&owner);
+        let second_stopped = Arc::clone(&stopped);
+        let second_ready_thread = Arc::clone(&second_ready);
+        let second = thread::spawn(move || {
+            second_ready_thread.wait();
+            let mut owner = second_owner.lock().expect("owner lock");
+            replace_owner_with_retry(
+                &mut owner,
+                1,
+                || Ok("second"),
+                |owner| second_stopped.lock().expect("stopped lock").push(*owner),
+                || {},
+            )
+        });
+
+        second_ready.wait();
+        release_first_tx.send(()).expect("release first candidate");
+        first
+            .join()
+            .expect("first thread")
+            .expect("first replacement");
+        second
+            .join()
+            .expect("second thread")
+            .expect("second replacement");
+
+        assert_eq!(*owner.lock().expect("owner lock"), Some("second"));
+        assert_eq!(
+            stopped.lock().expect("stopped lock").as_slice(),
+            ["initial", "first"]
+        );
     }
 }
