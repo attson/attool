@@ -106,7 +106,17 @@ jobs:
           vcpkgGitCommitId: 67972e92edd181d433927b42d8ab4bfa52ac164a
           runVcpkgInstall: false
 
+      - name: Restore pinned native runtimes
+        id: native-runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/attool-vcpkg
+            ${{ runner.temp }}/attool-native
+          key: native-runtimes-v1-${{ matrix.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/vcpkg.json', 'src-tauri/runtime-manifest.json', '.github/scripts/build-aria2.mjs') }}
+
       - name: Build pinned native runtimes
+        if: steps.native-runtime-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           INSTALL_ROOT="${RUNNER_TEMP}/attool-vcpkg"
@@ -120,9 +130,29 @@ jobs:
           if [[ "${{ matrix.target }}" == *windows* ]]; then ARIA2_NAME=aria2c.exe; else ARIA2_NAME=aria2c; fi
           ARIA2="${RUNNER_TEMP}/attool-native/$ARIA2_NAME"
           ATTOOL_NATIVE_RUNTIME_PREFIX="$PREFIX" node .github/scripts/build-aria2.mjs "${{ matrix.target }}" "$ARIA2"
+
+      - name: Configure pinned native runtimes
+        shell: bash
+        run: |
+          INSTALL_ROOT="${RUNNER_TEMP}/attool-vcpkg"
+          PREFIX="$INSTALL_ROOT/${{ matrix.vcpkg }}"
+          TESSERACT=$(find "$PREFIX/tools/tesseract" -maxdepth 2 -type f \( -name tesseract -o -name tesseract.exe \) | head -1)
+          test -n "$TESSERACT"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then ARIA2_NAME=aria2c.exe; else ARIA2_NAME=aria2c; fi
+          ARIA2="${RUNNER_TEMP}/attool-native/$ARIA2_NAME"
+          test -f "$ARIA2"
           echo "ATTOOL_TESSERACT_PATH=$TESSERACT" >> "$GITHUB_ENV"
           echo "ATTOOL_ARIA2_PATH=$ARIA2" >> "$GITHUB_ENV"
           echo "ATTOOL_NATIVE_RUNTIME_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: Save pinned native runtimes
+        if: steps.native-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/attool-vcpkg
+            ${{ runner.temp }}/attool-native
+          key: ${{ steps.native-runtime-cache.outputs.cache-primary-key }}
 
       - name: Install PSD sidecar build dependencies
         shell: bash

@@ -81,6 +81,18 @@ describe('bundled runtime manifest', () => {
     expect(workflow.match(/vcpkg: /g)).toHaveLength(5);
   });
 
+  it('reuses native runtime builds until their pinned inputs change', () => {
+    const workflow = readFileSync('.github/workflows/build.yml', 'utf8');
+
+    expect(workflow).toContain('id: native-runtime-cache');
+    expect(workflow).toContain('uses: actions/cache/restore@v4');
+    expect(workflow).toContain('uses: actions/cache/save@v4');
+    expect(workflow).toContain("hashFiles('src-tauri/vcpkg.json', 'src-tauri/runtime-manifest.json', '.github/scripts/build-aria2.mjs')");
+    expect(workflow).toContain("steps.native-runtime-cache.outputs.cache-hit != 'true'");
+    expect(workflow).toContain('${{ runner.temp }}/attool-vcpkg');
+    expect(workflow).toContain('${{ runner.temp }}/attool-native');
+  });
+
   it('verifies the pinned yt-dlp source before installing the shared runtime', () => {
     const workflow = readFileSync('.github/workflows/build.yml', 'utf8');
     const installer = readFileSync('.github/scripts/install-yt-dlp.mjs', 'utf8');
