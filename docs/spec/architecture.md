@@ -214,6 +214,8 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 
 **截图跨平台策略**（`imaging/capture.rs` + `windows.rs`）：macOS 走 `screencapture` + CoreGraphics 窗口枚举；Linux / Windows 走 `xcap`（`Monitor::capture_image` 截屏、`Window::all` 枚举）。浮层背景帧存为 BMP（无压缩，避免 PNG deflate 的秒级延迟）。Wayland 会话下 xcap 走 xdg-desktop-portal，可能弹权限 / 部分场景失败，窗口枚举降级为空列表（区域选择仍可用）。
 
+截图确认会先把合成 PNG 保存到缓存，再写入系统图片剪贴板；只有剪贴板写入成功才关闭浮层，失败时保留浮层并向用户报错。COSMIC Wayland/XWayland 会话通过独立 X11 owner 发布图片：候选 owner 完成初始化后才替换旧 owner，瞬时启动失败会有限重试，全部失败则保留旧 owner 并返回错误。
+
 **统一截图 / 录屏浮层**（`CaptureOverlay.vue` + `imaging/capture.rs` + `recording.rs`）：浮层默认截图，顶部可切换录屏；截图选区工具栏可通过 `ocr_capture_overlay` 识别不含标注的原始选区，固定使用 `eng+chi_sim`，识别结果在浮层内可编辑，只在用户点击复制时写入文本剪贴板，不提交截图也不关闭浮层。录屏支持区域 / 窗口 / 全屏，区域复用自由框选、移动和八方向缩放。Web MediaRecorder 路径在浮层内保留系统媒体流，用 Canvas 按源像素裁剪后再录制；Linux Wayland 先通过 Portal / PipeWire 准备来源和首帧，用户确认区域后由 GStreamer 按 `videocrop → videoscale → VP8/WebM` 开始编码。倒计时、选区边框和控制条只存在于透明浮层，边框与控制条放在裁剪范围外；停止后通过 `recording://completed` 回到主窗口的预览与保存流程。预览使用仅绑定 `127.0.0.1`、随机令牌保护的只读 HTTP Range 流，不使用 Linux WebKitGTK 无法播放的 Tauri `asset://` 媒体地址，也不把完整录屏读入前端内存。Wayland 原生路径不支持音频，窗口来源不可用时必须禁用，不退化为全屏。
 
 ### `src-tauri/src/ecommerce/`
