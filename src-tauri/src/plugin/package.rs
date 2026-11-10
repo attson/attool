@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs::File,
+    fs::{self, File},
     io::Read,
     path::Path,
 };
@@ -49,6 +49,7 @@ pub struct InspectedPackage {
     pub host_api_max: String,
     pub entry: String,
     pub permissions: Vec<String>,
+    pub files: BTreeMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -167,7 +168,69 @@ pub fn inspect_package(
         host_api_max: manifest.host_api.max,
         entry: manifest.ui.entry,
         permissions: manifest.permissions,
+        files: manifest.files,
     })
+}
+
+pub fn extract_package(
+    path: &Path,
+    destination: &Path,
+    environment: &HostEnvironment,
+    trusted_keys: &HashMap<String, VerifyingKey>,
+) -> Result<InspectedPackage, PackageError> {
+    let package = inspect_package(path, environment, trusted_keys)?;
+    if destination.exists() {
+        return Err(PackageError::new(
+            "PLUGIN_STAGING_CONFLICT",
+            "Plugin staging destination already exists",
+        ));
+    }
+    fs::create_dir_all(destination).map_err(|error| {
+        PackageError::new(
+            "PLUGIN_STAGING_FAILED",
+            format!("Cannot create staging directory: {error}"),
+        )
+    })?;
+
+    let extraction = (|| {
+        let file = File::open(path).map_err(|error| {
+            PackageError::new(
+                "PLUGIN_PACKAGE_READ_FAILED",
+                format!("Cannot reopen package: {error}"),
+            )
+        })?;
+        let mut archive = ZipArchive::new(file).map_err(|error| {
+            PackageError::new(
+                "PLUGIN_PACKAGE_INVALID",
+                format!("Invalid package archive: {error}"),
+            )
+        })?;
+        for relative in package.files.keys() {
+            let bytes = read_entry(&mut archive, relative, MAX_FILE_BYTES)?;
+            let output = destination.join(relative);
+            if let Some(parent) = output.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    PackageError::new(
+                        "PLUGIN_STAGING_FAILED",
+                        format!("Cannot create package directory: {error}"),
+                    )
+                })?;
+            }
+            fs::write(&output, bytes).map_err(|error| {
+                PackageError::new(
+                    "PLUGIN_STAGING_FAILED",
+                    format!("Cannot write staged package file: {error}"),
+                )
+            })?;
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = extraction {
+        let _ = fs::remove_dir_all(destination);
+        return Err(error);
+    }
+    Ok(package)
 }
 
 fn verify_archive_layout(
