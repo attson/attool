@@ -365,7 +365,7 @@ function actionLabel(action: string) {
 </template>
 
 <style scoped>
-.manager { height: 100%; min-height: 560px; display: flex; flex-direction: column; gap: 14px; }
+.manager { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .manager-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .manager-header h2 { margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: 0; }
 .manager-header p, .detail-title p, .permissions p { margin: 3px 0 0; color: var(--text-muted); font-size: var(--fs-xs); }
@@ -374,10 +374,10 @@ function actionLabel(action: string) {
 .view-tabs button { min-width: 92px; padding: 5px 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; }
 .view-tabs button.active { background: var(--bg-elevated); color: var(--text); }
 .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-elevated); }
-.app-list { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.app-list { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .filters { padding: 12px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
 .filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.rows { overflow: auto; padding: 6px; }
+.rows { flex: 1; min-height: 0; overflow: auto; padding: 6px; }
 .app-row { width: 100%; min-height: 64px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .app-row:hover { background: var(--bg-elev-2); }
 .app-row.active { background: var(--accent-soft); }
@@ -406,7 +406,7 @@ function actionLabel(action: string) {
 .permission-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .permission { padding: 4px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elev-2); font-size: var(--fs-xxs); }
 .actions { display: flex; gap: 8px; margin-top: 22px; }
-.history { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: auto; background: var(--bg-elevated); }
+.history { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: auto; background: var(--bg-elevated); }
 .history-head, .history-row { display: grid; grid-template-columns: minmax(220px, 1fr) 140px minmax(220px, 1fr) 210px; gap: 12px; align-items: center; padding: 10px 14px; }
 .history-head { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line); background: var(--bg-elev-2); color: var(--text-muted); font-size: var(--fs-xxs); }
 .history-row { border-bottom: 1px solid var(--line); font-size: var(--fs-xs); }
