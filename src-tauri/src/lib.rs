@@ -1418,6 +1418,7 @@ pub fn run() {
             plugin::commands::plugin_inspect_package,
             plugin::commands::plugin_install_package,
             plugin::commands::plugin_list_installed,
+            plugin::commands::plugin_list_history,
             plugin::commands::plugin_set_enabled,
             plugin::commands::plugin_uninstall,
             ecommerce::commands::import_psd_template,

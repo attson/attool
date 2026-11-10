@@ -32,8 +32,9 @@ const emit = defineEmits<{
   settingsToggle: [];
 }>();
 
-const GROUP_ORDER: ToolGroup[] = ['download', 'edit', 'network', 'utility'];
+const GROUP_ORDER: ToolGroup[] = ['platform', 'download', 'edit', 'network', 'utility'];
 const GROUP_LABEL: Record<ToolGroup, string> = {
+  platform: '平台',
   download: '下载',
   edit: '编辑',
   network: '网络',

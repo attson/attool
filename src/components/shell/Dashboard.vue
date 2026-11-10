@@ -14,13 +14,16 @@ const emit = defineEmits<{
 
 const GROUP_ORDER: ToolGroup[] = ['download', 'edit', 'network', 'utility'];
 const GROUP_LABEL: Record<ToolGroup, string> = {
+  platform: '平台',
   download: '下载',
   edit: '编辑',
   network: '网络',
   utility: '实用'
 };
 
-const ready = computed(() => props.tools.filter((t) => t.status === 'ready'));
+const ready = computed(() =>
+  props.tools.filter((t) => t.status === 'ready' && t.source !== 'platform')
+);
 const soonCount = computed(() => props.tools.filter((t) => t.status === 'soon').length);
 
 const readyByGroup = computed(() =>

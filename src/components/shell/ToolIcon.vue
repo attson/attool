@@ -106,6 +106,14 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <path d="M8 9.5h8" />
       <path d="M8 12.5h5" />
     </template>
+
+    <!-- applications -->
+    <template v-else-if="name === 'apps'">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </template>
   </svg>
 </template>
 

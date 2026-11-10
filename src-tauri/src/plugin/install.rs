@@ -35,6 +35,19 @@ pub struct InstalledPlugin {
     pub root: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginHistoryRecord {
+    pub id: i64,
+    pub app_id: String,
+    pub action: String,
+    pub version: String,
+    pub occurred_at: String,
+    pub result: String,
+    pub error_code: Option<String>,
+    pub steps: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct InstallError {
     pub code: String,
@@ -148,8 +161,14 @@ impl PluginStore {
                 format!("Cannot serialize plugin permissions: {error}"),
             )
         })?;
-        let write_result = self.connection().and_then(|connection| {
-            connection
+        let write_result = self.connection().and_then(|mut connection| {
+            let transaction = connection.transaction().map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_WRITE_FAILED",
+                    format!("Cannot start plugin registry transaction: {error}"),
+                )
+            })?;
+            transaction
                 .execute(
                     "INSERT INTO installed_plugins (
                         app_id, name, version, publisher_id, publisher_name, publisher_key_id,
@@ -173,6 +192,28 @@ impl PluginStore {
                         format!("Cannot update plugin registry: {error}"),
                     )
                 })?;
+            insert_history(
+                &transaction,
+                &package.app_id,
+                "install",
+                &package.version,
+                &installed_at,
+                &[
+                    "signature",
+                    "hashes",
+                    "target",
+                    "hostApi",
+                    "staging",
+                    "health",
+                    "activation",
+                ],
+            )?;
+            transaction.commit().map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_WRITE_FAILED",
+                    format!("Cannot commit plugin registry: {error}"),
+                )
+            })?;
             Ok(())
         });
         if let Err(error) = write_result {
@@ -271,8 +312,14 @@ impl PluginStore {
                 "Plugin UI entry is not a readable file",
             ));
         }
-        let connection = self.connection()?;
-        connection
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot start plugin state transaction: {error}"),
+            )
+        })?;
+        transaction
             .execute(
                 "UPDATE installed_plugins SET enabled = ?1 WHERE app_id = ?2",
                 params![enabled, app_id],
@@ -283,6 +330,25 @@ impl PluginStore {
                     format!("Cannot update plugin state: {error}"),
                 )
             })?;
+        let action = if enabled { "enable" } else { "disable" };
+        insert_history(
+            &transaction,
+            app_id,
+            action,
+            &plugin.version,
+            &Utc::now().to_rfc3339(),
+            if enabled {
+                &["health", "registry"]
+            } else {
+                &["registry"]
+            },
+        )?;
+        transaction.commit().map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot commit plugin state: {error}"),
+            )
+        })?;
         Ok(())
     }
 
@@ -323,8 +389,14 @@ impl PluginStore {
             }
         }
 
-        let delete_result = self.connection().and_then(|connection| {
-            connection
+        let delete_result = self.connection().and_then(|mut connection| {
+            let transaction = connection.transaction().map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_WRITE_FAILED",
+                    format!("Cannot start plugin uninstall transaction: {error}"),
+                )
+            })?;
+            transaction
                 .execute(
                     "DELETE FROM installed_plugins WHERE app_id = ?1",
                     params![app_id],
@@ -335,6 +407,24 @@ impl PluginStore {
                         format!("Cannot remove plugin from registry: {error}"),
                     )
                 })?;
+            insert_history(
+                &transaction,
+                app_id,
+                "uninstall",
+                &plugin.version,
+                &Utc::now().to_rfc3339(),
+                if delete_data {
+                    &["package", "registry", "data"]
+                } else {
+                    &["package", "registry"]
+                },
+            )?;
+            transaction.commit().map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_WRITE_FAILED",
+                    format!("Cannot commit plugin uninstall: {error}"),
+                )
+            })?;
             Ok(())
         });
         if let Err(error) = delete_result {
@@ -351,6 +441,52 @@ impl PluginStore {
             let _ = fs::remove_dir(app_root);
         }
         Ok(())
+    }
+
+    pub fn history(&self) -> Result<Vec<PluginHistoryRecord>, InstallError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, app_id, action, version, occurred_at, result, error_code, steps_json
+                 FROM plugin_history ORDER BY id DESC",
+            )
+            .map_err(registry_read_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            })
+            .map_err(registry_read_error)?;
+        let mut history = Vec::new();
+        for row in rows {
+            let (id, app_id, action, version, occurred_at, result, error_code, steps_json) =
+                row.map_err(registry_read_error)?;
+            let steps = serde_json::from_str(&steps_json).map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_READ_FAILED",
+                    format!("Plugin history steps are corrupted: {error}"),
+                )
+            })?;
+            history.push(PluginHistoryRecord {
+                id,
+                app_id,
+                action,
+                version,
+                occurred_at,
+                result,
+                error_code,
+                steps,
+            });
+        }
+        Ok(history)
     }
 
     fn find(&self, app_id: &str) -> Result<Option<InstalledPlugin>, InstallError> {
@@ -379,6 +515,16 @@ impl PluginStore {
                     permissions_json TEXT NOT NULL,
                     enabled INTEGER NOT NULL,
                     installed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS plugin_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    error_code TEXT,
+                    steps_json TEXT NOT NULL
                 );",
             )
             .map_err(|error| {
@@ -398,6 +544,36 @@ impl PluginStore {
             )
         })
     }
+}
+
+fn insert_history(
+    transaction: &rusqlite::Transaction<'_>,
+    app_id: &str,
+    action: &str,
+    version: &str,
+    occurred_at: &str,
+    steps: &[&str],
+) -> Result<(), InstallError> {
+    let steps_json = serde_json::to_string(steps).map_err(|error| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_WRITE_FAILED",
+            format!("Cannot serialize plugin history: {error}"),
+        )
+    })?;
+    transaction
+        .execute(
+            "INSERT INTO plugin_history (
+                app_id, action, version, occurred_at, result, error_code, steps_json
+             ) VALUES (?1, ?2, ?3, ?4, 'success', NULL, ?5)",
+            params![app_id, action, version, occurred_at, steps_json],
+        )
+        .map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot write plugin history: {error}"),
+            )
+        })?;
+    Ok(())
 }
 
 fn registry_read_error(error: rusqlite::Error) -> InstallError {
@@ -570,5 +746,30 @@ mod tests {
             .map(|mut entries| entries.next().is_none())
             .unwrap_or(true);
         assert!(staging_is_empty);
+    }
+
+    #[test]
+    fn persists_plugin_management_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = valid_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        let environment = HostEnvironment::current("1.0.0");
+
+        store.install(&package_path, &environment, &keys).unwrap();
+        store.set_enabled("com.attson.codec", false).unwrap();
+        store.set_enabled("com.attson.codec", true).unwrap();
+        store.uninstall("com.attson.codec", false).unwrap();
+        drop(store);
+
+        let reopened = PluginStore::open(store_root).unwrap();
+        let actions = reopened
+            .history()
+            .unwrap()
+            .into_iter()
+            .map(|record| record.action)
+            .collect::<Vec<_>>();
+        assert_eq!(actions, vec!["uninstall", "enable", "disable", "install"]);
     }
 }

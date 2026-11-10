@@ -10,7 +10,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use super::{
-    install::{InstallError, InstalledPlugin, PluginStore},
+    install::{InstallError, InstalledPlugin, PluginHistoryRecord, PluginStore},
     package::{inspect_package, HostEnvironment, InspectedPackage, PackageError},
 };
 
@@ -58,6 +58,16 @@ impl PluginRuntime {
                 PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
             })?
             .list()
+            .map_err(Into::into)
+    }
+
+    fn history(&self) -> Result<Vec<PluginHistoryRecord>, PluginCommandError> {
+        self.store
+            .lock()
+            .map_err(|_| {
+                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+            })?
+            .history()
             .map_err(Into::into)
     }
 
@@ -147,6 +157,16 @@ pub async fn plugin_list_installed(
 ) -> Result<Vec<InstalledPlugin>, PluginCommandError> {
     let runtime = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || runtime.list())
+        .await
+        .map_err(join_error)?
+}
+
+#[tauri::command]
+pub async fn plugin_list_history(
+    runtime: State<'_, PluginRuntime>,
+) -> Result<Vec<PluginHistoryRecord>, PluginCommandError> {
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || runtime.history())
         .await
         .map_err(join_error)?
 }

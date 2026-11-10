@@ -33,6 +33,7 @@ import { useLastTool } from './composables/useLastTool';
 import { useTheme } from './composables/useTheme';
 import { useAria2Handoff } from './composables/useAria2Handoff';
 import { useHttpStore } from './composables/useHttpStore';
+import { usePluginStore } from './composables/usePluginStore';
 import UpdateBanner from './components/shell/UpdateBanner.vue';
 import SettingsModal from './components/shell/SettingsModal.vue';
 import { useUpdater } from './composables/useUpdater';
@@ -56,8 +57,12 @@ const GeneratorTool = defineAsyncComponent(() => import('./components/generator/
 const TimeTool = defineAsyncComponent(() => import('./components/time/TimeTool.vue'));
 const HttpTool = defineAsyncComponent(() => import('./components/http/HttpTool.vue'));
 const AiChatTool = defineAsyncComponent(() => import('./components/ai/AiChatTool.vue'));
+const ApplicationManager = defineAsyncComponent(
+  () => import('./components/plugins/ApplicationManager.vue')
+);
 
-const tools: Tool[] = [
+const builtinTools: Tool[] = [
+  { id: 'app-management', name: '应用管理', description: '安装、启停和卸载独立应用', status: 'ready', icon: 'apps', group: 'platform', source: 'platform' },
   { id: 'aria2',     name: 'Aria2 下载',     description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download',  group: 'download' },
   { id: 'template',  name: '主图模板',       description: 'PSD 导入、字段替换、批量生成主图',   status: 'ready', icon: 'layout',    group: 'edit' },
   { id: 'clipboard', name: '剪贴板工具',     description: 'Paste 风格剪贴板历史与快捷恢复',     status: 'ready', icon: 'clipboard', group: 'edit' },
@@ -102,6 +107,8 @@ const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarState()
 const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
 const httpStore = useHttpStore();
+const pluginStore = usePluginStore();
+const tools = computed<Tool[]>(() => [...builtinTools, ...pluginStore.navigationTools.value]);
 const {
   open: paletteOpen,
   query: paletteQuery,
@@ -109,7 +116,7 @@ const {
   show: showPalette,
   hide: hidePalette
 } = useCommandPalette({
-  tools: () => tools,
+  tools: () => tools.value,
   onOpenTool: (id) => selectTool(id),
   envs: () => httpStore.state.envs.map((env) => ({
     id: env.id,
@@ -174,7 +181,7 @@ const naiveOverrides = computed(() => (theme.value === 'dark' ? darkOverrides : 
 const initialToolId = (() => {
   const id = lastToolId.value;
   if (!id) return null;
-  const t = tools.find((x) => x.id === id);
+  const t = tools.value.find((x) => x.id === id);
   return t && t.status === 'ready' ? id : null;
 })();
 const selectedToolId = ref<string | null>(initialToolId);
@@ -186,6 +193,12 @@ let unlistenRecordingCompleted: Promise<UnlistenFn> | undefined;
 
 onMounted(() => {
   if (isClipboardHistoryWindow || isCaptureOverlayWindow || isCapturePinWindow) return;
+
+  void pluginStore.load().then(() => {
+    if (!selectedToolId.value && lastToolId.value?.startsWith('plugin:')) {
+      selectTool(lastToolId.value);
+    }
+  });
 
   invoke<string>('get_default_download_dir')
     .then((dir) => {
@@ -262,7 +275,9 @@ const activeCount = computed(
   () => tasks.value.filter((task) => task.status === 'queued' || task.status === 'running').length
 );
 const completedCount = computed(() => tasks.value.filter((task) => task.status === 'completed').length);
-const selectedTool = computed(() => tools.find((tool) => tool.id === selectedToolId.value) ?? null);
+const selectedTool = computed(() =>
+  tools.value.find((tool) => tool.id === selectedToolId.value) ?? null
+);
 
 const taskSearch = ref('');
 const filteredTasks = computed(() => {
@@ -278,7 +293,7 @@ const filteredTasks = computed(() => {
 const hasCompleted = computed(() => tasks.value.some((t) => t.status === 'completed'));
 
 function selectTool(id: string) {
-  const tool = tools.find((t) => t.id === id);
+  const tool = tools.value.find((t) => t.id === id);
   if (!tool || tool.status !== 'ready') return;
   selectedToolId.value = id;
   if (id === 'json') jsonToolVisited.value = true;
@@ -676,6 +691,14 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'ai-chat'">
           <AiChatTool />
+        </template>
+
+        <template v-else-if="selectedTool.id === 'app-management'">
+          <ApplicationManager
+            :builtin-tools="builtinTools"
+            :store="pluginStore"
+            @open="selectTool"
+          />
         </template>
       </AppShell>
 

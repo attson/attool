@@ -1,6 +1,6 @@
 export type ToolStatus = 'ready' | 'soon';
 
-export type ToolGroup = 'download' | 'edit' | 'network' | 'utility';
+export type ToolGroup = 'platform' | 'download' | 'edit' | 'network' | 'utility';
 
 export type ToolIconId =
   | 'download'
@@ -15,7 +15,10 @@ export type ToolIconId =
   | 'dice'
   | 'clock'
   | 'send'
-  | 'chat';
+  | 'chat'
+  | 'apps';
+
+export type ToolSource = 'platform' | 'builtin' | 'plugin';
 
 export interface Tool {
   id: string;
@@ -24,4 +27,6 @@ export interface Tool {
   status: ToolStatus;
   icon: ToolIconId;
   group: ToolGroup;
+  source?: ToolSource;
+  pluginAppId?: string;
 }
