@@ -878,11 +878,12 @@ impl CatalogVerifier {
             .ok_or_else(|| {
                 CatalogError::new("CATALOG_KEY_UNKNOWN", "Catalog signing key is not trusted")
             })?;
-        if signing_key.status != KeyStatus::Active || !key_contains_time(signing_key, generated_at)?
+        if signing_key.status == KeyStatus::Revoked
+            || !key_contains_time(signing_key, generated_at)?
         {
             return Err(CatalogError::new(
                 "CATALOG_KEY_INACTIVE",
-                "Catalog signing key is not active for this Catalog",
+                "Catalog signing key cannot verify this Catalog",
             ));
         }
         verify_signature(
@@ -1536,11 +1537,26 @@ mod tests {
 
         let mut retired_root: Value = serde_json::from_str(ROOT_JSON).unwrap();
         retired_root["catalogKeys"][0]["status"] = Value::String("retired".to_string());
+        verifier
+            .verify(
+                &retired_root.to_string(),
+                &sign_value(&retired_root),
+                CATALOG_JSON,
+                CATALOG_SIGNATURE,
+                now,
+                0,
+                0,
+                true,
+            )
+            .expect("retired key must verify a Catalog signed inside its validity window");
+
+        let mut revoked_catalog_root: Value = serde_json::from_str(ROOT_JSON).unwrap();
+        revoked_catalog_root["catalogKeys"][0]["status"] = Value::String("revoked".to_string());
         assert_eq!(
             verifier
                 .verify(
-                    &retired_root.to_string(),
-                    &sign_value(&retired_root),
+                    &revoked_catalog_root.to_string(),
+                    &sign_value(&revoked_catalog_root),
                     CATALOG_JSON,
                     CATALOG_SIGNATURE,
                     now,
