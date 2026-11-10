@@ -19,6 +19,7 @@ pub enum OperationStage {
     HealthCheck,
     Activate,
     Complete,
+    RolledBack,
     Error,
 }
 
@@ -31,6 +32,7 @@ impl OperationStage {
             Self::HealthCheck => "health-check",
             Self::Activate => "activate",
             Self::Complete => "complete",
+            Self::RolledBack => "rolled-back",
             Self::Error => "error",
         }
     }
@@ -39,6 +41,8 @@ impl OperationStage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationSnapshot {
+    #[serde(skip)]
+    pub action: &'static str,
     pub operation_id: String,
     pub correlation_id: String,
     pub app_id: String,
@@ -57,8 +61,14 @@ pub struct OperationSnapshot {
 }
 
 impl OperationSnapshot {
-    pub fn new(operation_id: String, correlation_id: String, plan: &CatalogInstallPlan) -> Self {
+    pub fn new(
+        operation_id: String,
+        correlation_id: String,
+        action: &'static str,
+        plan: &CatalogInstallPlan,
+    ) -> Self {
         Self {
+            action,
             operation_id,
             correlation_id,
             app_id: plan.app_id.clone(),

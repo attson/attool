@@ -58,6 +58,31 @@ describe('mergeCatalogApps', () => {
     expect(codec.installedVersion).toBe('1.0.0');
     expect(codec.enabled).toBe(true);
     expect(codec.remoteActionsAllowed).toBe(true);
+    expect(codec.updateAvailable).toBe(true);
+    expect(codec.addedPermissions).toEqual([]);
+  });
+
+  it('does not offer an update when the catalog version is not strictly newer', () => {
+    const sameVersion = {
+      ...snapshot,
+      apps: [{ ...snapshot.apps[0], latestVersion: installedCodec.version }]
+    };
+
+    const [codec] = mergeCatalogApps(sameVersion, [installedCodec]);
+
+    expect(codec.updateAvailable).toBe(false);
+  });
+
+  it('orders prerelease identifiers that contain hyphens', () => {
+    const prereleaseCatalog = {
+      ...snapshot,
+      apps: [{ ...snapshot.apps[0], latestVersion: '1.0.0-alpha-2' }]
+    };
+    const prereleaseInstalled = [{ ...installedCodec, version: '1.0.0-alpha-1' }];
+
+    const [codec] = mergeCatalogApps(prereleaseCatalog, prereleaseInstalled);
+
+    expect(codec.updateAvailable).toBe(true);
   });
 
   it('keeps installed state visible but disables remote actions for expired metadata', () => {

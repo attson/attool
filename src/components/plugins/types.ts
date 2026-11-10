@@ -70,6 +70,8 @@ export interface ManagedCatalogApp extends CatalogApp {
   enabled: boolean | null;
   installedAt: string | null;
   remoteActionsAllowed: boolean;
+  updateAvailable: boolean;
+  addedPermissions: string[];
 }
 
 export interface PluginCommandError {
@@ -81,10 +83,10 @@ export interface PluginCommandError {
 export interface PluginHistoryRecord {
   id: number;
   appId: string;
-  action: 'install' | 'enable' | 'disable' | 'uninstall';
+  action: 'install' | 'update' | 'rollback' | 'enable' | 'disable' | 'uninstall';
   version: string;
   occurredAt: string;
-  result: 'success' | 'failed';
+  result: 'success' | 'failed' | 'rolled-back';
   errorCode: string | null;
   operationId: string | null;
   correlationId: string | null;
@@ -98,6 +100,7 @@ export type PluginOperationStage =
   | 'health-check'
   | 'activate'
   | 'complete'
+  | 'rolled-back'
   | 'error';
 
 export interface PluginOperationSnapshot {
@@ -131,10 +134,13 @@ export interface PluginApi {
   listCatalog(): Promise<CatalogSnapshot | null>;
   refreshCatalog(): Promise<CatalogSnapshot>;
   installCatalogApp(appId: string, acceptedPermissions: string[]): Promise<PluginOperationSnapshot>;
+  updateCatalogApp(appId: string, acceptedAddedPermissions: string[]): Promise<PluginOperationSnapshot>;
   completeCatalogInstall(operationId: string): Promise<CatalogInstallResult>;
   failCatalogInstall(operationId: string): Promise<PluginOperationSnapshot>;
   getOperation(operationId: string): Promise<PluginOperationSnapshot>;
   listenOperations(listener: (operation: PluginOperationSnapshot) => void): Promise<() => void>;
+  confirmPluginLaunch(appId: string, version: string): Promise<boolean>;
+  rollbackPluginLaunch(appId: string, version: string): Promise<InstalledPlugin | null>;
   setEnabled(appId: string, enabled: boolean): Promise<void>;
   uninstall(appId: string, deleteData: boolean): Promise<void>;
 }

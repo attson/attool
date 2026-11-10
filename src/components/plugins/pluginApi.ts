@@ -23,6 +23,8 @@ export function createPluginApi(): PluginApi {
     refreshCatalog: () => invoke<CatalogSnapshot>('plugin_catalog_refresh'),
     installCatalogApp: (appId, acceptedPermissions) =>
       invoke<PluginOperationSnapshot>('plugin_install_catalog_app', { appId, acceptedPermissions }),
+    updateCatalogApp: (appId, acceptedAddedPermissions) =>
+      invoke<PluginOperationSnapshot>('plugin_update_catalog_app', { appId, acceptedAddedPermissions }),
     completeCatalogInstall: (operationId) =>
       invoke<CatalogInstallResult>('plugin_complete_catalog_install', { operationId }),
     failCatalogInstall: (operationId) =>
@@ -31,6 +33,10 @@ export function createPluginApi(): PluginApi {
       invoke<PluginOperationSnapshot>('plugin_get_operation', { operationId }),
     listenOperations: async (listener) =>
       listen<PluginOperationSnapshot>('plugin://operation-state', (event) => listener(event.payload)),
+    confirmPluginLaunch: (appId, version) =>
+      invoke<boolean>('plugin_confirm_plugin_launch', { appId, version }),
+    rollbackPluginLaunch: (appId, version) =>
+      invoke<InstalledPlugin | null>('plugin_rollback_plugin_launch', { appId, version }),
     setEnabled: (appId, enabled) =>
       invoke<void>('plugin_set_enabled', { appId, enabled }),
     uninstall: (appId, deleteData) =>

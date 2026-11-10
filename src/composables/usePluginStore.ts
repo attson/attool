@@ -158,15 +158,32 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     }
   }
 
+  async function updateCatalog(appId: string, acceptedAddedPermissions: string[]) {
+    busyAppIds.value = new Set(busyAppIds.value).add(appId);
+    error.value = null;
+    try {
+      operation.value = await api.updateCatalogApp(appId, acceptedAddedPermissions);
+      return operation.value;
+    } catch (reason) {
+      error.value = commandError(reason);
+      throw reason;
+    } finally {
+      const next = new Set(busyAppIds.value);
+      next.delete(appId);
+      busyAppIds.value = next;
+    }
+  }
+
+  function replaceInstalled(installed: InstalledPlugin) {
+    apps.value = [...apps.value.filter((app) => app.appId !== installed.appId), installed];
+  }
+
   async function completeCatalogInstall(operationId: string) {
     error.value = null;
     try {
       const result = await api.completeCatalogInstall(operationId);
       operation.value = result.operation;
-      apps.value = [
-        ...apps.value.filter((app) => app.appId !== result.installed.appId),
-        result.installed
-      ];
+      replaceInstalled(result.installed);
       await refreshHistory();
       return result.installed;
     } catch (reason) {
@@ -239,8 +256,10 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     inspect,
     install,
     installCatalog,
+    updateCatalog,
     completeCatalogInstall,
     failCatalogInstall,
+    replaceInstalled,
     refreshCatalog,
     setEnabled,
     uninstall

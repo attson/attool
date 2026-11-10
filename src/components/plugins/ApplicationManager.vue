@@ -54,6 +54,7 @@ const previewOpen = ref(false);
 const permissionsAccepted = ref(false);
 const installing = ref(false);
 const catalogInstallOpen = ref(false);
+const catalogOperationMode = ref<'install' | 'update'>('install');
 const catalogPermissionsAccepted = ref(false);
 const remoteInstalling = ref(false);
 const uninstallOpen = ref(false);
@@ -193,7 +194,16 @@ async function confirmInstall() {
 
 function requestCatalogInstall() {
   if (!selectedCatalog.value?.remoteActionsAllowed) return;
+  catalogOperationMode.value = 'install';
   catalogPermissionsAccepted.value = false;
+  catalogInstallOpen.value = true;
+}
+
+function requestCatalogUpdate() {
+  const app = selectedCatalog.value;
+  if (!app?.remoteActionsAllowed || !app.updateAvailable) return;
+  catalogOperationMode.value = 'update';
+  catalogPermissionsAccepted.value = app.addedPermissions.length === 0;
   catalogInstallOpen.value = true;
 }
 
@@ -202,7 +212,11 @@ async function confirmCatalogInstall() {
   if (!app || !catalogPermissionsAccepted.value) return;
   remoteInstalling.value = true;
   try {
-    await props.store.installCatalog(app.appId, [...app.permissions]);
+    if (catalogOperationMode.value === 'update') {
+      await props.store.updateCatalog(app.appId, [...app.addedPermissions]);
+    } else {
+      await props.store.installCatalog(app.appId, [...app.permissions]);
+    }
   } catch {
     remoteInstalling.value = false;
   }
@@ -216,7 +230,7 @@ async function completeCatalogInstall() {
     catalogInstallOpen.value = false;
     selectedInstalledKey.value = `plugin:${installed.appId}`;
     view.value = 'installed';
-    message.success(`${installed.name} 已安装`);
+    message.success(`${installed.name} 已${catalogOperationMode.value === 'update' ? '升级' : '安装'}`);
   } catch {
     // The stable command error is rendered in-page.
   } finally {
@@ -285,7 +299,7 @@ function switchView(next: View) {
 }
 
 function actionLabel(action: string) {
-  return { install: '安装', enable: '启用', disable: '停用', uninstall: '卸载' }[action] ?? action;
+  return { install: '安装', update: '升级', rollback: '自动回滚', enable: '启用', disable: '停用', uninstall: '卸载' }[action] ?? action;
 }
 
 function operationStageLabel(stage: string) {
@@ -296,6 +310,7 @@ function operationStageLabel(stage: string) {
     'health-check': 'Host API 健康检查',
     activate: '激活应用',
     complete: '安装完成',
+    'rolled-back': '已自动回滚',
     error: '安装失败'
   }[stage] ?? stage;
 }
@@ -510,14 +525,22 @@ function formatBytes(bytes: number) {
           </section>
 
           <div class="actions">
-            <n-button
-              v-if="selectedCatalog.installedVersion"
-              type="primary"
-              :disabled="!selectedCatalog.enabled"
-              @click="openCatalogApp"
-            >
-              {{ selectedCatalog.enabled ? '打开' : '已停用' }}
-            </n-button>
+            <template v-if="selectedCatalog.installedVersion">
+              <n-button
+                type="primary"
+                :disabled="!selectedCatalog.enabled"
+                @click="openCatalogApp"
+              >
+                {{ selectedCatalog.enabled ? '打开' : '已停用' }}
+              </n-button>
+              <n-button
+                v-if="selectedCatalog.updateAvailable"
+                secondary
+                :disabled="!selectedCatalog.remoteActionsAllowed"
+                :loading="remoteInstalling || store.busyAppIds.value.has(selectedCatalog.appId)"
+                @click="requestCatalogUpdate"
+              >升级</n-button>
+            </template>
             <n-button
               v-else
               type="primary"
@@ -627,8 +650,8 @@ function formatBytes(bytes: number) {
           <span class="steps">{{ record.steps.join(' · ') }}</span>
           <div>
             <span>{{ new Date(record.occurredAt).toLocaleString() }}</span>
-            <n-tag size="small" :type="record.result === 'success' ? 'success' : 'error'" :bordered="false">
-              {{ record.result === 'success' ? '成功' : '失败' }}
+            <n-tag size="small" :type="record.result === 'success' ? 'success' : record.result === 'rolled-back' ? 'warning' : 'error'" :bordered="false">
+              {{ record.result === 'success' ? '成功' : record.result === 'rolled-back' ? '已回滚' : '失败' }}
             </n-tag>
           </div>
         </div>
@@ -646,7 +669,7 @@ function formatBytes(bytes: number) {
     <n-modal
       v-model:show="catalogInstallOpen"
       preset="card"
-      title="安装官方应用"
+      :title="catalogOperationMode === 'update' ? '升级官方应用' : '安装官方应用'"
       class="install-modal"
       :mask-closable="!remoteInstalling"
       :closable="!remoteInstalling"
@@ -663,13 +686,16 @@ function formatBytes(bytes: number) {
           <div><dt>制品大小</dt><dd>{{ formatBytes(selectedCatalog.target?.size ?? 0) }}</dd></div>
         </dl>
         <section class="permission-confirm">
-          <h4>请求权限</h4>
+          <h4>{{ catalogOperationMode === 'update' ? '新增权限' : '请求权限' }}</h4>
           <div class="permission-list">
-            <span v-for="permission in selectedCatalog.permissions" :key="permission" class="permission mono">
+            <span v-for="permission in catalogOperationMode === 'update' ? selectedCatalog.addedPermissions : selectedCatalog.permissions" :key="permission" class="permission mono">
               {{ permission }}
             </span>
           </div>
-          <n-checkbox v-model:checked="catalogPermissionsAccepted" :disabled="remoteInstalling">
+          <n-alert v-if="catalogOperationMode === 'update' && !selectedCatalog.addedPermissions.length" type="info" :bordered="false">
+            权限未增加，将保留当前授权与启停状态。
+          </n-alert>
+          <n-checkbox v-else v-model:checked="catalogPermissionsAccepted" :disabled="remoteInstalling">
             我已查看并同意授予以上权限
           </n-checkbox>
         </section>
@@ -697,7 +723,7 @@ function formatBytes(bytes: number) {
             :loading="remoteInstalling"
             @click="confirmCatalogInstall"
           >
-            {{ selectedOperation?.stage === 'error' ? '重新安装' : '下载并安装' }}
+            {{ selectedOperation?.stage === 'error' ? '重试' : catalogOperationMode === 'update' ? '下载并升级' : '下载并安装' }}
           </n-button>
         </div>
       </template>

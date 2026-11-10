@@ -40,6 +40,22 @@ pub struct PluginRuntime {
 
 struct PendingCatalogInstall {
     prepared: PreparedPlugin,
+    mode: CatalogOperationMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CatalogOperationMode {
+    Install,
+    Update,
+}
+
+impl CatalogOperationMode {
+    fn action(self) -> &'static str {
+        match self {
+            Self::Install => "install",
+            Self::Update => "update",
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -169,9 +185,48 @@ impl PluginRuntime {
         app: &AppHandle,
     ) -> Result<OperationSnapshot, PluginCommandError> {
         validate_accepted_permissions(&accepted_permissions, &plan.permissions)?;
+        self.start_catalog_operation(plan, app, CatalogOperationMode::Install)
+            .await
+    }
+
+    async fn start_catalog_update(
+        &self,
+        plan: CatalogInstallPlan,
+        accepted_added_permissions: Vec<String>,
+        app: &AppHandle,
+    ) -> Result<OperationSnapshot, PluginCommandError> {
+        let current = self
+            .store
+            .lock()
+            .map_err(|_| {
+                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+            })?
+            .validate_upgrade_target(&plan.app_id, &plan.version)?;
+        let added_permissions = plan
+            .permissions
+            .iter()
+            .filter(|permission| !current.permissions.contains(permission))
+            .cloned()
+            .collect::<Vec<_>>();
+        validate_accepted_permissions(&accepted_added_permissions, &added_permissions)?;
+        self.start_catalog_operation(plan, app, CatalogOperationMode::Update)
+            .await
+    }
+
+    async fn start_catalog_operation(
+        &self,
+        plan: CatalogInstallPlan,
+        app: &AppHandle,
+        mode: CatalogOperationMode,
+    ) -> Result<OperationSnapshot, PluginCommandError> {
         let operation_id = Uuid::new_v4().to_string();
         let correlation_id = Uuid::new_v4().to_string();
-        let snapshot = OperationSnapshot::new(operation_id.clone(), correlation_id.clone(), &plan);
+        let snapshot = OperationSnapshot::new(
+            operation_id.clone(),
+            correlation_id.clone(),
+            mode.action(),
+            &plan,
+        );
         self.reserve_operation(snapshot.clone())?;
         let _ = app.emit("plugin://operation-state", snapshot);
 
@@ -216,6 +271,7 @@ impl PluginRuntime {
                 &download_path,
                 &prepare_operation_id,
                 &prepare_plan,
+                mode,
             )
         })
         .await
@@ -243,12 +299,37 @@ impl PluginRuntime {
             state.stage = OperationStage::Staging;
             state.entry = Some(prepared.package.entry.clone());
         });
+        if mode == CatalogOperationMode::Update {
+            if let Err(error) = self
+                .store
+                .lock()
+                .map_err(|_| {
+                    PluginCommandError::with_correlation(
+                        "PLUGIN_STORE_LOCK_FAILED",
+                        "Plugin store lock failed",
+                        &correlation_id,
+                    )
+                })?
+                .mark_pending_upgrade(&prepared, &operation_id, &correlation_id)
+            {
+                if let Ok(store) = self.store.lock() {
+                    store.discard_prepared(prepared);
+                }
+                return Err(self.fail_operation(app, &operation_id, &error.code, error.message));
+            }
+        }
         match self.pending.lock() {
             Ok(mut pending) => {
-                pending.insert(operation_id.clone(), PendingCatalogInstall { prepared });
+                pending.insert(
+                    operation_id.clone(),
+                    PendingCatalogInstall { prepared, mode },
+                );
             }
             Err(_) => {
                 if let Ok(store) = self.store.lock() {
+                    if mode == CatalogOperationMode::Update {
+                        let _ = store.clear_pending_upgrade(&plan.app_id, &operation_id);
+                    }
                     store.discard_prepared(prepared);
                 }
                 return Err(self.fail_operation(
@@ -270,17 +351,23 @@ impl PluginRuntime {
         package_path: &std::path::Path,
         operation_id: &str,
         plan: &CatalogInstallPlan,
+        mode: CatalogOperationMode,
     ) -> Result<PreparedPlugin, PluginCommandError> {
         let keys = HashMap::from([(plan.publisher_key_id.clone(), plan.publisher_key)]);
         let inspected = inspect_package(package_path, &self.environment, &keys)?;
         validate_package_against_catalog(&inspected, plan)?;
-        self.store
-            .lock()
-            .map_err(|_| {
-                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
-            })?
-            .prepare_install(package_path, &self.environment, &keys, operation_id)
-            .map_err(Into::into)
+        let store = self.store.lock().map_err(|_| {
+            PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+        })?;
+        match mode {
+            CatalogOperationMode::Install => {
+                store.prepare_install(package_path, &self.environment, &keys, operation_id)
+            }
+            CatalogOperationMode::Update => {
+                store.prepare_upgrade(package_path, &self.environment, &keys, operation_id)
+            }
+        }
+        .map_err(Into::into)
     }
 
     fn complete_catalog_install(
@@ -317,11 +404,24 @@ impl PluginRuntime {
         self.update_operation(app, operation_id, |state| {
             state.stage = OperationStage::Activate;
         });
-        let activation = store.activate_prepared_with_context(
-            pending.prepared,
-            Some(operation_id),
-            Some(&correlation_id),
-        );
+        let app_id = pending.prepared.package.app_id.clone();
+        let activation = match pending.mode {
+            CatalogOperationMode::Install => store.activate_prepared_with_context(
+                pending.prepared,
+                Some(operation_id),
+                Some(&correlation_id),
+            ),
+            CatalogOperationMode::Update => {
+                store.activate_prepared_upgrade(pending.prepared, operation_id, &correlation_id)
+            }
+        };
+        if activation
+            .as_ref()
+            .is_err_and(|error| error.code != "PLUGIN_ACTIVATION_CLEANUP_FAILED")
+            && pending.mode == CatalogOperationMode::Update
+        {
+            let _ = store.clear_pending_upgrade(&app_id, operation_id);
+        }
         drop(store);
         let installed = match activation {
             Ok(installed) => installed,
@@ -365,6 +465,19 @@ impl PluginRuntime {
                 &correlation_id,
             )
         })?;
+        if pending_operations
+            .get(operation_id)
+            .is_some_and(|pending| pending.mode == CatalogOperationMode::Update)
+        {
+            let app_id = pending_operations
+                .get(operation_id)
+                .expect("pending operation was checked while locked")
+                .prepared
+                .package
+                .app_id
+                .clone();
+            store.clear_pending_upgrade(&app_id, operation_id)?;
+        }
         let pending = pending_operations
             .remove(operation_id)
             .expect("pending operation was checked while locked");
@@ -411,7 +524,7 @@ impl PluginRuntime {
             operation.app_id == snapshot.app_id
                 && !matches!(
                     operation.stage,
-                    OperationStage::Complete | OperationStage::Error
+                    OperationStage::Complete | OperationStage::RolledBack | OperationStage::Error
                 )
         }) {
             return Err(PluginCommandError::with_correlation(
@@ -459,6 +572,7 @@ impl PluginRuntime {
                 if let Err(error) = store.record_catalog_failure(
                     &previous.app_id,
                     &previous.version,
+                    previous.action,
                     &previous.operation_id,
                     &previous.correlation_id,
                     code,
@@ -479,6 +593,43 @@ impl PluginRuntime {
         if let Ok(store) = self.store.lock() {
             store.remove_catalog_download(operation_id);
         }
+    }
+
+    fn confirm_plugin_launch(
+        &self,
+        app_id: &str,
+        version: &str,
+    ) -> Result<bool, PluginCommandError> {
+        self.store
+            .lock()
+            .map_err(|_| {
+                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+            })?
+            .confirm_current_launch(app_id, version)
+            .map_err(Into::into)
+    }
+
+    fn rollback_plugin_launch(
+        &self,
+        app_id: &str,
+        version: &str,
+        app: &AppHandle,
+    ) -> Result<Option<InstalledPlugin>, PluginCommandError> {
+        let rollback = self
+            .store
+            .lock()
+            .map_err(|_| {
+                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+            })?
+            .rollback_current_launch(app_id, version)?;
+        let Some(rollback) = rollback else {
+            return Ok(None);
+        };
+        self.update_operation(app, &rollback.operation_id, |state| {
+            state.stage = OperationStage::RolledBack;
+            state.message = Some("Plugin was restored to the previous version".to_string());
+        });
+        Ok(Some(rollback.installed))
     }
 }
 
@@ -638,6 +789,20 @@ pub async fn plugin_install_catalog_app(
 }
 
 #[tauri::command]
+pub async fn plugin_update_catalog_app(
+    app_id: String,
+    accepted_added_permissions: Vec<String>,
+    runtime: State<'_, PluginRuntime>,
+    catalog: State<'_, CatalogRuntime>,
+    app: AppHandle,
+) -> Result<OperationSnapshot, PluginCommandError> {
+    let plan = catalog.install_plan(&app_id).await?;
+    runtime
+        .start_catalog_update(plan, accepted_added_permissions, &app)
+        .await
+}
+
+#[tauri::command]
 pub async fn plugin_complete_catalog_install(
     operation_id: String,
     runtime: State<'_, PluginRuntime>,
@@ -671,6 +836,25 @@ pub async fn plugin_get_operation(
     runtime.operation(&operation_id)
 }
 
+#[tauri::command]
+pub async fn plugin_confirm_plugin_launch(
+    app_id: String,
+    version: String,
+    runtime: State<'_, PluginRuntime>,
+) -> Result<bool, PluginCommandError> {
+    runtime.confirm_plugin_launch(&app_id, &version)
+}
+
+#[tauri::command]
+pub async fn plugin_rollback_plugin_launch(
+    app_id: String,
+    version: String,
+    runtime: State<'_, PluginRuntime>,
+    app: AppHandle,
+) -> Result<Option<InstalledPlugin>, PluginCommandError> {
+    runtime.rollback_plugin_launch(&app_id, &version, &app)
+}
+
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::SigningKey;
@@ -681,6 +865,7 @@ mod tests {
 
     fn operation(operation_id: &str, stage: OperationStage) -> OperationSnapshot {
         OperationSnapshot {
+            action: "install",
             operation_id: operation_id.to_string(),
             correlation_id: format!("correlation-{operation_id}"),
             app_id: "com.attson.codec".to_string(),

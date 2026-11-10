@@ -62,10 +62,13 @@ function fakeApi(): PluginApi {
     listCatalog: vi.fn().mockResolvedValue({ ...catalog }),
     refreshCatalog: vi.fn().mockResolvedValue({ ...catalog }),
     installCatalogApp: vi.fn(),
+    updateCatalogApp: vi.fn(),
     completeCatalogInstall: vi.fn(),
     failCatalogInstall: vi.fn(),
     getOperation: vi.fn(),
     listenOperations: vi.fn().mockResolvedValue(() => {}),
+    confirmPluginLaunch: vi.fn(),
+    rollbackPluginLaunch: vi.fn(),
     setEnabled: vi.fn().mockResolvedValue(undefined),
     uninstall: vi.fn().mockResolvedValue(undefined)
   };
@@ -203,5 +206,48 @@ describe('usePluginStore', () => {
     expect(store.navigationTools.value.map((tool) => tool.id)).toEqual([
       'plugin:com.attson.codec'
     ]);
+  });
+
+  it('starts an upgrade with no added permissions without replacing the current version', async () => {
+    const api = fakeApi();
+    const pending = {
+      operationId: 'operation-update',
+      correlationId: 'correlation-update',
+      appId: codec.appId,
+      name: codec.name,
+      version: '1.1.0',
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null
+    };
+    vi.mocked(api.updateCatalogApp).mockResolvedValue(pending);
+    const store = usePluginStore(api);
+    await store.load();
+
+    await store.updateCatalog(codec.appId, []);
+
+    expect(api.updateCatalogApp).toHaveBeenCalledWith(codec.appId, []);
+    expect(store.apps.value[0].version).toBe(codec.version);
+    expect(store.operation.value).toEqual(pending);
+  });
+
+  it('replaces the current navigation version after automatic rollback', async () => {
+    const api = fakeApi();
+    const rolledBack = { ...codec, version: '0.1.0-alpha.0' };
+    const store = usePluginStore(api);
+    await store.load();
+
+    store.replaceInstalled({ ...codec, version: '1.1.0' });
+    store.replaceInstalled(rolledBack);
+
+    expect(store.apps.value).toEqual([rolledBack]);
+    expect(store.navigationTools.value[0].name).toBe('编码转换');
   });
 });

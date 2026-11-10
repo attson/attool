@@ -13,6 +13,10 @@ const props = defineProps<{
   theme: ThemeName;
 }>();
 
+const emit = defineEmits<{
+  versionState: [app: InstalledPlugin];
+}>();
+
 type FrameState = 'loading' | 'connecting' | 'ready' | 'error';
 
 const message = useMessage();
@@ -22,6 +26,7 @@ const errorMessage = ref('');
 const reloadRevision = ref(0);
 let session: PluginHostSession | null = null;
 let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+let handlingFailure = false;
 
 const source = computed(() => {
   const entry = props.app.entry
@@ -48,9 +53,10 @@ async function savePluginFile(input: HostFileSaveRequest) {
 
 function handleLoad() {
   clearSession();
+  handlingFailure = false;
   const contentWindow = frame.value?.contentWindow;
   if (!contentWindow) {
-    fail('无法建立应用窗口连接');
+    void handleLaunchFailure('无法建立应用窗口连接');
     return;
   }
   state.value = 'connecting';
@@ -67,7 +73,7 @@ function handleLoad() {
     onHandshake: () => {
       if (handshakeTimer) clearTimeout(handshakeTimer);
       handshakeTimer = null;
-      state.value = 'ready';
+      void confirmLaunch();
     }
   });
   contentWindow.postMessage(
@@ -81,8 +87,41 @@ function handleLoad() {
   );
   handshakeTimer = setTimeout(() => {
     clearSession();
-    fail('应用未在规定时间内完成 Host API 握手');
+    void handleLaunchFailure('应用未在规定时间内完成 Host API 握手');
   }, 8_000);
+}
+
+async function confirmLaunch() {
+  try {
+    await invoke<boolean>('plugin_confirm_plugin_launch', {
+      appId: props.app.appId,
+      version: props.app.version
+    });
+    state.value = 'ready';
+  } catch {
+    clearSession();
+    await handleLaunchFailure('无法确认当前应用版本');
+  }
+}
+
+async function handleLaunchFailure(reason: string) {
+  if (handlingFailure) return;
+  handlingFailure = true;
+  try {
+    const rolledBack = await invoke<InstalledPlugin | null>('plugin_rollback_plugin_launch', {
+      appId: props.app.appId,
+      version: props.app.version
+    });
+    if (rolledBack) {
+      message.warning(`启动失败，已恢复 ${rolledBack.version}`);
+      emit('versionState', rolledBack);
+      return;
+    }
+  } catch {
+    fail('自动回滚失败，请在应用管理中查看操作记录');
+    return;
+  }
+  fail(reason);
 }
 
 function fail(reason: string) {
@@ -94,6 +133,7 @@ function reload() {
   clearSession();
   state.value = 'loading';
   errorMessage.value = '';
+  handlingFailure = false;
   reloadRevision.value += 1;
 }
 
@@ -123,7 +163,7 @@ onBeforeUnmount(clearSession);
       sandbox="allow-scripts allow-same-origin"
       referrerpolicy="no-referrer"
       @load="handleLoad"
-      @error="fail('应用资源加载失败')"
+      @error="handleLaunchFailure('应用资源加载失败')"
     />
 
     <div v-if="state === 'loading' || state === 'connecting'" class="frame-state">
