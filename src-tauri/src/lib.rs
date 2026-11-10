@@ -1308,6 +1308,15 @@ pub fn run() {
             let plugin_runtime = plugin::commands::PluginRuntime::p0(plugin_store)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(plugin_runtime);
+            let catalog_runtime = plugin::catalog::CatalogRuntime::production(
+                app.path()
+                    .app_data_dir()
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                    .join("plugins")
+                    .join("catalog.sqlite3"),
+            )
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(catalog_runtime);
 
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
@@ -1430,6 +1439,8 @@ pub fn run() {
             plugin::commands::plugin_list_history,
             plugin::commands::plugin_set_enabled,
             plugin::commands::plugin_uninstall,
+            plugin::commands::plugin_catalog_refresh,
+            plugin::commands::plugin_catalog_list,
             ecommerce::commands::import_psd_template,
             ecommerce::commands::list_ecommerce_templates,
             ecommerce::commands::load_ecommerce_template,

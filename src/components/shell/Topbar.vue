@@ -94,4 +94,13 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
 }
+
+@media (max-width: 700px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 0 14px;
+  }
+  .crumb { display: none; }
+  .searchbar { min-width: 0; }
+}
 </style>

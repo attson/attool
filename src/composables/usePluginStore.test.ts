@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { usePluginStore } from './usePluginStore';
-import type { InstalledPlugin, PluginApi } from '../components/plugins/types';
+import type {
+  CatalogSnapshot,
+  InstalledPlugin,
+  PluginApi
+} from '../components/plugins/types';
 
 const codec: InstalledPlugin = {
   appId: 'com.attson.codec',
@@ -16,12 +20,47 @@ const codec: InstalledPlugin = {
   installedAt: '2026-11-10T00:00:00Z'
 };
 
+const catalog: CatalogSnapshot = {
+  rootSequence: 3,
+  catalogSequence: 18,
+  generatedAt: '2026-11-10T08:00:00Z',
+  expiresAt: '2026-11-17T08:00:00Z',
+  expired: false,
+  apps: [
+    {
+      appId: codec.appId,
+      name: '编码转换',
+      description: 'Base64、URL、Unicode、Hex、Hash 与 JWT',
+      publisherId: 'com.attson',
+      publisherName: 'Attson',
+      icon: 'codec',
+      latestVersion: '1.1.0',
+      publishedAt: '2026-11-10T07:00:00Z',
+      notes: '新增一键复制转换结果',
+      publisherKeyId: 'codec-2026-01',
+      hostApiMin: '1.0.0',
+      hostApiMax: '1.x',
+      permissions: ['host.theme.read'],
+      target: {
+        os: 'linux',
+        arch: 'x86_64',
+        url: 'https://github.com/attsontools/atcodec/releases/download/v1.1.0/AT.Codec_1.1.0_linux_x86_64.atpkg',
+        fileName: 'AT.Codec_1.1.0_linux_x86_64.atpkg',
+        size: 4096,
+        sha256: 'a'.repeat(64)
+      }
+    }
+  ]
+};
+
 function fakeApi(): PluginApi {
   return {
     inspectPackage: vi.fn(),
     installPackage: vi.fn(),
     listInstalled: vi.fn().mockResolvedValue([{ ...codec }]),
     listHistory: vi.fn().mockResolvedValue([]),
+    listCatalog: vi.fn().mockResolvedValue({ ...catalog }),
+    refreshCatalog: vi.fn().mockResolvedValue({ ...catalog }),
     setEnabled: vi.fn().mockResolvedValue(undefined),
     uninstall: vi.fn().mockResolvedValue(undefined)
   };
@@ -73,5 +112,38 @@ describe('usePluginStore', () => {
 
     await expect(store.uninstall(codec.appId, false)).resolves.toBeUndefined();
     expect(store.apps.value).toEqual([]);
+  });
+
+  it('loads the cached catalog and merges the installed version', async () => {
+    const store = usePluginStore(fakeApi());
+
+    await store.load();
+
+    expect(store.catalogApps.value).toHaveLength(1);
+    expect(store.catalogApps.value[0]).toMatchObject({
+      name: '编码转换',
+      latestVersion: '1.1.0',
+      installedVersion: '0.1.0-alpha.0'
+    });
+  });
+
+  it('preserves the cached catalog when refresh fails', async () => {
+    const api = fakeApi();
+    const store = usePluginStore(api);
+    await store.load();
+    vi.mocked(api.refreshCatalog).mockRejectedValue({
+      code: 'CATALOG_SIGNATURE_INVALID',
+      message: 'Catalog signature verification failed',
+      correlationId: 'catalog-correlation'
+    });
+
+    await expect(store.refreshCatalog()).rejects.toMatchObject({
+      code: 'CATALOG_SIGNATURE_INVALID'
+    });
+    expect(store.catalog.value?.catalogSequence).toBe(18);
+    expect(store.catalogError.value).toMatchObject({
+      code: 'CATALOG_SIGNATURE_INVALID',
+      correlationId: 'catalog-correlation'
+    });
   });
 });

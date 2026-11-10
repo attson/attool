@@ -10,6 +10,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use super::{
+    catalog::{CatalogError, CatalogRuntime, CatalogSnapshot},
     install::{InstallError, InstalledPlugin, PluginAsset, PluginHistoryRecord, PluginStore},
     package::{inspect_package, HostEnvironment, InspectedPackage, PackageError},
 };
@@ -124,6 +125,12 @@ impl PluginCommandError {
     }
 }
 
+impl From<CatalogError> for PluginCommandError {
+    fn from(error: CatalogError) -> Self {
+        Self::new(error.code, error.message)
+    }
+}
+
 impl From<PackageError> for PluginCommandError {
     fn from(error: PackageError) -> Self {
         Self::new(error.code, error.message)
@@ -207,6 +214,20 @@ pub async fn plugin_uninstall(
     tauri::async_runtime::spawn_blocking(move || runtime.uninstall(app_id, delete_data))
         .await
         .map_err(join_error)?
+}
+
+#[tauri::command]
+pub async fn plugin_catalog_refresh(
+    runtime: State<'_, CatalogRuntime>,
+) -> Result<CatalogSnapshot, PluginCommandError> {
+    runtime.refresh().await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn plugin_catalog_list(
+    runtime: State<'_, CatalogRuntime>,
+) -> Result<Option<CatalogSnapshot>, PluginCommandError> {
+    runtime.list().await.map_err(Into::into)
 }
 
 #[cfg(test)]

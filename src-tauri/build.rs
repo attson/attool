@@ -11,6 +11,16 @@ fn main() {
     fs::write(&out, pk.as_bytes()).expect("write verify_public_key.pem");
     println!("cargo:rerun-if-env-changed=ATTOOL_UPDATE_VERIFY_PUBLIC_KEY");
 
+    let catalog_pk = std::env::var("ATTOOL_CATALOG_ROOT_PUBLIC_KEY").unwrap_or_default();
+    if std::env::var("PROFILE").as_deref() == Ok("release") && catalog_pk.trim().is_empty() {
+        panic!("ATTOOL_CATALOG_ROOT_PUBLIC_KEY is required for release builds");
+    }
+    let catalog_out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"))
+        .join("catalog_root_public_key.txt");
+    fs::write(catalog_out, catalog_pk.trim().as_bytes())
+        .expect("write catalog_root_public_key.txt");
+    println!("cargo:rerun-if-env-changed=ATTOOL_CATALOG_ROOT_PUBLIC_KEY");
+
     let target = std::env::var("TARGET").expect("TARGET");
     let extension = if target.contains("windows") {
         ".exe"

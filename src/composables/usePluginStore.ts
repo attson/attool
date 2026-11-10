@@ -1,7 +1,9 @@
 import { computed, ref } from 'vue';
 
 import { createPluginApi } from '../components/plugins/pluginApi';
+import { mergeCatalogApps } from '../components/plugins/catalogMerge';
 import type {
+  CatalogSnapshot,
   InstalledPlugin,
   InspectedPluginPackage,
   PluginApi,
@@ -32,9 +34,13 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
   const apps = ref<InstalledPlugin[]>([]);
   const preview = ref<InspectedPluginPackage | null>(null);
   const history = ref<PluginHistoryRecord[]>([]);
+  const catalog = ref<CatalogSnapshot | null>(null);
   const loading = ref(false);
+  const catalogLoading = ref(false);
+  const catalogRefreshing = ref(false);
   const busyAppIds = ref<Set<string>>(new Set());
   const error = ref<PluginCommandError | null>(null);
+  const catalogError = ref<PluginCommandError | null>(null);
 
   const navigationTools = computed<Tool[]>(() =>
     apps.value
@@ -49,6 +55,9 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
         source: 'plugin',
         pluginAppId: app.appId
       }))
+  );
+  const catalogApps = computed(() =>
+    catalog.value ? mergeCatalogApps(catalog.value, apps.value) : []
   );
 
   async function refreshHistory() {
@@ -65,10 +74,34 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     try {
       apps.value = await api.listInstalled();
       await refreshHistory();
+      catalogLoading.value = true;
+      try {
+        catalog.value = await api.listCatalog();
+        catalogError.value = null;
+      } catch (reason) {
+        catalogError.value = commandError(reason);
+      } finally {
+        catalogLoading.value = false;
+      }
     } catch (reason) {
       error.value = commandError(reason);
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function refreshCatalog() {
+    catalogRefreshing.value = true;
+    catalogError.value = null;
+    try {
+      const refreshed = await api.refreshCatalog();
+      catalog.value = refreshed;
+      return refreshed;
+    } catch (reason) {
+      catalogError.value = commandError(reason);
+      throw reason;
+    } finally {
+      catalogRefreshing.value = false;
     }
   }
 
@@ -136,14 +169,20 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
   return {
     apps,
     history,
+    catalog,
     preview,
     loading,
+    catalogLoading,
+    catalogRefreshing,
     busyAppIds,
     error,
+    catalogError,
     navigationTools,
+    catalogApps,
     load,
     inspect,
     install,
+    refreshCatalog,
     setEnabled,
     uninstall
   };
