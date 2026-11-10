@@ -16,6 +16,7 @@ pub mod network;
 mod qrcode;
 mod recording;
 mod recording_preview;
+mod plugin;
 mod xhs;
 mod youtube;
 
