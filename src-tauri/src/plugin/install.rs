@@ -369,11 +369,25 @@ impl PluginStore {
         let plugin = self.find(app_id)?.ok_or_else(|| {
             InstallError::new("PLUGIN_NOT_FOUND", "Installed plugin was not found")
         })?;
-        if enabled && !plugin.root.join(&plugin.entry).is_file() {
-            return Err(InstallError::new(
-                "PLUGIN_HEALTH_CHECK_FAILED",
-                "Plugin UI entry is not a readable file",
-            ));
+        if enabled {
+            let expected_hash = plugin.files.get(&plugin.entry).ok_or_else(|| {
+                InstallError::new(
+                    "PLUGIN_HEALTH_CHECK_FAILED",
+                    "Plugin UI entry is not declared",
+                )
+            })?;
+            let entry = fs::read(plugin.root.join(&plugin.entry)).map_err(|_| {
+                InstallError::new(
+                    "PLUGIN_HEALTH_CHECK_FAILED",
+                    "Plugin UI entry is not a readable file",
+                )
+            })?;
+            if hex::encode(Sha256::digest(&entry)) != *expected_hash {
+                return Err(InstallError::new(
+                    "PLUGIN_HEALTH_CHECK_FAILED",
+                    "Plugin UI entry failed integrity verification",
+                ));
+            }
         }
         let mut connection = self.connection()?;
         let transaction = connection.transaction().map_err(|error| {
@@ -839,6 +853,26 @@ mod tests {
             .read_asset("com.attson.codec", "ui/index.html")
             .expect_err("modified asset must not be served");
         assert_eq!(modified.code, "PLUGIN_ASSET_HASH_MISMATCH");
+    }
+
+    #[test]
+    fn keeps_a_plugin_disabled_when_its_entry_hash_is_invalid() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = valid_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store = PluginStore::open(directory.path().join("plugins")).unwrap();
+        let installed = store
+            .install(&package_path, &HostEnvironment::current("1.0.0"), &keys)
+            .unwrap();
+        store.set_enabled("com.attson.codec", false).unwrap();
+        std::fs::write(installed.root.join("ui/index.html"), "modified").unwrap();
+
+        let error = store
+            .set_enabled("com.attson.codec", true)
+            .expect_err("a damaged plugin must not be reenabled");
+
+        assert_eq!(error.code, "PLUGIN_HEALTH_CHECK_FAILED");
+        assert!(!store.list().unwrap()[0].enabled);
     }
 
     #[test]
