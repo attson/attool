@@ -44,6 +44,13 @@ pub struct PluginAsset {
     pub content_type: &'static str,
 }
 
+#[derive(Debug)]
+pub struct PreparedPlugin {
+    pub package: super::package::InspectedPackage,
+    staging_root: PathBuf,
+    payload_root: PathBuf,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginHistoryRecord {
@@ -54,6 +61,8 @@ pub struct PluginHistoryRecord {
     pub occurred_at: String,
     pub result: String,
     pub error_code: Option<String>,
+    pub operation_id: Option<String>,
+    pub correlation_id: Option<String>,
     pub steps: Vec<String>,
 }
 
@@ -108,6 +117,33 @@ impl PluginStore {
         environment: &HostEnvironment,
         trusted_keys: &HashMap<String, VerifyingKey>,
     ) -> Result<InstalledPlugin, InstallError> {
+        let prepared = self.prepare_install(
+            package_path,
+            environment,
+            trusted_keys,
+            &Uuid::new_v4().to_string(),
+        )?;
+        self.activate_prepared(prepared)
+    }
+
+    pub fn catalog_download_path(&self, operation_id: &str, file_name: &str) -> PathBuf {
+        self.root
+            .join("downloads")
+            .join(operation_id)
+            .join(file_name)
+    }
+
+    pub fn remove_catalog_download(&self, operation_id: &str) {
+        let _ = fs::remove_dir_all(self.root.join("downloads").join(operation_id));
+    }
+
+    pub fn prepare_install(
+        &self,
+        package_path: &Path,
+        environment: &HostEnvironment,
+        trusted_keys: &HashMap<String, VerifyingKey>,
+        operation_id: &str,
+    ) -> Result<PreparedPlugin, InstallError> {
         let preview = super::package::inspect_package(package_path, environment, trusted_keys)?;
         if self.find(&preview.app_id)?.is_some() {
             return Err(InstallError::new(
@@ -116,7 +152,13 @@ impl PluginStore {
             ));
         }
 
-        let staging_root = self.root.join("staging").join(Uuid::new_v4().to_string());
+        let staging_root = self.root.join("staging").join(operation_id);
+        if staging_root.exists() {
+            return Err(InstallError::new(
+                "PLUGIN_STAGING_CONFLICT",
+                "Plugin staging operation already exists",
+            ));
+        }
         let staged_payload = staging_root.join("payload");
         let package =
             match extract_package(package_path, &staged_payload, environment, trusted_keys) {
@@ -134,6 +176,32 @@ impl PluginStore {
                 "Plugin UI entry is not a readable file",
             ));
         }
+
+        Ok(PreparedPlugin {
+            package,
+            staging_root,
+            payload_root: staged_payload,
+        })
+    }
+
+    pub fn activate_prepared(
+        &self,
+        prepared: PreparedPlugin,
+    ) -> Result<InstalledPlugin, InstallError> {
+        self.activate_prepared_with_context(prepared, None, None)
+    }
+
+    pub fn activate_prepared_with_context(
+        &self,
+        prepared: PreparedPlugin,
+        operation_id: Option<&str>,
+        correlation_id: Option<&str>,
+    ) -> Result<InstalledPlugin, InstallError> {
+        let PreparedPlugin {
+            package,
+            staging_root,
+            payload_root,
+        } = prepared;
 
         let final_root = self
             .root
@@ -155,7 +223,7 @@ impl PluginStore {
                 format!("Cannot create application directory: {error}"),
             )
         })?;
-        fs::rename(&staged_payload, &final_root).map_err(|error| {
+        fs::rename(&payload_root, &final_root).map_err(|error| {
             let _ = fs::remove_dir_all(&staging_root);
             InstallError::new(
                 "PLUGIN_ACTIVATION_FAILED",
@@ -208,7 +276,7 @@ impl PluginStore {
                         format!("Cannot update plugin registry: {error}"),
                     )
                 })?;
-            insert_history(
+            insert_history_with_context(
                 &transaction,
                 &package.app_id,
                 "install",
@@ -223,6 +291,8 @@ impl PluginStore {
                     "health",
                     "activation",
                 ],
+                operation_id,
+                correlation_id,
             )?;
             transaction.commit().map_err(|error| {
                 InstallError::new(
@@ -239,11 +309,47 @@ impl PluginStore {
         }
         let _ = fs::remove_dir_all(&staging_root);
 
-        self.find(&preview.app_id)?.ok_or_else(|| {
+        self.find(&package.app_id)?.ok_or_else(|| {
             InstallError::new(
                 "PLUGIN_REGISTRY_WRITE_FAILED",
                 "Installed plugin is missing from registry",
             )
+        })
+    }
+
+    pub fn discard_prepared(&self, prepared: PreparedPlugin) {
+        let _ = fs::remove_dir_all(prepared.staging_root);
+    }
+
+    pub fn read_prepared_asset(
+        &self,
+        prepared: &PreparedPlugin,
+        relative: &str,
+    ) -> Result<PluginAsset, InstallError> {
+        if !is_safe_relative_path(relative) {
+            return Err(InstallError::new(
+                "PLUGIN_ASSET_PATH_INVALID",
+                "Plugin asset path is invalid",
+            ));
+        }
+        let expected_hash = prepared.package.files.get(relative).ok_or_else(|| {
+            InstallError::new(
+                "PLUGIN_ASSET_NOT_DECLARED",
+                "Plugin asset is not declared in the signed manifest",
+            )
+        })?;
+        let bytes = fs::read(prepared.payload_root.join(relative)).map_err(|_| {
+            InstallError::new("PLUGIN_ASSET_NOT_FOUND", "Plugin asset was not found")
+        })?;
+        if hex::encode(Sha256::digest(&bytes)) != *expected_hash {
+            return Err(InstallError::new(
+                "PLUGIN_ASSET_HASH_MISMATCH",
+                "Plugin asset hash does not match the signed manifest",
+            ));
+        }
+        Ok(PluginAsset {
+            bytes,
+            content_type: content_type(relative),
         })
     }
 
@@ -524,7 +630,8 @@ impl PluginStore {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, app_id, action, version, occurred_at, result, error_code, steps_json
+                "SELECT id, app_id, action, version, occurred_at, result, error_code,
+                        operation_id, correlation_id, steps_json
                  FROM plugin_history ORDER BY id DESC",
             )
             .map_err(registry_read_error)?;
@@ -538,14 +645,26 @@ impl PluginStore {
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, String>(9)?,
                 ))
             })
             .map_err(registry_read_error)?;
         let mut history = Vec::new();
         for row in rows {
-            let (id, app_id, action, version, occurred_at, result, error_code, steps_json) =
-                row.map_err(registry_read_error)?;
+            let (
+                id,
+                app_id,
+                action,
+                version,
+                occurred_at,
+                result,
+                error_code,
+                operation_id,
+                correlation_id,
+                steps_json,
+            ) = row.map_err(registry_read_error)?;
             let steps = serde_json::from_str(&steps_json).map_err(|error| {
                 InstallError::new(
                     "PLUGIN_REGISTRY_READ_FAILED",
@@ -560,10 +679,52 @@ impl PluginStore {
                 occurred_at,
                 result,
                 error_code,
+                operation_id,
+                correlation_id,
                 steps,
             });
         }
         Ok(history)
+    }
+
+    pub fn record_catalog_failure(
+        &self,
+        app_id: &str,
+        version: &str,
+        operation_id: &str,
+        correlation_id: &str,
+        error_code: &str,
+        stage: &str,
+    ) -> Result<(), InstallError> {
+        let steps_json = serde_json::to_string(&[stage]).map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot serialize plugin history: {error}"),
+            )
+        })?;
+        self.connection()?
+            .execute(
+                "INSERT INTO plugin_history (
+                    app_id, action, version, occurred_at, result, error_code,
+                    operation_id, correlation_id, steps_json
+                 ) VALUES (?1, 'install', ?2, ?3, 'failed', ?4, ?5, ?6, ?7)",
+                params![
+                    app_id,
+                    version,
+                    Utc::now().to_rfc3339(),
+                    error_code,
+                    operation_id,
+                    correlation_id,
+                    steps_json,
+                ],
+            )
+            .map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_WRITE_FAILED",
+                    format!("Cannot write plugin failure history: {error}"),
+                )
+            })?;
+        Ok(())
     }
 
     fn find(&self, app_id: &str) -> Result<Option<InstalledPlugin>, InstallError> {
@@ -602,6 +763,8 @@ impl PluginStore {
                     occurred_at TEXT NOT NULL,
                     result TEXT NOT NULL,
                     error_code TEXT,
+                    operation_id TEXT,
+                    correlation_id TEXT,
                     steps_json TEXT NOT NULL
                 );",
             )
@@ -633,6 +796,30 @@ impl PluginStore {
                         format!("Cannot migrate plugin registry: {error}"),
                     )
                 })?;
+        }
+        for column in ["operation_id", "correlation_id"] {
+            let exists: bool = connection
+                .query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM pragma_table_info('plugin_history') WHERE name = ?1
+                    )",
+                    [column],
+                    |row| row.get(0),
+                )
+                .map_err(registry_read_error)?;
+            if !exists {
+                connection
+                    .execute(
+                        &format!("ALTER TABLE plugin_history ADD COLUMN {column} TEXT"),
+                        [],
+                    )
+                    .map_err(|error| {
+                        InstallError::new(
+                            "PLUGIN_STORE_OPEN_FAILED",
+                            format!("Cannot migrate plugin history: {error}"),
+                        )
+                    })?;
+            }
         }
         Ok(())
     }
@@ -684,6 +871,29 @@ fn insert_history(
     occurred_at: &str,
     steps: &[&str],
 ) -> Result<(), InstallError> {
+    insert_history_with_context(
+        transaction,
+        app_id,
+        action,
+        version,
+        occurred_at,
+        steps,
+        None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_history_with_context(
+    transaction: &rusqlite::Transaction<'_>,
+    app_id: &str,
+    action: &str,
+    version: &str,
+    occurred_at: &str,
+    steps: &[&str],
+    operation_id: Option<&str>,
+    correlation_id: Option<&str>,
+) -> Result<(), InstallError> {
     let steps_json = serde_json::to_string(steps).map_err(|error| {
         InstallError::new(
             "PLUGIN_REGISTRY_WRITE_FAILED",
@@ -693,9 +903,18 @@ fn insert_history(
     transaction
         .execute(
             "INSERT INTO plugin_history (
-                app_id, action, version, occurred_at, result, error_code, steps_json
-             ) VALUES (?1, ?2, ?3, ?4, 'success', NULL, ?5)",
-            params![app_id, action, version, occurred_at, steps_json],
+                app_id, action, version, occurred_at, result, error_code,
+                operation_id, correlation_id, steps_json
+             ) VALUES (?1, ?2, ?3, ?4, 'success', NULL, ?5, ?6, ?7)",
+            params![
+                app_id,
+                action,
+                version,
+                occurred_at,
+                operation_id,
+                correlation_id,
+                steps_json,
+            ],
         )
         .map_err(|error| {
             InstallError::new(
@@ -799,6 +1018,60 @@ mod tests {
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].app_id, "com.attson.codec");
         assert!(apps[0].enabled);
+    }
+
+    #[test]
+    fn keeps_a_prepared_plugin_out_of_the_registry_until_activation() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = valid_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+
+        let prepared = store
+            .prepare_install(
+                &package_path,
+                &HostEnvironment::current("1.0.0"),
+                &keys,
+                "operation-1",
+            )
+            .unwrap();
+
+        assert!(store.list().unwrap().is_empty());
+        assert_eq!(
+            store
+                .read_prepared_asset(&prepared, "ui/index.html")
+                .unwrap()
+                .bytes,
+            b"<!doctype html><title>Codec</title>"
+        );
+
+        let installed = store.activate_prepared(prepared).unwrap();
+        assert_eq!(installed.app_id, "com.attson.codec");
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert!(!store_root.join("staging/operation-1").exists());
+    }
+
+    #[test]
+    fn discards_a_failed_health_probe_without_installing_the_plugin() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = valid_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        let prepared = store
+            .prepare_install(
+                &package_path,
+                &HostEnvironment::current("1.0.0"),
+                &keys,
+                "operation-2",
+            )
+            .unwrap();
+
+        store.discard_prepared(prepared);
+
+        assert!(store.list().unwrap().is_empty());
+        assert!(!store_root.join("staging/operation-2").exists());
     }
 
     #[test]
@@ -956,5 +1229,76 @@ mod tests {
             .map(|record| record.action)
             .collect::<Vec<_>>();
         assert_eq!(actions, vec!["uninstall", "enable", "disable", "install"]);
+    }
+
+    #[test]
+    fn persists_remote_install_failure_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PluginStore::open(directory.path().join("plugins")).unwrap();
+
+        store
+            .record_catalog_failure(
+                "com.attson.codec",
+                "1.0.0",
+                "operation-1",
+                "correlation-1",
+                "PLUGIN_DOWNLOAD_HASH_MISMATCH",
+                "download",
+            )
+            .unwrap();
+
+        let history = store.history().unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].result, "failed");
+        assert_eq!(
+            history[0].error_code.as_deref(),
+            Some("PLUGIN_DOWNLOAD_HASH_MISMATCH")
+        );
+        assert_eq!(history[0].operation_id.as_deref(), Some("operation-1"));
+        assert_eq!(history[0].correlation_id.as_deref(), Some("correlation-1"));
+        assert_eq!(history[0].steps, vec!["download"]);
+    }
+
+    #[test]
+    fn migrates_legacy_history_for_remote_operation_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let store_root = directory.path().join("plugins");
+        std::fs::create_dir_all(&store_root).unwrap();
+        let database = store_root.join("registry.sqlite3");
+        let connection = rusqlite::Connection::open(database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE plugin_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    error_code TEXT,
+                    steps_json TEXT NOT NULL
+                );",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = PluginStore::open(store_root).unwrap();
+        store
+            .record_catalog_failure(
+                "com.attson.codec",
+                "1.0.0",
+                "operation-legacy",
+                "correlation-legacy",
+                "PLUGIN_DOWNLOAD_INTERRUPTED",
+                "download",
+            )
+            .unwrap();
+
+        let history = store.history().unwrap();
+        assert_eq!(history[0].operation_id.as_deref(), Some("operation-legacy"));
+        assert_eq!(
+            history[0].correlation_id.as_deref(),
+            Some("correlation-legacy")
+        );
     }
 }

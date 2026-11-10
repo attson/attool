@@ -8,6 +8,7 @@ import {
   NEmpty,
   NInput,
   NModal,
+  NProgress,
   NSpin,
   NTag,
   NTooltip,
@@ -17,6 +18,7 @@ import {
 import type { PluginStoreController } from '../../composables/usePluginStore';
 import type { ManagedCatalogApp } from './types';
 import type { Tool } from '../../types/tool';
+import PluginInstallProbe from './PluginInstallProbe.vue';
 
 type View = 'catalog' | 'installed' | 'history';
 type ManagedApp = {
@@ -51,6 +53,9 @@ const installPath = ref('');
 const previewOpen = ref(false);
 const permissionsAccepted = ref(false);
 const installing = ref(false);
+const catalogInstallOpen = ref(false);
+const catalogPermissionsAccepted = ref(false);
+const remoteInstalling = ref(false);
 const uninstallOpen = ref(false);
 const deleteData = ref(false);
 const deleteDataConfirmOpen = ref(false);
@@ -109,6 +114,15 @@ const preview = computed(() => props.store.preview.value);
 const storeError = computed(() => props.store.error.value);
 const catalogError = computed(() => props.store.catalogError.value);
 const catalog = computed(() => props.store.catalog.value);
+const operation = computed(() => props.store.operation.value);
+const selectedOperation = computed(() =>
+  operation.value?.appId === selectedCatalog.value?.appId ? operation.value : null
+);
+const installProgress = computed(() => {
+  const current = selectedOperation.value;
+  if (!current?.totalBytes) return 0;
+  return Math.min(100, Math.round((current.downloadedBytes / current.totalBytes) * 100));
+});
 const busy = computed(() =>
   selectedInstalled.value?.source === 'plugin' &&
   props.store.busyAppIds.value.has(selectedInstalled.value.id)
@@ -177,6 +191,51 @@ async function confirmInstall() {
   }
 }
 
+function requestCatalogInstall() {
+  if (!selectedCatalog.value?.remoteActionsAllowed) return;
+  catalogPermissionsAccepted.value = false;
+  catalogInstallOpen.value = true;
+}
+
+async function confirmCatalogInstall() {
+  const app = selectedCatalog.value;
+  if (!app || !catalogPermissionsAccepted.value) return;
+  remoteInstalling.value = true;
+  try {
+    await props.store.installCatalog(app.appId, [...app.permissions]);
+  } catch {
+    remoteInstalling.value = false;
+  }
+}
+
+async function completeCatalogInstall() {
+  const current = operation.value;
+  if (!current || current.stage !== 'health-check') return;
+  try {
+    const installed = await props.store.completeCatalogInstall(current.operationId);
+    catalogInstallOpen.value = false;
+    selectedInstalledKey.value = `plugin:${installed.appId}`;
+    view.value = 'installed';
+    message.success(`${installed.name} 已安装`);
+  } catch {
+    // The stable command error is rendered in-page.
+  } finally {
+    remoteInstalling.value = false;
+  }
+}
+
+async function failCatalogInstall() {
+  const current = operation.value;
+  if (!current || current.stage !== 'health-check') return;
+  try {
+    await props.store.failCatalogInstall(current.operationId);
+  } catch {
+    // The stable command error is rendered in-page.
+  } finally {
+    remoteInstalling.value = false;
+  }
+}
+
 function openCatalogApp() {
   const app = selectedCatalog.value;
   if (app?.installedVersion && app.enabled) emit('open', `plugin:${app.appId}`);
@@ -227,6 +286,18 @@ function switchView(next: View) {
 
 function actionLabel(action: string) {
   return { install: '安装', enable: '启用', disable: '停用', uninstall: '卸载' }[action] ?? action;
+}
+
+function operationStageLabel(stage: string) {
+  return {
+    download: '下载制品',
+    verify: '验证签名与完整性',
+    staging: '准备隔离环境',
+    'health-check': 'Host API 健康检查',
+    activate: '激活应用',
+    complete: '安装完成',
+    error: '安装失败'
+  }[stage] ?? stage;
 }
 
 function formatBytes(bytes: number) {
@@ -418,6 +489,26 @@ function formatBytes(bytes: number) {
             </div>
           </section>
 
+          <section v-if="selectedOperation" class="operation-state">
+            <div>
+              <strong>{{ operationStageLabel(selectedOperation.stage) }}</strong>
+              <span class="mono">{{ selectedOperation.operationId }}</span>
+            </div>
+            <n-progress
+              v-if="selectedOperation.stage === 'download'"
+              type="line"
+              :percentage="installProgress"
+              :show-indicator="false"
+            />
+            <span v-if="selectedOperation.stage === 'download'">
+              {{ formatBytes(selectedOperation.downloadedBytes) }} / {{ formatBytes(selectedOperation.totalBytes) }}
+            </span>
+            <n-alert v-if="selectedOperation.errorCode" type="error" :bordered="false">
+              <strong>{{ selectedOperation.errorCode }}</strong> · {{ selectedOperation.message }}
+              <span class="correlation">{{ selectedOperation.correlationId }}</span>
+            </n-alert>
+          </section>
+
           <div class="actions">
             <n-button
               v-if="selectedCatalog.installedVersion"
@@ -427,12 +518,13 @@ function formatBytes(bytes: number) {
             >
               {{ selectedCatalog.enabled ? '打开' : '已停用' }}
             </n-button>
-            <n-tooltip v-else>
-              <template #trigger>
-                <span><n-button type="primary" disabled>安装</n-button></span>
-              </template>
-              远程安装尚未启用
-            </n-tooltip>
+            <n-button
+              v-else
+              type="primary"
+              :disabled="!selectedCatalog.remoteActionsAllowed"
+              :loading="remoteInstalling || store.busyAppIds.value.has(selectedCatalog.appId)"
+              @click="requestCatalogInstall"
+            >安装</n-button>
           </div>
         </article>
       </div>
@@ -526,7 +618,11 @@ function formatBytes(bytes: number) {
       </div>
       <div v-if="store.history.value.length" class="history-rows">
         <div v-for="record in store.history.value" :key="record.id" class="history-row">
-          <div><strong class="mono">{{ record.appId }}</strong><span>{{ actionLabel(record.action) }}</span></div>
+          <div>
+            <strong class="mono">{{ record.appId }}</strong>
+            <span>{{ actionLabel(record.action) }}<template v-if="record.errorCode"> · {{ record.errorCode }}</template></span>
+            <span v-if="record.correlationId" class="mono">{{ record.correlationId }}</span>
+          </div>
           <span class="mono">{{ record.version }}</span>
           <span class="steps">{{ record.steps.join(' · ') }}</span>
           <div>
@@ -539,6 +635,73 @@ function formatBytes(bytes: number) {
       </div>
       <n-empty v-else description="暂无操作记录" />
     </div>
+
+    <PluginInstallProbe
+      v-if="operation?.stage === 'health-check' && operation.entry"
+      :operation="operation"
+      @ready="completeCatalogInstall"
+      @failed="failCatalogInstall"
+    />
+
+    <n-modal
+      v-model:show="catalogInstallOpen"
+      preset="card"
+      title="安装官方应用"
+      class="install-modal"
+      :mask-closable="!remoteInstalling"
+      :closable="!remoteInstalling"
+    >
+      <template v-if="selectedCatalog">
+        <div class="package-heading">
+          <strong>{{ selectedCatalog.name }}</strong>
+          <span class="mono">{{ selectedCatalog.latestVersion }}</span>
+        </div>
+        <dl class="preview-grid">
+          <div><dt>发布者</dt><dd>{{ selectedCatalog.publisherName }}</dd></div>
+          <div><dt>签名 Key</dt><dd class="mono">{{ selectedCatalog.publisherKeyId }}</dd></div>
+          <div><dt>目标平台</dt><dd class="mono">{{ selectedCatalog.target?.os }} / {{ selectedCatalog.target?.arch }}</dd></div>
+          <div><dt>制品大小</dt><dd>{{ formatBytes(selectedCatalog.target?.size ?? 0) }}</dd></div>
+        </dl>
+        <section class="permission-confirm">
+          <h4>请求权限</h4>
+          <div class="permission-list">
+            <span v-for="permission in selectedCatalog.permissions" :key="permission" class="permission mono">
+              {{ permission }}
+            </span>
+          </div>
+          <n-checkbox v-model:checked="catalogPermissionsAccepted" :disabled="remoteInstalling">
+            我已查看并同意授予以上权限
+          </n-checkbox>
+        </section>
+        <section v-if="selectedOperation" class="operation-state modal-operation">
+          <div>
+            <strong>{{ operationStageLabel(selectedOperation.stage) }}</strong>
+            <span class="mono">关联 ID {{ selectedOperation.correlationId }}</span>
+          </div>
+          <n-progress
+            v-if="selectedOperation.stage === 'download'"
+            type="line"
+            :percentage="installProgress"
+          />
+          <n-alert v-if="selectedOperation.errorCode" type="error" :bordered="false">
+            <strong>{{ selectedOperation.errorCode }}</strong> · {{ selectedOperation.message }}
+          </n-alert>
+        </section>
+      </template>
+      <template #footer>
+        <div class="modal-actions">
+          <n-button :disabled="remoteInstalling" @click="catalogInstallOpen = false">取消</n-button>
+          <n-button
+            type="primary"
+            :disabled="!catalogPermissionsAccepted || remoteInstalling"
+            :loading="remoteInstalling"
+            @click="confirmCatalogInstall"
+          >
+            {{ selectedOperation?.stage === 'error' ? '重新安装' : '下载并安装' }}
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <n-modal v-model:show="previewOpen" preset="card" title="确认安装应用" class="install-modal" :mask-closable="!installing">
       <template v-if="preview">
@@ -639,6 +802,10 @@ function formatBytes(bytes: number) {
 .hash { word-break: break-all; }
 .permission-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .permission { padding: 4px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elev-2); font-size: var(--fs-xxs); }
+.operation-state { display: grid; gap: 8px; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-elev-2); color: var(--text-muted); font-size: var(--fs-xxs); }
+.operation-state > div { display: flex; justify-content: space-between; gap: 12px; }
+.operation-state strong { color: var(--text); }
+.modal-operation { margin-top: 16px; }
 .actions { margin-top: 20px; }
 .state-box { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text-muted); }
 .state-actions { justify-content: center; margin-top: 10px; }

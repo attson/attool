@@ -135,7 +135,6 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
   async function dispatch(request: RpcRequest): Promise<unknown> {
     if (request.method === 'host.handshake') {
       handshaken = true;
-      options.onHandshake?.();
       return {
         apiVersion: API_VERSION,
         sessionId,
@@ -237,6 +236,7 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
       .then((result) => {
         if (cancelled.delete(message.id) || terminated) return;
         success(message.id, result);
+        if (message.method === 'host.handshake') options.onHandshake?.();
       })
       .catch((reason) => {
         if (cancelled.delete(message.id) || terminated) return;

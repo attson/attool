@@ -8,7 +8,8 @@ import type {
   InspectedPluginPackage,
   PluginApi,
   PluginCommandError,
-  PluginHistoryRecord
+  PluginHistoryRecord,
+  PluginOperationSnapshot
 } from '../components/plugins/types';
 import type { Tool } from '../types/tool';
 
@@ -41,6 +42,8 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
   const busyAppIds = ref<Set<string>>(new Set());
   const error = ref<PluginCommandError | null>(null);
   const catalogError = ref<PluginCommandError | null>(null);
+  const operation = ref<PluginOperationSnapshot | null>(null);
+  let operationUnlisten: (() => void) | null = null;
 
   const navigationTools = computed<Tool[]>(() =>
     apps.value
@@ -72,6 +75,15 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     loading.value = true;
     error.value = null;
     try {
+      if (!operationUnlisten) {
+        try {
+          operationUnlisten = await api.listenOperations((next) => {
+            operation.value = next;
+          });
+        } catch (reason) {
+          error.value = commandError(reason);
+        }
+      }
       apps.value = await api.listInstalled();
       await refreshHistory();
       catalogLoading.value = true;
@@ -130,6 +142,49 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     }
   }
 
+  async function installCatalog(appId: string, acceptedPermissions: string[]) {
+    busyAppIds.value = new Set(busyAppIds.value).add(appId);
+    error.value = null;
+    try {
+      operation.value = await api.installCatalogApp(appId, acceptedPermissions);
+      return operation.value;
+    } catch (reason) {
+      error.value = commandError(reason);
+      throw reason;
+    } finally {
+      const next = new Set(busyAppIds.value);
+      next.delete(appId);
+      busyAppIds.value = next;
+    }
+  }
+
+  async function completeCatalogInstall(operationId: string) {
+    error.value = null;
+    try {
+      const result = await api.completeCatalogInstall(operationId);
+      operation.value = result.operation;
+      apps.value = [
+        ...apps.value.filter((app) => app.appId !== result.installed.appId),
+        result.installed
+      ];
+      await refreshHistory();
+      return result.installed;
+    } catch (reason) {
+      error.value = commandError(reason);
+      throw reason;
+    }
+  }
+
+  async function failCatalogInstall(operationId: string) {
+    try {
+      operation.value = await api.failCatalogInstall(operationId);
+      return operation.value;
+    } catch (reason) {
+      error.value = commandError(reason);
+      throw reason;
+    }
+  }
+
   async function setEnabled(appId: string, enabled: boolean) {
     busyAppIds.value = new Set(busyAppIds.value).add(appId);
     error.value = null;
@@ -177,11 +232,15 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     busyAppIds,
     error,
     catalogError,
+    operation,
     navigationTools,
     catalogApps,
     load,
     inspect,
     install,
+    installCatalog,
+    completeCatalogInstall,
+    failCatalogInstall,
     refreshCatalog,
     setEnabled,
     uninstall

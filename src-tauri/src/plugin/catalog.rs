@@ -193,6 +193,21 @@ pub struct CatalogAppSnapshot {
     pub target: Option<CatalogArtifact>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CatalogInstallPlan {
+    pub app_id: String,
+    pub name: String,
+    pub publisher_id: String,
+    pub publisher_name: String,
+    pub version: String,
+    pub publisher_key_id: String,
+    pub publisher_key: VerifyingKey,
+    pub host_api_min: String,
+    pub host_api_max: String,
+    pub permissions: Vec<String>,
+    pub artifact: CatalogArtifact,
+}
+
 pub fn snapshot_for_target(
     verified: &VerifiedCatalog,
     os: CatalogTargetOs,
@@ -563,6 +578,134 @@ impl CatalogRuntime {
         let (os, arch) = current_target()?;
         Ok(Some(snapshot_for_target(&verified, os, arch)))
     }
+
+    pub async fn install_plan(&self, app_id: &str) -> Result<CatalogInstallPlan, CatalogError> {
+        let verifier = self.verifier.clone().ok_or_else(|| {
+            CatalogError::new(
+                "CATALOG_DISABLED",
+                "Remote Catalog is disabled because no Root public key is configured",
+            )
+        })?;
+        let cache = Arc::clone(&self.cache);
+        let verified = tokio::task::spawn_blocking(move || cache.load(&verifier, Utc::now()))
+            .await
+            .map_err(|error| {
+                CatalogError::new(
+                    "CATALOG_WORKER_FAILED",
+                    format!("Catalog cache worker failed: {error}"),
+                )
+            })??
+            .ok_or_else(|| {
+                CatalogError::new("CATALOG_NOT_FOUND", "No verified Catalog is cached")
+            })?;
+        if verified.expired {
+            return Err(CatalogError::new(
+                "CATALOG_EXPIRED",
+                "The cached Catalog is expired",
+            ));
+        }
+        let (os, arch) = current_target()?;
+        install_plan_from_verified(&verified, app_id, os, arch)
+    }
+}
+
+fn install_plan_from_verified(
+    verified: &VerifiedCatalog,
+    app_id: &str,
+    os: CatalogTargetOs,
+    arch: CatalogTargetArch,
+) -> Result<CatalogInstallPlan, CatalogError> {
+    if app_id != "com.attson.codec" {
+        return Err(CatalogError::new(
+            "CATALOG_APP_NOT_FOUND",
+            "The requested official application was not found",
+        ));
+    }
+    let app = verified
+        .catalog
+        .apps
+        .iter()
+        .find(|app| app.app_id == app_id)
+        .ok_or_else(|| {
+            CatalogError::new(
+                "CATALOG_APP_NOT_FOUND",
+                "The requested official application was not found",
+            )
+        })?;
+    let release = &app.channels.stable;
+    let artifact = release
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.os == os && artifact.arch == arch)
+        .cloned()
+        .ok_or_else(|| {
+            CatalogError::new(
+                "CATALOG_TARGET_NOT_FOUND",
+                "The Catalog has no artifact for this system",
+            )
+        })?;
+    validate_official_artifact_url(&release.version, &artifact)?;
+    let publisher = verified
+        .root
+        .publishers
+        .iter()
+        .find(|publisher| publisher.publisher_id == app.publisher_id)
+        .ok_or_else(|| {
+            CatalogError::new(
+                "CATALOG_PUBLISHER_UNKNOWN",
+                "The application publisher is not trusted",
+            )
+        })?;
+    let key = publisher
+        .keys
+        .iter()
+        .find(|key| key.key_id == release.publisher_key_id)
+        .ok_or_else(|| {
+            CatalogError::new(
+                "CATALOG_PUBLISHER_KEY_UNKNOWN",
+                "The application Publisher Key is not trusted",
+            )
+        })?;
+    Ok(CatalogInstallPlan {
+        app_id: app.app_id.clone(),
+        name: app.name.clone(),
+        publisher_id: app.publisher_id.clone(),
+        publisher_name: publisher.name.clone(),
+        version: release.version.clone(),
+        publisher_key_id: release.publisher_key_id.clone(),
+        publisher_key: decode_public_key(&key.public_key, "TRUST_ROOT_KEY_INVALID")?,
+        host_api_min: release.host_api.min.clone(),
+        host_api_max: release.host_api.max.clone(),
+        permissions: release.permissions.clone(),
+        artifact,
+    })
+}
+
+fn validate_official_artifact_url(
+    version: &str,
+    artifact: &CatalogArtifact,
+) -> Result<(), CatalogError> {
+    let url = Url::parse(&artifact.url)
+        .map_err(|_| CatalogError::new("CATALOG_ARTIFACT_INVALID", "Artifact URL is invalid"))?;
+    let expected_path = format!(
+        "/attsontools/atcodec/releases/download/v{version}/{}",
+        artifact.file_name
+    );
+    if url.scheme() != "https"
+        || url.host_str() != Some("github.com")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != expected_path
+    {
+        return Err(CatalogError::new(
+            "CATALOG_ARTIFACT_URL_UNTRUSTED",
+            "Catalog artifact is not an immutable official Codec release asset",
+        ));
+    }
+    Ok(())
 }
 
 async fn fetch_text(
@@ -1062,8 +1205,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        canonicalize, snapshot_for_target, CatalogBundle, CatalogCache, CatalogTargetArch,
-        CatalogTargetOs, CatalogVerifier,
+        canonicalize, install_plan_from_verified, snapshot_for_target, CatalogBundle, CatalogCache,
+        CatalogTargetArch, CatalogTargetOs, CatalogVerifier,
     };
 
     const ROOT_PUBLIC_KEY: &str = "pZQzAC2N9PEN86+KXe878Z5IKqzt3GPl91tmhDUR2B0=";
@@ -1313,6 +1456,57 @@ mod tests {
             codec.target.as_ref().unwrap().sha256,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
+    }
+
+    #[test]
+    fn install_plan_accepts_only_the_immutable_official_release_asset() {
+        let verifier = CatalogVerifier::from_base64(ROOT_PUBLIC_KEY).unwrap();
+        let verified = verifier
+            .verify(
+                ROOT_JSON,
+                ROOT_SIGNATURE,
+                CATALOG_JSON,
+                CATALOG_SIGNATURE,
+                Utc.with_ymd_and_hms(2026, 11, 11, 0, 0, 0).unwrap(),
+                0,
+                0,
+                true,
+            )
+            .unwrap();
+
+        let plan = install_plan_from_verified(
+            &verified,
+            "com.attson.codec",
+            CatalogTargetOs::Linux,
+            CatalogTargetArch::X86_64,
+        )
+        .unwrap();
+        assert_eq!(plan.version, "1.1.0");
+        assert_eq!(plan.publisher_key_id, "attson-codec-2026-01");
+
+        let mut redirected = verified.clone();
+        redirected.catalog.apps[0].channels.stable.artifacts[0].url =
+            "https://example.com/latest/codec.atpkg".to_string();
+        let error = install_plan_from_verified(
+            &redirected,
+            "com.attson.codec",
+            CatalogTargetOs::Linux,
+            CatalogTargetArch::X86_64,
+        )
+        .expect_err("non-release URL must fail");
+        assert_eq!(error.code, "CATALOG_ARTIFACT_URL_UNTRUSTED");
+
+        let mut alternate_endpoint = verified.clone();
+        alternate_endpoint.catalog.apps[0].channels.stable.artifacts[0].url =
+            "https://user@github.com:444/attsontools/atcodec/releases/download/v1.1.0/AT.Codec_1.1.0_linux_x86_64.atpkg".to_string();
+        let error = install_plan_from_verified(
+            &alternate_endpoint,
+            "com.attson.codec",
+            CatalogTargetOs::Linux,
+            CatalogTargetArch::X86_64,
+        )
+        .expect_err("alternate endpoint components must fail");
+        assert_eq!(error.code, "CATALOG_ARTIFACT_URL_UNTRUSTED");
     }
 
     #[test]

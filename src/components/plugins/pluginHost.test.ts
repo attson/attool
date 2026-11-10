@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createPluginHostSession, type HostMessagePort, type HostRpcMessage } from './pluginHost';
 import type { InstalledPlugin } from './types';
 
 class FakePort implements HostMessagePort {
   onmessage: ((event: MessageEvent<HostRpcMessage>) => void) | null = null;
+  onPost: (() => void) | null = null;
   sent: HostRpcMessage[] = [];
   start() {}
   close() {}
   postMessage(message: HostRpcMessage) {
     this.sent.push(message);
+    this.onPost?.();
   }
   receive(message: HostRpcMessage) {
     this.onmessage?.({ data: message } as MessageEvent<HostRpcMessage>);
@@ -85,6 +87,25 @@ describe('plugin host session', () => {
       error: { data: { code: 'HOST_PERMISSION_DENIED' } }
     });
     session.terminate();
+  });
+
+  it('reports a completed handshake only after posting the successful response', async () => {
+    const port = new FakePort();
+    const sequence: string[] = [];
+    port.onPost = () => sequence.push('response');
+    createPluginHostSession({
+      app: codec,
+      port,
+      theme: () => 'dark',
+      notify: vi.fn(),
+      saveFile: vi.fn(),
+      onHandshake: () => sequence.push('callback')
+    });
+
+    port.receive(request('1', 'host.handshake'));
+    await vi.waitFor(() => expect(sequence).toHaveLength(2));
+
+    expect(sequence).toEqual(['response', 'callback']);
   });
 
   it('pushes theme changes after the handshake', async () => {

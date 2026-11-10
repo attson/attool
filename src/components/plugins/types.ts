@@ -86,7 +86,41 @@ export interface PluginHistoryRecord {
   occurredAt: string;
   result: 'success' | 'failed';
   errorCode: string | null;
+  operationId: string | null;
+  correlationId: string | null;
   steps: string[];
+}
+
+export type PluginOperationStage =
+  | 'download'
+  | 'verify'
+  | 'staging'
+  | 'health-check'
+  | 'activate'
+  | 'complete'
+  | 'error';
+
+export interface PluginOperationSnapshot {
+  operationId: string;
+  correlationId: string;
+  appId: string;
+  name: string;
+  version: string;
+  publisherId: string;
+  publisherName: string;
+  publisherKeyId: string;
+  entry: string | null;
+  permissions: string[];
+  stage: PluginOperationStage;
+  downloadedBytes: number;
+  totalBytes: number;
+  errorCode: string | null;
+  message: string | null;
+}
+
+export interface CatalogInstallResult {
+  operation: PluginOperationSnapshot;
+  installed: InstalledPlugin;
 }
 
 export interface PluginApi {
@@ -96,6 +130,11 @@ export interface PluginApi {
   listHistory(): Promise<PluginHistoryRecord[]>;
   listCatalog(): Promise<CatalogSnapshot | null>;
   refreshCatalog(): Promise<CatalogSnapshot>;
+  installCatalogApp(appId: string, acceptedPermissions: string[]): Promise<PluginOperationSnapshot>;
+  completeCatalogInstall(operationId: string): Promise<CatalogInstallResult>;
+  failCatalogInstall(operationId: string): Promise<PluginOperationSnapshot>;
+  getOperation(operationId: string): Promise<PluginOperationSnapshot>;
+  listenOperations(listener: (operation: PluginOperationSnapshot) => void): Promise<() => void>;
   setEnabled(appId: string, enabled: boolean): Promise<void>;
   uninstall(appId: string, deleteData: boolean): Promise<void>;
 }

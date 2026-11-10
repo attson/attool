@@ -61,6 +61,11 @@ function fakeApi(): PluginApi {
     listHistory: vi.fn().mockResolvedValue([]),
     listCatalog: vi.fn().mockResolvedValue({ ...catalog }),
     refreshCatalog: vi.fn().mockResolvedValue({ ...catalog }),
+    installCatalogApp: vi.fn(),
+    completeCatalogInstall: vi.fn(),
+    failCatalogInstall: vi.fn(),
+    getOperation: vi.fn(),
+    listenOperations: vi.fn().mockResolvedValue(() => {}),
     setEnabled: vi.fn().mockResolvedValue(undefined),
     uninstall: vi.fn().mockResolvedValue(undefined)
   };
@@ -127,6 +132,21 @@ describe('usePluginStore', () => {
     });
   });
 
+  it('loads installed apps when operation event subscription is unavailable', async () => {
+    const api = fakeApi();
+    vi.mocked(api.listenOperations).mockRejectedValue(new Error('event bridge unavailable'));
+    const store = usePluginStore(api);
+
+    await store.load();
+
+    expect(store.apps.value).toEqual([codec]);
+    expect(store.catalog.value?.catalogSequence).toBe(18);
+    expect(store.error.value).toMatchObject({
+      code: 'PLUGIN_UNKNOWN_ERROR',
+      message: 'Error: event bridge unavailable'
+    });
+  });
+
   it('preserves the cached catalog when refresh fails', async () => {
     const api = fakeApi();
     const store = usePluginStore(api);
@@ -145,5 +165,43 @@ describe('usePluginStore', () => {
       code: 'CATALOG_SIGNATURE_INVALID',
       correlationId: 'catalog-correlation'
     });
+  });
+
+  it('keeps a remote install out of navigation until health check activation completes', async () => {
+    const api = fakeApi();
+    const pending = {
+      operationId: 'operation-1',
+      correlationId: 'correlation-1',
+      appId: codec.appId,
+      name: codec.name,
+      version: codec.version,
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null
+    };
+    vi.mocked(api.listInstalled).mockResolvedValue([]);
+    vi.mocked(api.installCatalogApp).mockResolvedValue(pending);
+    vi.mocked(api.completeCatalogInstall).mockResolvedValue({
+      operation: { ...pending, stage: 'complete' },
+      installed: codec
+    });
+    const store = usePluginStore(api);
+    await store.load();
+
+    await store.installCatalog(codec.appId, codec.permissions);
+    expect(store.navigationTools.value).toEqual([]);
+    expect(store.operation.value?.stage).toBe('health-check');
+
+    await store.completeCatalogInstall('operation-1');
+    expect(store.navigationTools.value.map((tool) => tool.id)).toEqual([
+      'plugin:com.attson.codec'
+    ]);
   });
 });
