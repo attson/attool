@@ -44,4 +44,34 @@ describe('usePluginStore', () => {
     expect(store.apps.value[0].enabled).toBe(false);
     expect(store.navigationTools.value).toEqual([]);
   });
+
+  it('does not report a completed install as failed when history refresh fails', async () => {
+    const api = fakeApi();
+    vi.mocked(api.installPackage).mockResolvedValue({ ...codec });
+    vi.mocked(api.listHistory).mockRejectedValue(new Error('history unavailable'));
+    const store = usePluginStore(api);
+
+    await expect(store.install('/tmp/codec.atpkg')).resolves.toEqual(codec);
+    expect(store.apps.value).toEqual([codec]);
+  });
+
+  it('does not report a completed state change as failed when history refresh fails', async () => {
+    const api = fakeApi();
+    const store = usePluginStore(api);
+    await store.load();
+    vi.mocked(api.listHistory).mockRejectedValue(new Error('history unavailable'));
+
+    await expect(store.setEnabled(codec.appId, false)).resolves.toBeUndefined();
+    expect(store.apps.value[0].enabled).toBe(false);
+  });
+
+  it('does not report a completed uninstall as failed when history refresh fails', async () => {
+    const api = fakeApi();
+    const store = usePluginStore(api);
+    await store.load();
+    vi.mocked(api.listHistory).mockRejectedValue(new Error('history unavailable'));
+
+    await expect(store.uninstall(codec.appId, false)).resolves.toBeUndefined();
+    expect(store.apps.value).toEqual([]);
+  });
 });

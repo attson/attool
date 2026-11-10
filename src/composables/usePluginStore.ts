@@ -51,14 +51,20 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
       }))
   );
 
+  async function refreshHistory() {
+    try {
+      history.value = await api.listHistory();
+    } catch (reason) {
+      error.value = commandError(reason);
+    }
+  }
+
   async function load() {
     loading.value = true;
     error.value = null;
     try {
-      [apps.value, history.value] = await Promise.all([
-        api.listInstalled(),
-        api.listHistory()
-      ]);
+      apps.value = await api.listInstalled();
+      await refreshHistory();
     } catch (reason) {
       error.value = commandError(reason);
     } finally {
@@ -82,8 +88,8 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     try {
       const installed = await api.installPackage(path);
       apps.value = [...apps.value.filter((app) => app.appId !== installed.appId), installed];
-      history.value = await api.listHistory();
       preview.value = null;
+      await refreshHistory();
       return installed;
     } catch (reason) {
       error.value = commandError(reason);
@@ -99,7 +105,7 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
       apps.value = apps.value.map((app) =>
         app.appId === appId ? { ...app, enabled } : app
       );
-      history.value = await api.listHistory();
+      await refreshHistory();
     } catch (reason) {
       error.value = commandError(reason);
       throw reason;
@@ -116,7 +122,7 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
     try {
       await api.uninstall(appId, deleteData);
       apps.value = apps.value.filter((app) => app.appId !== appId);
-      history.value = await api.listHistory();
+      await refreshHistory();
     } catch (reason) {
       error.value = commandError(reason);
       throw reason;
