@@ -1289,6 +1289,16 @@ pub fn run() {
                 .join("updater");
             app.manage(updater::state::UpdaterState::new(updater_stage_dir));
             app.manage(recording::RecordingStore::default());
+            let plugin_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                .join("plugins");
+            let plugin_store = plugin::install::PluginStore::open(plugin_dir)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let plugin_runtime = plugin::commands::PluginRuntime::p0(plugin_store)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(plugin_runtime);
 
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
@@ -1405,6 +1415,11 @@ pub fn run() {
             updater::commands::updater_download,
             updater::commands::updater_apply,
             updater::commands::updater_cancel,
+            plugin::commands::plugin_inspect_package,
+            plugin::commands::plugin_install_package,
+            plugin::commands::plugin_list_installed,
+            plugin::commands::plugin_set_enabled,
+            plugin::commands::plugin_uninstall,
             ecommerce::commands::import_psd_template,
             ecommerce::commands::list_ecommerce_templates,
             ecommerce::commands::load_ecommerce_template,
