@@ -50,6 +50,8 @@ export interface HostFileSaveRequest {
 }
 
 export interface PluginHostSession {
+  readonly sessionId: string;
+  readonly correlationId: string;
   notifyTheme(theme: 'dark' | 'light'): void;
   terminate(): void;
 }
@@ -57,6 +59,8 @@ export interface PluginHostSession {
 type SessionOptions = {
   app: InstalledPlugin;
   port: HostMessagePort;
+  sessionId?: string;
+  correlationId?: string;
   theme(): 'dark' | 'light';
   notify(input: { title?: string; message: string; kind: 'info' | 'success' | 'warning' | 'error' }): Promise<void>;
   saveFile(input: HostFileSaveRequest): Promise<{ cancelled: boolean; path?: string }>;
@@ -76,6 +80,8 @@ class RpcDispatchError extends Error {
 
 export function createPluginHostSession(options: SessionOptions): PluginHostSession {
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
+  const sessionId = options.sessionId ?? crypto.randomUUID();
+  const correlationId = options.correlationId ?? crypto.randomUUID();
   const cancelled = new Set<string>();
   let handshaken = false;
   let terminated = false;
@@ -132,6 +138,8 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
       options.onHandshake?.();
       return {
         apiVersion: API_VERSION,
+        sessionId,
+        correlationId,
         capabilities: [...options.app.permissions],
         metadata: {
           appId: options.app.appId,
@@ -243,6 +251,8 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
   options.port.start();
 
   return {
+    sessionId,
+    correlationId,
     notifyTheme(theme) {
       if (!handshaken || terminated || !options.app.permissions.includes('host.theme.read')) return;
       post({

@@ -34,6 +34,7 @@ import { useTheme } from './composables/useTheme';
 import { useAria2Handoff } from './composables/useAria2Handoff';
 import { useHttpStore } from './composables/useHttpStore';
 import { usePluginStore } from './composables/usePluginStore';
+import { composeToolNavigation } from './components/plugins/pluginNavigation';
 import UpdateBanner from './components/shell/UpdateBanner.vue';
 import SettingsModal from './components/shell/SettingsModal.vue';
 import { useUpdater } from './composables/useUpdater';
@@ -109,7 +110,10 @@ const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
 const httpStore = useHttpStore();
 const pluginStore = usePluginStore();
-const tools = computed<Tool[]>(() => [...builtinTools, ...pluginStore.navigationTools.value]);
+const usePluginCodec = import.meta.env.VITE_PLUGIN_CODEC === '1';
+const tools = computed<Tool[]>(() =>
+  composeToolNavigation(builtinTools, pluginStore.navigationTools.value, usePluginCodec)
+);
 const {
   open: paletteOpen,
   query: paletteQuery,

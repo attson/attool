@@ -50,6 +50,8 @@ describe('plugin host session', () => {
     const session = createPluginHostSession({
       app: codec,
       port,
+      sessionId: 'session-1',
+      correlationId: 'correlation-1',
       theme: () => 'dark',
       notify: async () => {},
       saveFile: async () => ({ cancelled: false })
@@ -68,6 +70,8 @@ describe('plugin host session', () => {
       id: '2',
       result: {
         apiVersion: '1.0',
+        sessionId: 'session-1',
+        correlationId: 'correlation-1',
         capabilities: ['host.theme.read'],
         metadata: { appId: codec.appId, name: codec.name, version: codec.version },
         theme: 'dark'
