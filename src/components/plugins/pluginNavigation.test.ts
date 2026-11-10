@@ -23,8 +23,13 @@ const pluginCodec: Tool = {
 };
 
 describe('plugin migration navigation', () => {
-  it('shows exactly one Codec entry in either migration mode', () => {
+  it('shows exactly one Codec entry in explicit migration modes', () => {
     expect(composeToolNavigation([builtinCodec], [pluginCodec], false)).toEqual([builtinCodec]);
     expect(composeToolNavigation([builtinCodec], [pluginCodec], true)).toEqual([pluginCodec]);
+  });
+
+  it('automatically switches to an installed Codec plugin by default', () => {
+    expect(composeToolNavigation([builtinCodec], [], null)).toEqual([builtinCodec]);
+    expect(composeToolNavigation([builtinCodec], [pluginCodec], null)).toEqual([pluginCodec]);
   });
 });

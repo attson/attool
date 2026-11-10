@@ -110,9 +110,14 @@ const { lastToolId, remember: rememberLastTool } = useLastTool();
 const { theme, toggle: toggleTheme } = useTheme();
 const httpStore = useHttpStore();
 const pluginStore = usePluginStore();
-const usePluginCodec = import.meta.env.VITE_PLUGIN_CODEC === '1';
+const pluginCodecPreference =
+  import.meta.env.VITE_PLUGIN_CODEC === '1'
+    ? true
+    : import.meta.env.VITE_PLUGIN_CODEC === '0'
+      ? false
+      : null;
 const tools = computed<Tool[]>(() =>
-  composeToolNavigation(builtinTools, pluginStore.navigationTools.value, usePluginCodec)
+  composeToolNavigation(builtinTools, pluginStore.navigationTools.value, pluginCodecPreference)
 );
 const {
   open: paletteOpen,

@@ -294,6 +294,12 @@ fn validate_manifest(
             "Package appId is invalid",
         ));
     }
+    Version::parse(&manifest.version).map_err(|_| {
+        PackageError::new(
+            "PLUGIN_VERSION_INVALID",
+            "Package version must be a valid semantic version",
+        )
+    })?;
     if manifest.permissions.iter().any(|permission| {
         !matches!(
             permission.as_str(),
@@ -494,6 +500,7 @@ mod tests {
         archived_index: &[u8],
         hashed_index: &[u8],
         app_id: &str,
+        version: &str,
         permissions_json: &str,
     ) -> (tempfile::TempDir, std::path::PathBuf, SigningKey) {
         let directory = tempfile::tempdir().unwrap();
@@ -511,14 +518,15 @@ mod tests {
                 "\"schemaVersion\":1,",
                 "\"target\":{{\"arch\":\"{}\",\"os\":\"{}\"}},",
                 "\"ui\":{{\"entry\":\"ui/index.html\"}},",
-                "\"version\":\"0.1.0-alpha.0\"}}"
+                "\"version\":\"{}\"}}"
             ),
             app_id,
             sha256(license),
             sha256(hashed_index),
             permissions_json,
             std::env::consts::ARCH,
-            std::env::consts::OS
+            std::env::consts::OS,
+            version
         );
         let signature = signing_key.sign(manifest.as_bytes());
         let signature = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
@@ -542,7 +550,13 @@ mod tests {
 
     fn valid_package() -> (tempfile::TempDir, std::path::PathBuf, SigningKey) {
         let index = b"<!doctype html><title>Codec</title>";
-        package_with_index(index, index, "com.attson.codec", "[\"host.theme.read\"]")
+        package_with_index(
+            index,
+            index,
+            "com.attson.codec",
+            "0.1.0-alpha.0",
+            "[\"host.theme.read\"]",
+        )
     }
 
     #[test]
@@ -579,6 +593,7 @@ mod tests {
             tampered,
             original,
             "com.attson.codec",
+            "0.1.0-alpha.0",
             "[\"host.theme.read\"]",
         );
         let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
@@ -615,8 +630,13 @@ mod tests {
     #[test]
     fn rejects_a_signed_manifest_with_an_invalid_app_id() {
         let index = b"<!doctype html><title>Codec</title>";
-        let (_directory, path, signing_key) =
-            package_with_index(index, index, "../codec", "[\"host.theme.read\"]");
+        let (_directory, path, signing_key) = package_with_index(
+            index,
+            index,
+            "../codec",
+            "0.1.0-alpha.0",
+            "[\"host.theme.read\"]",
+        );
         let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
 
         let error = inspect_package(&path, &HostEnvironment::current("1.0.0"), &keys)
@@ -628,8 +648,13 @@ mod tests {
     #[test]
     fn rejects_a_signed_manifest_with_an_unknown_permission() {
         let index = b"<!doctype html><title>Codec</title>";
-        let (_directory, path, signing_key) =
-            package_with_index(index, index, "com.attson.codec", "[\"host.process.spawn\"]");
+        let (_directory, path, signing_key) = package_with_index(
+            index,
+            index,
+            "com.attson.codec",
+            "0.1.0-alpha.0",
+            "[\"host.process.spawn\"]",
+        );
         let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
 
         let error = inspect_package(&path, &HostEnvironment::current("1.0.0"), &keys)
@@ -658,5 +683,23 @@ mod tests {
             .expect_err("undeclared file must fail");
 
         assert_eq!(error.code, "PLUGIN_FILE_UNDECLARED");
+    }
+
+    #[test]
+    fn rejects_a_signed_manifest_with_an_invalid_version() {
+        let index = b"<!doctype html><title>Codec</title>";
+        let (_directory, path, signing_key) = package_with_index(
+            index,
+            index,
+            "com.attson.codec",
+            "../../../outside",
+            "[\"host.theme.read\"]",
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+        let error = inspect_package(&path, &HostEnvironment::current("1.0.0"), &keys)
+            .expect_err("invalid version must fail");
+
+        assert_eq!(error.code, "PLUGIN_VERSION_INVALID");
     }
 }
