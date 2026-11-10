@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
 };
@@ -8,6 +8,7 @@ use chrono::Utc;
 use ed25519_dalek::VerifyingKey;
 use rusqlite::{params, Connection};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::package::{extract_package, HostEnvironment, PackageError};
@@ -32,7 +33,15 @@ pub struct InstalledPlugin {
     pub enabled: bool,
     pub installed_at: String,
     #[serde(skip_serializing)]
+    pub files: BTreeMap<String, String>,
+    #[serde(skip_serializing)]
     pub root: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginAsset {
+    pub bytes: Vec<u8>,
+    pub content_type: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,6 +170,12 @@ impl PluginStore {
                 format!("Cannot serialize plugin permissions: {error}"),
             )
         })?;
+        let files_json = serde_json::to_string(&package.files).map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot serialize plugin files: {error}"),
+            )
+        })?;
         let write_result = self.connection().and_then(|mut connection| {
             let transaction = connection.transaction().map_err(|error| {
                 InstallError::new(
@@ -172,8 +187,8 @@ impl PluginStore {
                 .execute(
                     "INSERT INTO installed_plugins (
                         app_id, name, version, publisher_id, publisher_name, publisher_key_id,
-                        entry, permissions_json, enabled, installed_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)",
+                        entry, permissions_json, files_json, enabled, installed_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10)",
                     params![
                         package.app_id,
                         package.name,
@@ -183,6 +198,7 @@ impl PluginStore {
                         package.publisher_key_id,
                         package.entry,
                         permissions_json,
+                        files_json,
                         installed_at,
                     ],
                 )
@@ -236,7 +252,7 @@ impl PluginStore {
         let mut statement = connection
             .prepare(
                 "SELECT app_id, name, version, publisher_id, publisher_name, publisher_key_id,
-                        entry, permissions_json, enabled, installed_at
+                        entry, permissions_json, files_json, enabled, installed_at
                  FROM installed_plugins ORDER BY name, app_id",
             )
             .map_err(registry_read_error)?;
@@ -251,8 +267,9 @@ impl PluginStore {
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
-                    row.get::<_, bool>(8)?,
-                    row.get::<_, String>(9)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, bool>(9)?,
+                    row.get::<_, String>(10)?,
                 ))
             })
             .map_err(registry_read_error)?;
@@ -267,6 +284,7 @@ impl PluginStore {
                 publisher_key_id,
                 entry,
                 permissions_json,
+                files_json,
                 enabled,
                 installed_at,
             ) = row.map_err(registry_read_error)?;
@@ -274,6 +292,12 @@ impl PluginStore {
                 InstallError::new(
                     "PLUGIN_REGISTRY_READ_FAILED",
                     format!("Plugin permissions are corrupted: {error}"),
+                )
+            })?;
+            let files = serde_json::from_str(&files_json).map_err(|error| {
+                InstallError::new(
+                    "PLUGIN_REGISTRY_READ_FAILED",
+                    format!("Plugin file declarations are corrupted: {error}"),
                 )
             })?;
             let plugin_root = self.root.join("apps").join(&app_id).join(&version);
@@ -288,6 +312,7 @@ impl PluginStore {
                 permissions,
                 enabled,
                 installed_at,
+                files,
                 root: plugin_root,
             });
         }
@@ -300,6 +325,44 @@ impl PluginStore {
             .into_iter()
             .filter(|plugin| plugin.enabled)
             .collect())
+    }
+
+    pub fn read_asset(&self, app_id: &str, relative: &str) -> Result<PluginAsset, InstallError> {
+        if !is_safe_relative_path(relative) {
+            return Err(InstallError::new(
+                "PLUGIN_ASSET_PATH_INVALID",
+                "Plugin asset path is invalid",
+            ));
+        }
+        let plugin = self.find(app_id)?.ok_or_else(|| {
+            InstallError::new("PLUGIN_NOT_FOUND", "Installed plugin was not found")
+        })?;
+        if !plugin.enabled {
+            return Err(InstallError::new(
+                "PLUGIN_DISABLED",
+                "Plugin is not enabled",
+            ));
+        }
+        let expected_hash = plugin.files.get(relative).ok_or_else(|| {
+            InstallError::new(
+                "PLUGIN_ASSET_NOT_DECLARED",
+                "Plugin asset is not declared in the signed manifest",
+            )
+        })?;
+        let path = plugin.root.join(relative);
+        let bytes = fs::read(path).map_err(|_| {
+            InstallError::new("PLUGIN_ASSET_NOT_FOUND", "Plugin asset was not found")
+        })?;
+        if hex::encode(Sha256::digest(&bytes)) != *expected_hash {
+            return Err(InstallError::new(
+                "PLUGIN_ASSET_HASH_MISMATCH",
+                "Plugin asset hash does not match the signed manifest",
+            ));
+        }
+        Ok(PluginAsset {
+            bytes,
+            content_type: content_type(relative),
+        })
     }
 
     pub fn set_enabled(&self, app_id: &str, enabled: bool) -> Result<(), InstallError> {
@@ -513,6 +576,7 @@ impl PluginStore {
                     publisher_key_id TEXT NOT NULL,
                     entry TEXT NOT NULL,
                     permissions_json TEXT NOT NULL,
+                    files_json TEXT NOT NULL DEFAULT '{}',
                     enabled INTEGER NOT NULL,
                     installed_at TEXT NOT NULL
                 );
@@ -533,6 +597,29 @@ impl PluginStore {
                     format!("Cannot initialize plugin registry: {error}"),
                 )
             })?;
+        let has_files_column: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('installed_plugins') WHERE name = 'files_json'
+                )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(registry_read_error)?;
+        if !has_files_column {
+            connection
+                .execute(
+                    "ALTER TABLE installed_plugins
+                     ADD COLUMN files_json TEXT NOT NULL DEFAULT '{}'",
+                    [],
+                )
+                .map_err(|error| {
+                    InstallError::new(
+                        "PLUGIN_STORE_OPEN_FAILED",
+                        format!("Cannot migrate plugin registry: {error}"),
+                    )
+                })?;
+        }
         Ok(())
     }
 
@@ -543,6 +630,35 @@ impl PluginStore {
                 format!("Cannot open plugin registry: {error}"),
             )
         })
+    }
+}
+
+fn is_safe_relative_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+fn content_type(path: &str) -> &'static str {
+    match Path::new(path).extension().and_then(|value| value.to_str()) {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") | Some("map") => "application/json; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("ico") => "image/x-icon",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("wasm") => "application/wasm",
+        Some("txt") | Some("md") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
     }
 }
 
@@ -688,6 +804,41 @@ mod tests {
         store.set_enabled("com.attson.codec", true).unwrap();
         assert!(store.list().unwrap()[0].enabled);
         assert_eq!(store.list_enabled().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn serves_only_enabled_declared_assets_with_matching_hashes() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = valid_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store = PluginStore::open(directory.path().join("plugins")).unwrap();
+        let installed = store
+            .install(&package_path, &HostEnvironment::current("1.0.0"), &keys)
+            .unwrap();
+
+        let asset = store
+            .read_asset("com.attson.codec", "ui/index.html")
+            .unwrap();
+        assert_eq!(asset.bytes, b"<!doctype html><title>Codec</title>");
+        assert_eq!(asset.content_type, "text/html; charset=utf-8");
+
+        let undeclared = store
+            .read_asset("com.attson.codec", "ui/other.js")
+            .expect_err("undeclared asset must be rejected");
+        assert_eq!(undeclared.code, "PLUGIN_ASSET_NOT_DECLARED");
+
+        store.set_enabled("com.attson.codec", false).unwrap();
+        let disabled = store
+            .read_asset("com.attson.codec", "ui/index.html")
+            .expect_err("disabled plugin must not be served");
+        assert_eq!(disabled.code, "PLUGIN_DISABLED");
+
+        store.set_enabled("com.attson.codec", true).unwrap();
+        std::fs::write(installed.root.join("ui/index.html"), "modified").unwrap();
+        let modified = store
+            .read_asset("com.attson.codec", "ui/index.html")
+            .expect_err("modified asset must not be served");
+        assert_eq!(modified.code, "PLUGIN_ASSET_HASH_MISMATCH");
     }
 
     #[test]

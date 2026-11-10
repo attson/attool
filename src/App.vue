@@ -60,6 +60,7 @@ const AiChatTool = defineAsyncComponent(() => import('./components/ai/AiChatTool
 const ApplicationManager = defineAsyncComponent(
   () => import('./components/plugins/ApplicationManager.vue')
 );
+const PluginFrame = defineAsyncComponent(() => import('./components/plugins/PluginFrame.vue'));
 
 const builtinTools: Tool[] = [
   { id: 'app-management', name: '应用管理', description: '安装、启停和卸载独立应用', status: 'ready', icon: 'apps', group: 'platform', source: 'platform' },
@@ -278,6 +279,10 @@ const completedCount = computed(() => tasks.value.filter((task) => task.status =
 const selectedTool = computed(() =>
   tools.value.find((tool) => tool.id === selectedToolId.value) ?? null
 );
+const selectedPlugin = computed(() => {
+  const appId = selectedTool.value?.pluginAppId;
+  return appId ? pluginStore.apps.value.find((app) => app.appId === appId) ?? null : null;
+});
 
 const taskSearch = ref('');
 const filteredTasks = computed(() => {
@@ -699,6 +704,10 @@ async function clearCompleted() {
             :store="pluginStore"
             @open="selectTool"
           />
+        </template>
+
+        <template v-else-if="selectedTool.source === 'plugin' && selectedPlugin">
+          <PluginFrame :key="selectedPlugin.appId" :app="selectedPlugin" :theme="theme" />
         </template>
       </AppShell>
 

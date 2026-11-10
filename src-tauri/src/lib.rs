@@ -1150,6 +1150,15 @@ pub fn run() {
     gpu_linux::maybe_disable_dmabuf();
 
     tauri::Builder::default()
+        .register_uri_scheme_protocol("attool-plugin", |context, request| {
+            let Some(runtime) = context
+                .app_handle()
+                .try_state::<plugin::commands::PluginRuntime>()
+            else {
+                return plugin::protocol::unavailable_response();
+            };
+            plugin::protocol::handle_plugin_request(&runtime, request)
+        })
         .on_permission_request(|_, kind| match kind {
             tauri::webview::PermissionKind::DisplayCapture => {
                 tauri::webview::PermissionResponse::Allow

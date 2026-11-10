@@ -10,7 +10,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use super::{
-    install::{InstallError, InstalledPlugin, PluginHistoryRecord, PluginStore},
+    install::{InstallError, InstalledPlugin, PluginAsset, PluginHistoryRecord, PluginStore},
     package::{inspect_package, HostEnvironment, InspectedPackage, PackageError},
 };
 
@@ -88,6 +88,20 @@ impl PluginRuntime {
                 PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
             })?
             .uninstall(&app_id, delete_data)
+            .map_err(Into::into)
+    }
+
+    pub(super) fn read_asset(
+        &self,
+        app_id: &str,
+        relative: &str,
+    ) -> Result<PluginAsset, PluginCommandError> {
+        self.store
+            .lock()
+            .map_err(|_| {
+                PluginCommandError::new("PLUGIN_STORE_LOCK_FAILED", "Plugin store lock failed")
+            })?
+            .read_asset(app_id, relative)
             .map_err(Into::into)
     }
 }
