@@ -30,6 +30,12 @@ describe('useLastTool', () => {
     expect(lastToolId.value).toBe('image');
   });
 
+  it('maps the removed codec tool to the external application', () => {
+    const { storage } = fakeStorage({ 'attool.lastTool': 'codec' });
+    const { lastToolId } = useLastTool(storage);
+    expect(lastToolId.value).toBe('plugin:com.attson.codec');
+  });
+
   it('remember persists tool id and updates state', () => {
     const { storage, data } = fakeStorage();
     const { lastToolId, remember } = useLastTool(storage);

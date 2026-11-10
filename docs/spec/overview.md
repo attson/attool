@@ -12,7 +12,7 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 
 - “应用管理”（`id: app-management`）位于侧栏“平台”分组，展示内置工具和已安装插件，支持本地 `.atpkg` 预览、权限确认、安装、停用、启用、卸载、筛选和安装历史。
 - 平台只接受签名有效、文件 hash 完整、target 匹配且 Host API 兼容的包。插件 UI 通过独立 `attool-plugin://<appId>` origin 和 sandboxed iframe 运行，公共桌面能力只能通过版本化 Host API 调用。
-- Codec 是首个双制品应用：`atcodec` 仓库可生成独立 Tauri 安装包和 `com.attson.codec` 插件包；两种形态共享编码核心和 Vue UI。插件安装并启用后默认替代内置 Codec 导航，停用或卸载后内置入口自动恢复。
+- Codec 是首个从平台完全外置的双制品应用：`atcodec` 仓库可生成独立 Tauri 安装包和 `com.attson.codec` 插件包；两种形态共享编码核心和 Vue UI。平台不再包含内置 Codec 实现，安装的插件是唯一入口。
 - P0 只支持本地安装和单版本应用。官方在线目录、插件升级回滚、原生 service 与独立版共享数据分别在后续阶段实现。
 
 下面详列 3 个“重后端”内置工具作为代表，其余见汇总表。
@@ -89,7 +89,6 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 | 图片（`image`） | 统一捕获工作台（截图 / 录屏，截图选区支持标注与快捷 OCR）、压缩、格式转换、EXIF、OCR；OCR 内置 Tesseract 与中英日语言模型 | `imaging/`（含 xcap 截图）+ `recording.rs` |
 | 文本（`text`） | 整理、排序、大小写、拆合、正则抽取、对比 | 纯前端 |
 | 网络（`network`） | URL 分解、Ping、端口、DNS | `network/` |
-| 编码（`codec`） | Base64/URL/Unicode/Hex/Hash/JWT；已有 `atcodec` 独立版与插件版 | 纯前端 / 动态插件 |
 | 生成器（`generator`） | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 | `qrcode.rs`（二维码），其余前端 |
 | 时间（`time`） | 时间戳、时区、Cron、Duration | 纯前端 |
 

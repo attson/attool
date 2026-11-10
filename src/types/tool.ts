@@ -8,7 +8,6 @@ export type ToolIconId =
   | 'clipboard'
   | 'type'
   | 'wifi'
-  | 'hash'
   | 'code'
   | 'video'
   | 'image'

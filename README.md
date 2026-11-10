@@ -14,7 +14,6 @@
 | **图片** | 截图与录屏统一捕获工作台、压缩、格式转换、EXIF 读取/去除、标注、OCR |
 | **文本** | 整理、排序、大小写、行拆合、正则抽取、对比 |
 | **网络** | URL 分解、Ping、端口检查、DNS 查询 |
-| **编码** | Base64 / URL / Unicode / Hex / Hash / JWT 解码 |
 | **生成器** | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 |
 | **时间** | Unix 时间戳、时区转换、Cron、时间差 |
 | **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 请求集合目录树 / OpenAPI JSON 导入（可配置 base URL 或 `{{baseUrl}}`）/ 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E）。v0.8.9 起 tab 分 **HTTP / SSE / WebSocket** 三种：SSE 覆盖 AI 流式接口调试（自定义 Header + Bearer Token）；WebSocket 支持双向收发 + 发送模板；长连接切走 tab 不断线，`{{var}}` 展开也适用于 SSE / WS 的 URL / Header / 发送内容 |

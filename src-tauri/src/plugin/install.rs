@@ -745,7 +745,7 @@ mod tests {
                 "{{\"appId\":\"com.attson.codec\",",
                 "\"files\":{{\"LICENSE\":\"{}\",\"ui/index.html\":\"{}\"}},",
                 "\"hostApi\":{{\"max\":\"1.x\",\"min\":\"1.0.0\"}},",
-                "\"name\":\"AT Codec\",",
+                "\"name\":\"编码转换\",",
                 "\"permissions\":[\"host.theme.read\"],",
                 "\"publisher\":{{\"id\":\"com.attson\",\"keyId\":\"attool-p0-test\",\"name\":\"Attson\"}},",
                 "\"schemaVersion\":1,",

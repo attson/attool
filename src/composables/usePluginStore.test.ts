@@ -5,7 +5,7 @@ import type { InstalledPlugin, PluginApi } from '../components/plugins/types';
 
 const codec: InstalledPlugin = {
   appId: 'com.attson.codec',
-  name: 'AT Codec',
+  name: '编码转换',
   version: '0.1.0-alpha.0',
   publisherId: 'com.attson',
   publisherName: 'Attson',
