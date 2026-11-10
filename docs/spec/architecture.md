@@ -38,6 +38,8 @@
 │  │                   + commands                             │
 │  ├─ updater/         自研更新：check / verify / download / │
 │  │                   apply/{mac,win,linux} + embed scripts │
+│  ├─ plugin/          .atpkg 验签 / 安装 registry /         │
+│  │                   自定义协议 / 应用管理命令              │
 │  └─ *.rs             qrcode / douyin·bili·xhs·yt          │
 │                                                          │
 │           ↕ Command::new / xcap / reqwest                │
@@ -66,7 +68,7 @@
 |---|---|---|
 | UI session | Vue ref | 当前选中工具、表单值、loading flags、JSON 工作页及各功能 pane 输入（应用退出即清） |
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
-| 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections** |
+| 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections**、插件 registry 与管理历史 |
 | updater 缓存 | 文件（`app_cache_dir/updater/`） | 已下载但未 apply 的 archive stage |
 | 临时 | Tauri runtime State | 进行中的下载子进程句柄（`DownloadTasks`）、录屏分块文件 / Wayland 原生录制 session（`RecordingStore`）、HTTP cancel token 表、Updater 状态机 `UpdaterState`、**HTTP 工具的 SSE / WS 长连接 session 表**（`HttpStreamState`：`HashMap<sessionId, SessionHandle>`，每个 session 持有 cancel oneshot、send mpsc（仅 WS）、消息 buffer `Arc<Mutex<SessionBuffer>>`；带 generation 计数器防重连 race） |
 
@@ -78,6 +80,30 @@ HTTP 工具的持久层存在独立 `http.sqlite3`：
 - `http_collections` / `http_collection_folders` / `http_collection_requests` —— 请求集合树；request 节点保存完整 `HttpRequestSpec` JSON，OpenAPI 导入直接写入这三张表
 
 SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后端 `HttpStreamState` 内存里。关闭 App 或 tab 即清；关闭 tab 前，前端 `useHttpStore.closeTab` 会先调 `close_stream` 让后端优雅关掉 task。
+
+## 可插拔应用（P0）
+
+平台支持从本地安装官方签名的 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；P0 以 `atcodec` 验证纯前端应用的双制品闭环，远程 Catalog、升级回滚、原生 service 和共享数据留在后续阶段。
+
+### 包与安装状态
+
+- `.atpkg` 是目标 OS/CPU 专用 ZIP，包含 `manifest.json`、`manifest.sig`、许可证和 `ui/` 静态资源；包内不允许目录条目、重复文件、未声明文件或不安全相对路径。
+- manifest schema v1 固定声明 `appId`、SemVer `version`、publisher、target、Host API 范围、UI 入口、权限和每个文件的 SHA-256。平台使用与 updater 分离的 Publisher Key 验签，并拒绝未知字段、错误 target、未知权限和不兼容 Host API。
+- `src-tauri/src/plugin/install.rs` 把包解压到随机 staging，完成入口健康检查后 rename 到 `app_data_dir/plugins/apps/<appId>/<version>/`，再用 SQLite 事务写入 registry 和成功历史。registry 写入失败会删除已激活目录。
+- P0 一个 `appId` 只允许安装一个版本，不实现升级。停用只更新 registry 并隐藏导航；重新启用前校验入口文件 hash；卸载先把程序包和可选数据移入 staging，registry 提交失败时恢复原目录。
+
+### 隔离运行时与 Host API
+
+- `attool-plugin://<appId>/<path>` 自定义协议只服务已启用且在签名清单中声明的文件，每次读取重新校验 SHA-256，并返回严格 CSP、`nosniff` 和 `no-store`。
+- 插件 UI 运行在 `sandbox="allow-scripts allow-same-origin"` iframe 中。插件 origin 与平台分离，不能读取父 DOM、Vue 状态或直接调用 Tauri commands。
+- iframe 与平台通过 `MessageChannel` 上的 JSON-RPC 2.0 通信。Host API 1.0 握手返回 session ID、correlation ID、应用元数据、主题和已批准能力；请求校验 `appId`、API 版本、消息大小、超时和权限。
+- P0 权限只有 `host.theme.read`、`host.notification.show`、`host.file.save`。文件保存必须经过系统保存对话框，插件不能指定任意落盘路径；切换工具、停用或卸载会销毁 iframe 和消息端口。
+
+### 前端装配与 Codec 迁移
+
+- `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
+- 导航默认在 Codec 插件安装并启用后自动隐藏内置 `codec`，确保只有一个入口。`VITE_PLUGIN_CODEC=1` 强制使用插件入口，`VITE_PLUGIN_CODEC=0` 强制保留内置入口，用于迁移验证和回退。
+- `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，共享同一 Vue UI 和编码核心。
 
 ## 软件更新（v0.8.5 起自研）
 
@@ -133,7 +159,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 顶层装配点：
 
-- 定义 `tools[]` 数组（id + name + description + status + icon）
+- 定义 `builtinTools[]`，并与 `usePluginStore.navigationTools` 组合成动态导航
 - 起 composable：`useSidebarState` / `useLastTool` / `useTheme`
 - Naive UI ConfigProvider 切换主题
 - 渲染 `<AppShell>` + `<template v-else-if="selectedTool.id === '<id>'">` 分支
@@ -199,6 +225,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 | `http/` | HTTP 工具后端：请求发送（含 multipart + cancel）+ tabs/history/envs/env_vars/collections CRUD（tabs 有 `kind` 列） | `send_http` / `cancel_http` / `list·upsert·delete·set_active_http_{tab,env}` / `list·insert·delete·clear_http_history` / `list·upsert·delete_http_env_var` / `list·upsert·delete_http_collection*` |
 | `http/stream/` | SSE / WebSocket 长连接会话（v0.8.9+）：`HttpStreamState` 管理 sessions、消息 buffer、cancel 与发送通道；SSE 用 reqwest bytes_stream + 自写 UTF-8 安全帧解析；WS 用 tokio-tungstenite | `open_stream` / `close_stream` / `send_ws_message` / `list_stream_messages` |
 | `updater/` | 自研更新：check / verify / download / apply | `updater_get_state` / `updater_check` / `updater_download` / `updater_apply` / `updater_cancel` |
+| `plugin/` | 签名包校验、staging/registry 状态机、自定义资源协议 | `plugin_inspect_package` / `plugin_install_package` / `plugin_list_installed` / `plugin_list_history` / `plugin_set_enabled` / `plugin_uninstall` |
 | `qrcode.rs` | 二维码生成 | `generate_qr_png` |
 | `douyin.rs` / `bilibili.rs` / `xhs.rs` / `youtube.rs` | 视频链接解析；YouTube 通过共享 Python sidecar 调用内置 yt-dlp / EJS / QuickJS | `extract_douyin_video` / `extract_bilibili_video` / `extract_youtube_video` / `resolve_douyin_url` |
 
@@ -275,7 +302,8 @@ SSE / WebSocket 长连接。所有 session 共享 `HttpStreamState`（通过 `.m
 - **逻辑模块** —— Vitest，colocated `*.test.ts`：composable / theme / utils / HTTP 工具的 `variables.ts` `curl.ts` `openapiImport.ts` `httpApi.ts` / `streamMessageTone.ts` / `useHttpStore.stream.test.ts` / `useHttpStore.collections.test.ts`
 - **Vue SFC** —— 不写单元测试（不引 jsdom）；改动后人工目视回归
 - **后端 Rust** —— 模板模块、updater 模块（`updater::verify` + `updater::check` 单测覆盖签名 / SHA256SUMS lookup / semver 比较）、HTTP stream 模块（`stream::parser` 9 条 / `stream::buffer` 5 条 / `stream::session` 6 条 / `stream::ws::tests` 2 条 UTF-8 截断测试）
-- **集成** —— HTTP stream 有 `src-tauri/tests/stream_it.rs` 起本地 TCP server 模拟 SSE 200 / SSE 401 / WS echo；其余无 e2e，依赖 `pnpm tauri:dev` + 手动操作验收
+- **插件** —— Vitest 覆盖动态导航、store 状态和 Host API；Rust 单测覆盖签名、target、路径、hash、原子激活、停启、卸载与历史；P0 另用真实 Tauri 窗口验证包选择、权限确认、安装、Codec Host API、主题、保存、停启和卸载
+- **集成** —— HTTP stream 有 `src-tauri/tests/stream_it.rs` 起本地 TCP server 模拟 SSE 200 / SSE 401 / WS echo；其余依赖 `pnpm tauri:dev` + 手动操作验收
 
 ## 构建与发布
 
@@ -333,3 +361,9 @@ macOS app bundle 使用 `signingIdentity: "-"` 做 ad-hoc 签名，确保 `.app`
 ## 扩展指南
 
 参考 `AGENTS.md` 的"加新工具的最小路径"章节。
+
+## 决策记录
+
+### 2026-11-10 独立仓库双制品与隔离插件运行时
+
+工具长期采用独立仓库维护，共享业务核心同时生成独立桌面应用和签名 `.atpkg`；AT Tool 负责安装、隔离 UI、权限代理和公共能力。该方案增加了 SDK 与发布基础设施，但避免编译期组合要求重装平台，也避免所有应用继续共享平台级 Tauri 权限和发布节奏。
