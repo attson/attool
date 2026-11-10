@@ -23,9 +23,21 @@ export function mergeCatalogApps(
       updateAvailable,
       addedPermissions: local
         ? app.permissions.filter((permission) => !local.permissions.includes(permission))
-        : app.permissions
+        : app.permissions,
+      removedPermissions: local
+        ? local.permissions.filter((permission) => !app.permissions.includes(permission))
+        : []
     };
   });
+}
+
+export function permissionConfirmationComplete(expected: string[], accepted: string[]) {
+  const expectedSet = new Set(expected);
+  const acceptedSet = new Set(accepted);
+  return expectedSet.size === expected.length &&
+    acceptedSet.size === accepted.length &&
+    expectedSet.size === acceptedSet.size &&
+    [...expectedSet].every((permission) => acceptedSet.has(permission));
 }
 
 function compareSemver(left: string, right: string) {

@@ -6,13 +6,16 @@ use std::{
 
 use chrono::Utc;
 use ed25519_dalek::VerifyingKey;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use super::package::{extract_package, HostEnvironment, PackageError};
+use super::{
+    package::{extract_package, HostEnvironment, PackageError},
+    remote_install::{OperationSnapshot, OperationStage},
+};
 
 #[derive(Debug, Clone)]
 pub struct PluginStore {
@@ -65,6 +68,28 @@ pub struct PluginHistoryRecord {
     pub operation_id: Option<String>,
     pub correlation_id: Option<String>,
     pub steps: Vec<String>,
+    pub final_available_version: Option<String>,
+}
+
+struct StoredOperation {
+    action: String,
+    operation_id: String,
+    correlation_id: String,
+    app_id: String,
+    name: String,
+    version: String,
+    publisher_id: String,
+    publisher_name: String,
+    publisher_key_id: String,
+    entry: Option<String>,
+    permissions_json: String,
+    stage: String,
+    steps_json: String,
+    downloaded_bytes: i64,
+    total_bytes: i64,
+    error_code: Option<String>,
+    message: Option<String>,
+    final_available_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,12 +384,16 @@ impl PluginStore {
                     )
                 })?;
             insert_plugin_version(&transaction, &package, &installed_at)?;
-            insert_history_with_context(
-                &transaction,
-                &package.app_id,
-                "install",
-                &package.version,
-                &installed_at,
+            let history_steps = if operation_id.is_some() {
+                &[
+                    "download",
+                    "verify",
+                    "staging",
+                    "health-check",
+                    "activate",
+                    "complete",
+                ][..]
+            } else {
                 &[
                     "signature",
                     "hashes",
@@ -373,7 +402,15 @@ impl PluginStore {
                     "staging",
                     "health",
                     "activation",
-                ],
+                ][..]
+            };
+            insert_history_with_context(
+                &transaction,
+                &package.app_id,
+                "install",
+                &package.version,
+                &installed_at,
+                history_steps,
                 operation_id,
                 correlation_id,
             )?;
@@ -623,7 +660,14 @@ impl PluginStore {
             "update",
             &package.version,
             &installed_at,
-            &["staging", "health", "activation"],
+            &[
+                "download",
+                "verify",
+                "staging",
+                "health-check",
+                "activate",
+                "complete",
+            ],
             Some(operation_id),
             Some(correlation_id),
         )?;
@@ -647,6 +691,23 @@ impl PluginStore {
                 },
             )
             .map_err(registry_read_error)
+    }
+
+    pub fn launch_operation_id(
+        &self,
+        app_id: &str,
+        version: &str,
+    ) -> Result<Option<String>, InstallError> {
+        self.connection()?
+            .query_row(
+                "SELECT launch_operation_id FROM installed_plugins
+                 WHERE app_id = ?1 AND version = ?2 AND awaiting_launch = 1",
+                params![app_id, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(registry_read_error)
+            .map(|value| value.flatten())
     }
 
     pub fn confirm_current_launch(
@@ -811,7 +872,15 @@ impl PluginStore {
                 None,
                 Some(&operation_id),
                 Some(&correlation_id),
-                &["launch", "rollback"],
+                &[
+                    "download",
+                    "verify",
+                    "staging",
+                    "health-check",
+                    "activate",
+                    "complete",
+                    "rolled-back",
+                ],
             )?;
             transaction.commit().map_err(registry_write_error)
         })();
@@ -1158,7 +1227,7 @@ impl PluginStore {
         let mut statement = connection
             .prepare(
                 "SELECT id, app_id, action, version, occurred_at, result, error_code,
-                        operation_id, correlation_id, steps_json
+                        operation_id, correlation_id, steps_json, final_available_version
                  FROM plugin_history ORDER BY id DESC",
             )
             .map_err(registry_read_error)?;
@@ -1175,6 +1244,7 @@ impl PluginStore {
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<String>>(8)?,
                     row.get::<_, String>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                 ))
             })
             .map_err(registry_read_error)?;
@@ -1191,6 +1261,7 @@ impl PluginStore {
                 operation_id,
                 correlation_id,
                 steps_json,
+                final_available_version,
             ) = row.map_err(registry_read_error)?;
             let steps = serde_json::from_str(&steps_json).map_err(|error| {
                 InstallError::new(
@@ -1209,6 +1280,7 @@ impl PluginStore {
                 operation_id,
                 correlation_id,
                 steps,
+                final_available_version,
             });
         }
         Ok(history)
@@ -1222,9 +1294,10 @@ impl PluginStore {
         operation_id: &str,
         correlation_id: &str,
         error_code: &str,
-        stage: &str,
+        steps: &[String],
+        final_available_version: Option<&str>,
     ) -> Result<(), InstallError> {
-        let steps_json = serde_json::to_string(&[stage]).map_err(|error| {
+        let steps_json = serde_json::to_string(steps).map_err(|error| {
             InstallError::new(
                 "PLUGIN_REGISTRY_WRITE_FAILED",
                 format!("Cannot serialize plugin history: {error}"),
@@ -1234,8 +1307,8 @@ impl PluginStore {
             .execute(
                 "INSERT INTO plugin_history (
                     app_id, action, version, occurred_at, result, error_code,
-                    operation_id, correlation_id, steps_json
-                 ) VALUES (?1, ?2, ?3, ?4, 'failed', ?5, ?6, ?7, ?8)",
+                    operation_id, correlation_id, steps_json, final_available_version
+                 ) VALUES (?1, ?2, ?3, ?4, 'failed', ?5, ?6, ?7, ?8, ?9)",
                 params![
                     app_id,
                     action,
@@ -1245,6 +1318,7 @@ impl PluginStore {
                     operation_id,
                     correlation_id,
                     steps_json,
+                    final_available_version,
                 ],
             )
             .map_err(|error| {
@@ -1254,6 +1328,104 @@ impl PluginStore {
                 )
             })?;
         Ok(())
+    }
+
+    pub fn save_operation(&self, operation: &OperationSnapshot) -> Result<(), InstallError> {
+        let permissions_json = serde_json::to_string(&operation.permissions).map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot serialize plugin operation permissions: {error}"),
+            )
+        })?;
+        let steps_json = serde_json::to_string(&operation.steps).map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot serialize plugin operation steps: {error}"),
+            )
+        })?;
+        let downloaded_bytes = i64::try_from(operation.downloaded_bytes).map_err(|_| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                "Plugin downloaded byte count is too large",
+            )
+        })?;
+        let total_bytes = i64::try_from(operation.total_bytes).map_err(|_| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                "Plugin total byte count is too large",
+            )
+        })?;
+        let now = Utc::now().to_rfc3339();
+        self.connection()?
+            .execute(
+                "INSERT INTO plugin_operations (
+                    operation_id, correlation_id, action, app_id, name, version,
+                    publisher_id, publisher_name, publisher_key_id, entry,
+                    permissions_json, stage, steps_json, downloaded_bytes, total_bytes,
+                    error_code, message, final_available_version, created_at, updated_at
+                 ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                    ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19
+                 ) ON CONFLICT(operation_id) DO UPDATE SET
+                    entry = excluded.entry,
+                    stage = excluded.stage,
+                    steps_json = excluded.steps_json,
+                    downloaded_bytes = excluded.downloaded_bytes,
+                    total_bytes = excluded.total_bytes,
+                    error_code = excluded.error_code,
+                    message = excluded.message,
+                    final_available_version = excluded.final_available_version,
+                    updated_at = excluded.updated_at",
+                params![
+                    operation.operation_id,
+                    operation.correlation_id,
+                    operation.action,
+                    operation.app_id,
+                    operation.name,
+                    operation.version,
+                    operation.publisher_id,
+                    operation.publisher_name,
+                    operation.publisher_key_id,
+                    operation.entry,
+                    permissions_json,
+                    operation.stage.as_str(),
+                    steps_json,
+                    downloaded_bytes,
+                    total_bytes,
+                    operation.error_code,
+                    operation.message,
+                    operation.final_available_version,
+                    now,
+                ],
+            )
+            .map_err(registry_write_error)?;
+        Ok(())
+    }
+
+    pub fn operation(&self, operation_id: &str) -> Result<Option<OperationSnapshot>, InstallError> {
+        let connection = self.connection()?;
+        let stored = connection
+            .query_row(
+                &format!("{} WHERE operation_id = ?1", operation_select_sql()),
+                [operation_id],
+                stored_operation_from_row,
+            )
+            .optional()
+            .map_err(registry_read_error)?;
+        stored.map(decode_operation).transpose()
+    }
+
+    pub fn latest_operation(&self) -> Result<Option<OperationSnapshot>, InstallError> {
+        let connection = self.connection()?;
+        let stored = connection
+            .query_row(
+                &format!("{} ORDER BY id DESC LIMIT 1", operation_select_sql()),
+                [],
+                stored_operation_from_row,
+            )
+            .optional()
+            .map_err(registry_read_error)?;
+        stored.map(decode_operation).transpose()
     }
 
     fn find(&self, app_id: &str) -> Result<Option<InstalledPlugin>, InstallError> {
@@ -1294,7 +1466,8 @@ impl PluginStore {
                     error_code TEXT,
                     operation_id TEXT,
                     correlation_id TEXT,
-                    steps_json TEXT NOT NULL
+                    steps_json TEXT NOT NULL,
+                    final_available_version TEXT
                 );
                 CREATE TABLE IF NOT EXISTS plugin_versions (
                     app_id TEXT NOT NULL,
@@ -1308,6 +1481,29 @@ impl PluginStore {
                     files_json TEXT NOT NULL,
                     installed_at TEXT NOT NULL,
                     PRIMARY KEY (app_id, version)
+                );
+                CREATE TABLE IF NOT EXISTS plugin_operations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id TEXT NOT NULL UNIQUE,
+                    correlation_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    app_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    publisher_id TEXT NOT NULL,
+                    publisher_name TEXT NOT NULL,
+                    publisher_key_id TEXT NOT NULL,
+                    entry TEXT,
+                    permissions_json TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    steps_json TEXT NOT NULL,
+                    downloaded_bytes INTEGER NOT NULL,
+                    total_bytes INTEGER NOT NULL,
+                    error_code TEXT,
+                    message TEXT,
+                    final_available_version TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 );",
             )
             .map_err(|error| {
@@ -1339,7 +1535,11 @@ impl PluginStore {
                     )
                 })?;
         }
-        for column in ["operation_id", "correlation_id"] {
+        for (column, definition) in [
+            ("operation_id", "TEXT"),
+            ("correlation_id", "TEXT"),
+            ("final_available_version", "TEXT"),
+        ] {
             let exists: bool = connection
                 .query_row(
                     "SELECT EXISTS(
@@ -1352,7 +1552,7 @@ impl PluginStore {
             if !exists {
                 connection
                     .execute(
-                        &format!("ALTER TABLE plugin_history ADD COLUMN {column} TEXT"),
+                        &format!("ALTER TABLE plugin_history ADD COLUMN {column} {definition}"),
                         [],
                     )
                     .map_err(|error| {
@@ -1556,6 +1756,90 @@ impl PluginStore {
     }
 }
 
+fn operation_select_sql() -> &'static str {
+    "SELECT action, operation_id, correlation_id, app_id, name, version,
+            publisher_id, publisher_name, publisher_key_id, entry,
+            permissions_json, stage, steps_json, downloaded_bytes, total_bytes,
+            error_code, message, final_available_version
+     FROM plugin_operations"
+}
+
+fn stored_operation_from_row(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
+    Ok(StoredOperation {
+        action: row.get(0)?,
+        operation_id: row.get(1)?,
+        correlation_id: row.get(2)?,
+        app_id: row.get(3)?,
+        name: row.get(4)?,
+        version: row.get(5)?,
+        publisher_id: row.get(6)?,
+        publisher_name: row.get(7)?,
+        publisher_key_id: row.get(8)?,
+        entry: row.get(9)?,
+        permissions_json: row.get(10)?,
+        stage: row.get(11)?,
+        steps_json: row.get(12)?,
+        downloaded_bytes: row.get(13)?,
+        total_bytes: row.get(14)?,
+        error_code: row.get(15)?,
+        message: row.get(16)?,
+        final_available_version: row.get(17)?,
+    })
+}
+
+fn decode_operation(stored: StoredOperation) -> Result<OperationSnapshot, InstallError> {
+    let stage = OperationStage::parse(&stored.stage).ok_or_else(|| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_READ_FAILED",
+            "Plugin operation stage is invalid",
+        )
+    })?;
+    let permissions = serde_json::from_str(&stored.permissions_json).map_err(|error| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_READ_FAILED",
+            format!("Plugin operation permissions are corrupted: {error}"),
+        )
+    })?;
+    let steps = serde_json::from_str(&stored.steps_json).map_err(|error| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_READ_FAILED",
+            format!("Plugin operation steps are corrupted: {error}"),
+        )
+    })?;
+    let downloaded_bytes = u64::try_from(stored.downloaded_bytes).map_err(|_| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_READ_FAILED",
+            "Plugin downloaded byte count is invalid",
+        )
+    })?;
+    let total_bytes = u64::try_from(stored.total_bytes).map_err(|_| {
+        InstallError::new(
+            "PLUGIN_REGISTRY_READ_FAILED",
+            "Plugin total byte count is invalid",
+        )
+    })?;
+    Ok(OperationSnapshot {
+        action: stored.action,
+        operation_id: stored.operation_id,
+        correlation_id: stored.correlation_id,
+        app_id: stored.app_id,
+        name: stored.name,
+        version: stored.version,
+        publisher_id: stored.publisher_id,
+        publisher_name: stored.publisher_name,
+        publisher_key_id: stored.publisher_key_id,
+        entry: stored.entry,
+        permissions,
+        stage,
+        steps,
+        downloaded_bytes,
+        total_bytes,
+        error_code: stored.error_code,
+        message: stored.message,
+        final_available_version: stored.final_available_version,
+    })
+}
+
 fn is_safe_relative_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
@@ -1642,8 +1926,8 @@ fn insert_history_with_context(
         .execute(
             "INSERT INTO plugin_history (
                 app_id, action, version, occurred_at, result, error_code,
-                operation_id, correlation_id, steps_json
-             ) VALUES (?1, ?2, ?3, ?4, 'success', NULL, ?5, ?6, ?7)",
+                operation_id, correlation_id, steps_json, final_available_version
+             ) VALUES (?1, ?2, ?3, ?4, 'success', NULL, ?5, ?6, ?7, ?3)",
             params![
                 app_id,
                 action,
@@ -1684,8 +1968,8 @@ fn insert_history_result(
         .execute(
             "INSERT INTO plugin_history (
                 app_id, action, version, occurred_at, result, error_code,
-                operation_id, correlation_id, steps_json
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                operation_id, correlation_id, steps_json, final_available_version
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?3)",
             params![
                 app_id,
                 action,
@@ -1853,9 +2137,10 @@ mod tests {
         hex::encode(Sha256::digest(bytes))
     }
 
-    fn valid_package_version(
+    fn valid_package_version_with_permissions(
         directory: &std::path::Path,
         version: &str,
+        permissions: &str,
     ) -> (std::path::PathBuf, SigningKey) {
         let path = directory.join(format!("codec-{version}.atpkg"));
         let signing_key = SigningKey::from_bytes(&TEST_KEY_SEED);
@@ -1867,7 +2152,7 @@ mod tests {
                 "\"files\":{{\"LICENSE\":\"{}\",\"ui/index.html\":\"{}\"}},",
                 "\"hostApi\":{{\"max\":\"1.x\",\"min\":\"1.0.0\"}},",
                 "\"name\":\"编码转换\",",
-                "\"permissions\":[\"host.theme.read\"],",
+                "\"permissions\":{},",
                 "\"publisher\":{{\"id\":\"com.attson\",\"keyId\":\"attool-p0-test\",\"name\":\"Attson\"}},",
                 "\"schemaVersion\":1,",
                 "\"target\":{{\"arch\":\"{}\",\"os\":\"{}\"}},",
@@ -1876,6 +2161,7 @@ mod tests {
             ),
             sha256(license),
             sha256(index),
+            permissions,
             std::env::consts::ARCH,
             std::env::consts::OS,
             version
@@ -1896,6 +2182,13 @@ mod tests {
         }
         archive.finish().unwrap();
         (path, signing_key)
+    }
+
+    fn valid_package_version(
+        directory: &std::path::Path,
+        version: &str,
+    ) -> (std::path::PathBuf, SigningKey) {
+        valid_package_version_with_permissions(directory, version, "[\"host.theme.read\"]")
     }
 
     fn valid_package(directory: &std::path::Path) -> (std::path::PathBuf, SigningKey) {
@@ -2151,7 +2444,8 @@ mod tests {
                 "operation-1",
                 "correlation-1",
                 "PLUGIN_DOWNLOAD_HASH_MISMATCH",
-                "download",
+                &["download".to_string(), "error".to_string()],
+                Some("0.9.0"),
             )
             .unwrap();
 
@@ -2165,7 +2459,8 @@ mod tests {
         );
         assert_eq!(history[0].operation_id.as_deref(), Some("operation-1"));
         assert_eq!(history[0].correlation_id.as_deref(), Some("correlation-1"));
-        assert_eq!(history[0].steps, vec!["download"]);
+        assert_eq!(history[0].steps, vec!["download", "error"]);
+        assert_eq!(history[0].final_available_version.as_deref(), Some("0.9.0"));
     }
 
     #[test]
@@ -2200,7 +2495,8 @@ mod tests {
                 "operation-legacy",
                 "correlation-legacy",
                 "PLUGIN_DOWNLOAD_INTERRUPTED",
-                "download",
+                &["download".to_string(), "error".to_string()],
+                None,
             )
             .unwrap();
 
@@ -2210,6 +2506,78 @@ mod tests {
             history[0].correlation_id.as_deref(),
             Some("correlation-legacy")
         );
+    }
+
+    #[test]
+    fn persists_and_recovers_the_latest_operation_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        let mut operation = crate::plugin::remote_install::OperationSnapshot {
+            action: "update".to_string(),
+            operation_id: "operation-refresh".to_string(),
+            correlation_id: "correlation-refresh".to_string(),
+            app_id: "com.attson.codec".to_string(),
+            name: "编码转换".to_string(),
+            version: "1.1.0".to_string(),
+            publisher_id: "com.attson".to_string(),
+            publisher_name: "Attson".to_string(),
+            publisher_key_id: "codec-key".to_string(),
+            entry: Some("ui/index.html".to_string()),
+            permissions: vec!["host.theme.read".to_string()],
+            stage: crate::plugin::remote_install::OperationStage::HealthCheck,
+            steps: vec![
+                "download".to_string(),
+                "verify".to_string(),
+                "staging".to_string(),
+                "health-check".to_string(),
+            ],
+            downloaded_bytes: 4096,
+            total_bytes: 4096,
+            error_code: None,
+            message: None,
+            final_available_version: Some("1.0.0".to_string()),
+        };
+
+        store.save_operation(&operation).unwrap();
+        operation
+            .advance_to(crate::plugin::remote_install::OperationStage::Error)
+            .unwrap();
+        operation.error_code = Some("PLUGIN_HEALTH_CHECK_FAILED".to_string());
+        operation.message = Some("Application health check failed".to_string());
+        store.save_operation(&operation).unwrap();
+        drop(store);
+
+        let reopened = PluginStore::open(store_root).unwrap();
+        assert_eq!(reopened.latest_operation().unwrap(), Some(operation));
+    }
+
+    #[test]
+    fn retry_history_keeps_the_original_failed_operation() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PluginStore::open(directory.path().join("plugins")).unwrap();
+        for operation_id in ["operation-original", "operation-retry"] {
+            store
+                .record_catalog_failure(
+                    "com.attson.codec",
+                    "1.1.0",
+                    "update",
+                    operation_id,
+                    &format!("correlation-{operation_id}"),
+                    "PLUGIN_DOWNLOAD_INTERRUPTED",
+                    &["download".to_string(), "error".to_string()],
+                    Some("1.0.0"),
+                )
+                .unwrap();
+        }
+
+        let operation_ids = store
+            .history()
+            .unwrap()
+            .into_iter()
+            .map(|record| record.operation_id.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(operation_ids, vec!["operation-retry", "operation-original"]);
     }
 
     #[test]
@@ -2251,6 +2619,40 @@ mod tests {
                 .unwrap()
                 .awaiting_launch
         );
+    }
+
+    #[test]
+    fn permission_reduction_preserves_disabled_state_and_user_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let (version_one, signing_key) = valid_package_version_with_permissions(
+            directory.path(),
+            "1.0.0",
+            "[\"host.theme.read\",\"host.notification.show\"]",
+        );
+        let (version_two, _) = valid_package_version(directory.path(), "1.1.0");
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let environment = HostEnvironment::current("1.0.0");
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        store.install(&version_one, &environment, &keys).unwrap();
+        store.set_enabled("com.attson.codec", false).unwrap();
+        let data_file = store_root.join("data/com.attson.codec/settings.json");
+        fs::create_dir_all(data_file.parent().unwrap()).unwrap();
+        fs::write(&data_file, b"user settings").unwrap();
+
+        let prepared = store
+            .prepare_upgrade(&version_two, &environment, &keys, "operation-reduced")
+            .unwrap();
+        store
+            .mark_pending_upgrade(&prepared, "operation-reduced", "correlation-reduced")
+            .unwrap();
+        let upgraded = store
+            .activate_prepared_upgrade(prepared, "operation-reduced", "correlation-reduced")
+            .unwrap();
+
+        assert!(!upgraded.enabled);
+        assert_eq!(upgraded.permissions, ["host.theme.read"]);
+        assert_eq!(fs::read(data_file).unwrap(), b"user settings");
     }
 
     #[test]

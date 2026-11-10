@@ -5,6 +5,7 @@ import {
   NAlert,
   NButton,
   NCheckbox,
+  NCheckboxGroup,
   NEmpty,
   NInput,
   NModal,
@@ -16,9 +17,10 @@ import {
 } from 'naive-ui';
 
 import type { PluginStoreController } from '../../composables/usePluginStore';
-import type { ManagedCatalogApp } from './types';
+import type { ManagedCatalogApp, PluginHistoryRecord } from './types';
 import type { Tool } from '../../types/tool';
 import PluginInstallProbe from './PluginInstallProbe.vue';
+import { permissionConfirmationComplete } from './catalogMerge';
 
 type View = 'catalog' | 'installed' | 'history';
 type ManagedApp = {
@@ -55,7 +57,7 @@ const permissionsAccepted = ref(false);
 const installing = ref(false);
 const catalogInstallOpen = ref(false);
 const catalogOperationMode = ref<'install' | 'update'>('install');
-const catalogPermissionsAccepted = ref(false);
+const acceptedCatalogPermissions = ref<string[]>([]);
 const remoteInstalling = ref(false);
 const uninstallOpen = ref(false);
 const deleteData = ref(false);
@@ -124,6 +126,17 @@ const installProgress = computed(() => {
   if (!current?.totalBytes) return 0;
   return Math.min(100, Math.round((current.downloadedBytes / current.totalBytes) * 100));
 });
+const requiredCatalogPermissions = computed(() => {
+  const app = selectedCatalog.value;
+  if (!app) return [];
+  return catalogOperationMode.value === 'update' ? app.addedPermissions : app.permissions;
+});
+const catalogPermissionsConfirmed = computed(() =>
+  permissionConfirmationComplete(
+    requiredCatalogPermissions.value,
+    acceptedCatalogPermissions.value
+  )
+);
 const busy = computed(() =>
   selectedInstalled.value?.source === 'plugin' &&
   props.store.busyAppIds.value.has(selectedInstalled.value.id)
@@ -195,7 +208,7 @@ async function confirmInstall() {
 function requestCatalogInstall() {
   if (!selectedCatalog.value?.remoteActionsAllowed) return;
   catalogOperationMode.value = 'install';
-  catalogPermissionsAccepted.value = false;
+  acceptedCatalogPermissions.value = [];
   catalogInstallOpen.value = true;
 }
 
@@ -203,23 +216,44 @@ function requestCatalogUpdate() {
   const app = selectedCatalog.value;
   if (!app?.remoteActionsAllowed || !app.updateAvailable) return;
   catalogOperationMode.value = 'update';
-  catalogPermissionsAccepted.value = app.addedPermissions.length === 0;
+  acceptedCatalogPermissions.value = [];
   catalogInstallOpen.value = true;
 }
 
 async function confirmCatalogInstall() {
   const app = selectedCatalog.value;
-  if (!app || !catalogPermissionsAccepted.value) return;
+  if (!app || !catalogPermissionsConfirmed.value) return;
   remoteInstalling.value = true;
   try {
     if (catalogOperationMode.value === 'update') {
-      await props.store.updateCatalog(app.appId, [...app.addedPermissions]);
+      await props.store.updateCatalog(app.appId, [...acceptedCatalogPermissions.value]);
     } else {
-      await props.store.installCatalog(app.appId, [...app.permissions]);
+      await props.store.installCatalog(app.appId, [...acceptedCatalogPermissions.value]);
     }
   } catch {
     remoteInstalling.value = false;
   }
+}
+
+function canRetry(record: PluginHistoryRecord) {
+  if (record.result !== 'failed') return false;
+  const app = props.store.catalogApps.value.find((catalogApp) => catalogApp.appId === record.appId);
+  if (!app?.remoteActionsAllowed) return false;
+  if (record.action === 'install') return !app.installedVersion;
+  return record.action === 'update' && app.updateAvailable;
+}
+
+function requestHistoryRetry(record: PluginHistoryRecord) {
+  const app = props.store.catalogApps.value.find((catalogApp) => catalogApp.appId === record.appId);
+  if (!app?.remoteActionsAllowed) {
+    message.error('当前目录无法提供此应用，请刷新目录后重试');
+    return;
+  }
+  selectedCatalogId.value = app.appId;
+  catalogOperationMode.value = record.action === 'install' ? 'install' : 'update';
+  acceptedCatalogPermissions.value = [];
+  remoteInstalling.value = false;
+  catalogInstallOpen.value = true;
 }
 
 async function completeCatalogInstall() {
@@ -644,15 +678,22 @@ function formatBytes(bytes: number) {
           <div>
             <strong class="mono">{{ record.appId }}</strong>
             <span>{{ actionLabel(record.action) }}<template v-if="record.errorCode"> · {{ record.errorCode }}</template></span>
+            <span v-if="record.operationId" class="mono">操作 ID {{ record.operationId }}</span>
             <span v-if="record.correlationId" class="mono">{{ record.correlationId }}</span>
           </div>
-          <span class="mono">{{ record.version }}</span>
-          <span class="steps">{{ record.steps.join(' · ') }}</span>
+          <span class="mono">
+            目标 {{ record.version }}
+            <template v-if="record.finalAvailableVersion"><br>可用 {{ record.finalAvailableVersion }}</template>
+          </span>
+          <span class="steps">{{ record.steps.map(operationStageLabel).join(' · ') }}</span>
           <div>
             <span>{{ new Date(record.occurredAt).toLocaleString() }}</span>
             <n-tag size="small" :type="record.result === 'success' ? 'success' : record.result === 'rolled-back' ? 'warning' : 'error'" :bordered="false">
               {{ record.result === 'success' ? '成功' : record.result === 'rolled-back' ? '已回滚' : '失败' }}
             </n-tag>
+            <n-button v-if="canRetry(record)" size="tiny" secondary @click="requestHistoryRetry(record)">
+              重试
+            </n-button>
           </div>
         </div>
       </div>
@@ -687,17 +728,32 @@ function formatBytes(bytes: number) {
         </dl>
         <section class="permission-confirm">
           <h4>{{ catalogOperationMode === 'update' ? '新增权限' : '请求权限' }}</h4>
-          <div class="permission-list">
-            <span v-for="permission in catalogOperationMode === 'update' ? selectedCatalog.addedPermissions : selectedCatalog.permissions" :key="permission" class="permission mono">
-              {{ permission }}
-            </span>
-          </div>
-          <n-alert v-if="catalogOperationMode === 'update' && !selectedCatalog.addedPermissions.length" type="info" :bordered="false">
-            权限未增加，将保留当前授权与启停状态。
+          <n-checkbox-group
+            v-if="requiredCatalogPermissions.length"
+            v-model:value="acceptedCatalogPermissions"
+            class="permission-checks"
+            :disabled="remoteInstalling"
+          >
+            <n-checkbox
+              v-for="permission in requiredCatalogPermissions"
+              :key="permission"
+              :value="permission"
+              class="permission-check"
+            >
+              <span class="mono">{{ permission }}</span>
+            </n-checkbox>
+          </n-checkbox-group>
+          <n-alert v-else-if="catalogOperationMode === 'update'" type="info" :bordered="false">
+            权限未增加，无需重复授权；当前启停状态和用户数据保持不变。
           </n-alert>
-          <n-checkbox v-else v-model:checked="catalogPermissionsAccepted" :disabled="remoteInstalling">
-            我已查看并同意授予以上权限
-          </n-checkbox>
+          <div v-if="catalogOperationMode === 'update' && selectedCatalog.removedPermissions.length">
+            <h4>不再请求</h4>
+            <div class="permission-list">
+              <span v-for="permission in selectedCatalog.removedPermissions" :key="permission" class="permission mono">
+                {{ permission }}
+              </span>
+            </div>
+          </div>
         </section>
         <section v-if="selectedOperation" class="operation-state modal-operation">
           <div>
@@ -719,7 +775,7 @@ function formatBytes(bytes: number) {
           <n-button :disabled="remoteInstalling" @click="catalogInstallOpen = false">取消</n-button>
           <n-button
             type="primary"
-            :disabled="!catalogPermissionsAccepted || remoteInstalling"
+            :disabled="!catalogPermissionsConfirmed || remoteInstalling"
             :loading="remoteInstalling"
             @click="confirmCatalogInstall"
           >
@@ -841,13 +897,15 @@ function formatBytes(bytes: number) {
 .history-head { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line); background: var(--bg-elev-2); color: var(--text-muted); font-size: var(--fs-xxs); }
 .history-row { border-bottom: 1px solid var(--line); font-size: var(--fs-xs); }
 .history-row > div { display: grid; gap: 3px; }
-.history-row > div:last-child { grid-template-columns: 1fr auto; align-items: center; }
+.history-row > div:last-child { grid-template-columns: 1fr auto auto; align-items: center; }
 .history-row span { color: var(--text-muted); }
 .steps { overflow-wrap: anywhere; }
 .package-heading { display: flex; justify-content: space-between; gap: 12px; }
 .checks { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 .checks span { padding: 4px 7px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xxs); }
 .permission-confirm { display: grid; gap: 8px; margin-top: 14px; }
+.permission-checks { display: grid; gap: 8px; }
+.permission-check { min-width: 0; }
 .confirm-modal p { color: var(--text-muted); line-height: 1.65; }
 .mono { font-family: var(--font-mono); font-feature-settings: "tnum"; }
 :global(.install-modal) { width: min(640px, 92vw); }

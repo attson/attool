@@ -31,6 +31,8 @@ export function createPluginApi(): PluginApi {
       invoke<PluginOperationSnapshot>('plugin_fail_catalog_install', { operationId }),
     getOperation: (operationId) =>
       invoke<PluginOperationSnapshot>('plugin_get_operation', { operationId }),
+    getLatestOperation: () =>
+      invoke<PluginOperationSnapshot | null>('plugin_get_latest_operation'),
     listenOperations: async (listener) =>
       listen<PluginOperationSnapshot>('plugin://operation-state', (event) => listener(event.payload)),
     confirmPluginLaunch: (appId, version) =>

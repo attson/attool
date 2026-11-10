@@ -4,7 +4,8 @@ import { usePluginStore } from './usePluginStore';
 import type {
   CatalogSnapshot,
   InstalledPlugin,
-  PluginApi
+  PluginApi,
+  PluginOperationSnapshot
 } from '../components/plugins/types';
 
 const codec: InstalledPlugin = {
@@ -66,6 +67,7 @@ function fakeApi(): PluginApi {
     completeCatalogInstall: vi.fn(),
     failCatalogInstall: vi.fn(),
     getOperation: vi.fn(),
+    getLatestOperation: vi.fn().mockResolvedValue(null),
     listenOperations: vi.fn().mockResolvedValue(() => {}),
     confirmPluginLaunch: vi.fn(),
     rollbackPluginLaunch: vi.fn(),
@@ -150,6 +152,35 @@ describe('usePluginStore', () => {
     });
   });
 
+  it('restores the latest persisted operation when the management page reloads', async () => {
+    const api = fakeApi();
+    const persisted: PluginOperationSnapshot = {
+      operationId: 'operation-refresh',
+      correlationId: 'correlation-refresh',
+      appId: codec.appId,
+      name: codec.name,
+      version: '1.1.0',
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null,
+      finalAvailableVersion: codec.version
+    };
+    vi.mocked(api.getLatestOperation).mockResolvedValue(persisted);
+    const store = usePluginStore(api);
+
+    await store.load();
+
+    expect(store.operation.value).toEqual(persisted);
+  });
+
   it('preserves the cached catalog when refresh fails', async () => {
     const api = fakeApi();
     const store = usePluginStore(api);
@@ -172,7 +203,7 @@ describe('usePluginStore', () => {
 
   it('keeps a remote install out of navigation until health check activation completes', async () => {
     const api = fakeApi();
-    const pending = {
+    const pending: PluginOperationSnapshot = {
       operationId: 'operation-1',
       correlationId: 'correlation-1',
       appId: codec.appId,
@@ -184,15 +215,17 @@ describe('usePluginStore', () => {
       entry: codec.entry,
       permissions: codec.permissions,
       stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
       downloadedBytes: 4096,
       totalBytes: 4096,
       errorCode: null,
-      message: null
+      message: null,
+      finalAvailableVersion: null
     };
     vi.mocked(api.listInstalled).mockResolvedValue([]);
     vi.mocked(api.installCatalogApp).mockResolvedValue(pending);
     vi.mocked(api.completeCatalogInstall).mockResolvedValue({
-      operation: { ...pending, stage: 'complete' },
+      operation: { ...pending, stage: 'complete', steps: [...pending.steps, 'complete'] },
       installed: codec
     });
     const store = usePluginStore(api);
@@ -210,7 +243,7 @@ describe('usePluginStore', () => {
 
   it('starts an upgrade with no added permissions without replacing the current version', async () => {
     const api = fakeApi();
-    const pending = {
+    const pending: PluginOperationSnapshot = {
       operationId: 'operation-update',
       correlationId: 'correlation-update',
       appId: codec.appId,
@@ -222,10 +255,12 @@ describe('usePluginStore', () => {
       entry: codec.entry,
       permissions: codec.permissions,
       stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
       downloadedBytes: 4096,
       totalBytes: 4096,
       errorCode: null,
-      message: null
+      message: null,
+      finalAvailableVersion: codec.version
     };
     vi.mocked(api.updateCatalogApp).mockResolvedValue(pending);
     const store = usePluginStore(api);

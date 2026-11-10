@@ -1455,6 +1455,7 @@ pub fn run() {
             plugin::commands::plugin_complete_catalog_install,
             plugin::commands::plugin_fail_catalog_install,
             plugin::commands::plugin_get_operation,
+            plugin::commands::plugin_get_latest_operation,
             plugin::commands::plugin_confirm_plugin_launch,
             plugin::commands::plugin_rollback_plugin_launch,
             ecommerce::commands::import_psd_template,

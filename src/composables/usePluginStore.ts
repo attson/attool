@@ -79,6 +79,9 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
         try {
           operationUnlisten = await api.listenOperations((next) => {
             operation.value = next;
+            if (next.stage === 'complete' || next.stage === 'rolled-back' || next.stage === 'error') {
+              void refreshHistory();
+            }
           });
         } catch (reason) {
           error.value = commandError(reason);
@@ -86,6 +89,11 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
       }
       apps.value = await api.listInstalled();
       await refreshHistory();
+      try {
+        operation.value = await api.getLatestOperation();
+      } catch (reason) {
+        error.value = commandError(reason);
+      }
       catalogLoading.value = true;
       try {
         catalog.value = await api.listCatalog();
@@ -149,7 +157,9 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
       operation.value = await api.installCatalogApp(appId, acceptedPermissions);
       return operation.value;
     } catch (reason) {
-      error.value = commandError(reason);
+      const operationError = commandError(reason);
+      await refreshHistory();
+      error.value = operationError;
       throw reason;
     } finally {
       const next = new Set(busyAppIds.value);
@@ -165,7 +175,9 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
       operation.value = await api.updateCatalogApp(appId, acceptedAddedPermissions);
       return operation.value;
     } catch (reason) {
-      error.value = commandError(reason);
+      const operationError = commandError(reason);
+      await refreshHistory();
+      error.value = operationError;
       throw reason;
     } finally {
       const next = new Set(busyAppIds.value);
@@ -195,6 +207,7 @@ export function usePluginStore(api: PluginApi = createPluginApi()) {
   async function failCatalogInstall(operationId: string) {
     try {
       operation.value = await api.failCatalogInstall(operationId);
+      await refreshHistory();
       return operation.value;
     } catch (reason) {
       error.value = commandError(reason);

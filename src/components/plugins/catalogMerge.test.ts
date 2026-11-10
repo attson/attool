@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeCatalogApps } from './catalogMerge';
+import { mergeCatalogApps, permissionConfirmationComplete } from './catalogMerge';
 import type { CatalogSnapshot, InstalledPlugin } from './types';
 
 const installedCodec: InstalledPlugin = {
@@ -90,5 +90,29 @@ describe('mergeCatalogApps', () => {
 
     expect(codec.installedVersion).toBe('1.0.0');
     expect(codec.remoteActionsAllowed).toBe(false);
+  });
+
+  it('separates added and removed permissions for an upgrade', () => {
+    const changedPermissions = {
+      ...snapshot,
+      apps: [{
+        ...snapshot.apps[0],
+        permissions: ['host.file.save']
+      }]
+    };
+
+    const [codec] = mergeCatalogApps(changedPermissions, [installedCodec]);
+
+    expect(codec.addedPermissions).toEqual(['host.file.save']);
+    expect(codec.removedPermissions).toEqual(['host.theme.read']);
+  });
+
+  it('requires the confirmed permission set to match exactly', () => {
+    const expected = ['host.file.save', 'host.notification.show'];
+
+    expect(permissionConfirmationComplete(expected, ['host.file.save'])).toBe(false);
+    expect(permissionConfirmationComplete(expected, [...expected, 'host.theme.read'])).toBe(false);
+    expect(permissionConfirmationComplete(expected, [expected[1], expected[0]])).toBe(true);
+    expect(permissionConfirmationComplete([], [])).toBe(true);
   });
 });

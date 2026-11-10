@@ -1,7 +1,7 @@
 use std::{collections::HashSet, path::Path};
 
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{fs::File, io::AsyncWriteExt};
 
@@ -10,7 +10,7 @@ use super::{
     package::InspectedPackage,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperationStage {
     Download,
@@ -36,13 +36,27 @@ impl OperationStage {
             Self::Error => "error",
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "download" => Self::Download,
+            "verify" => Self::Verify,
+            "staging" => Self::Staging,
+            "health-check" => Self::HealthCheck,
+            "activate" => Self::Activate,
+            "complete" => Self::Complete,
+            "rolled-back" => Self::RolledBack,
+            "error" => Self::Error,
+            _ => return None,
+        })
+    }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationSnapshot {
     #[serde(skip)]
-    pub action: &'static str,
+    pub action: String,
     pub operation_id: String,
     pub correlation_id: String,
     pub app_id: String,
@@ -54,10 +68,12 @@ pub struct OperationSnapshot {
     pub entry: Option<String>,
     pub permissions: Vec<String>,
     pub stage: OperationStage,
+    pub steps: Vec<String>,
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
     pub error_code: Option<String>,
     pub message: Option<String>,
+    pub final_available_version: Option<String>,
 }
 
 impl OperationSnapshot {
@@ -68,7 +84,7 @@ impl OperationSnapshot {
         plan: &CatalogInstallPlan,
     ) -> Self {
         Self {
-            action,
+            action: action.to_string(),
             operation_id,
             correlation_id,
             app_id: plan.app_id.clone(),
@@ -80,12 +96,77 @@ impl OperationSnapshot {
             entry: None,
             permissions: plan.permissions.clone(),
             stage: OperationStage::Download,
+            steps: vec![OperationStage::Download.as_str().to_string()],
             downloaded_bytes: 0,
             total_bytes: plan.artifact.size,
             error_code: None,
             message: None,
+            final_available_version: None,
         }
     }
+
+    pub fn advance_to(&mut self, next: OperationStage) -> Result<(), RemoteInstallError> {
+        if self.stage == next {
+            return Ok(());
+        }
+        let allowed = matches!(
+            (self.stage, next),
+            (
+                OperationStage::Download,
+                OperationStage::Verify | OperationStage::Error
+            ) | (
+                OperationStage::Verify,
+                OperationStage::Staging | OperationStage::Error
+            ) | (
+                OperationStage::Staging,
+                OperationStage::HealthCheck | OperationStage::Error
+            ) | (
+                OperationStage::HealthCheck,
+                OperationStage::Activate | OperationStage::Error
+            ) | (
+                OperationStage::Activate,
+                OperationStage::Complete | OperationStage::Error
+            ) | (
+                OperationStage::Complete,
+                OperationStage::RolledBack | OperationStage::Error
+            )
+        );
+        if !allowed {
+            return Err(RemoteInstallError::new(
+                "PLUGIN_OPERATION_STATE_INVALID",
+                format!(
+                    "Plugin operation cannot move from {} to {}",
+                    self.stage.as_str(),
+                    next.as_str()
+                ),
+            ));
+        }
+        self.stage = next;
+        self.steps.push(next.as_str().to_string());
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionDiff {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+pub fn permission_diff(current: &[String], target: &[String]) -> PermissionDiff {
+    let current = current.iter().collect::<HashSet<_>>();
+    let target = target.iter().collect::<HashSet<_>>();
+    let mut added = target
+        .difference(&current)
+        .map(|permission| (*permission).clone())
+        .collect::<Vec<_>>();
+    let mut removed = current
+        .difference(&target)
+        .map(|permission| (*permission).clone())
+        .collect::<Vec<_>>();
+    added.sort();
+    removed.sort();
+    PermissionDiff { added, removed }
 }
 
 #[derive(Debug)]
@@ -285,7 +366,8 @@ mod tests {
     use zip::{write::SimpleFileOptions, ZipWriter};
 
     use super::{
-        download_artifact, validate_accepted_permissions, validate_package_against_catalog,
+        download_artifact, permission_diff, validate_accepted_permissions,
+        validate_package_against_catalog, OperationSnapshot, OperationStage,
     };
     use crate::plugin::{
         catalog::{CatalogArtifact, CatalogInstallPlan, CatalogTargetArch, CatalogTargetOs},
@@ -343,6 +425,55 @@ mod tests {
                 b"package",
             ),
         }
+    }
+
+    #[test]
+    fn calculates_added_and_removed_permissions_as_sets() {
+        let current = vec![
+            "host.theme.read".to_string(),
+            "host.notification.show".to_string(),
+        ];
+        let target = vec!["host.file.save".to_string(), "host.theme.read".to_string()];
+
+        let difference = permission_diff(&current, &target);
+
+        assert_eq!(difference.added, vec!["host.file.save"]);
+        assert_eq!(difference.removed, vec!["host.notification.show"]);
+    }
+
+    #[test]
+    fn operation_stage_history_cannot_regress_after_completion() {
+        let plan = install_plan();
+        let mut operation = OperationSnapshot::new(
+            "operation-1".to_string(),
+            "correlation-1".to_string(),
+            "install",
+            &plan,
+        );
+        for stage in [
+            OperationStage::Verify,
+            OperationStage::Staging,
+            OperationStage::HealthCheck,
+            OperationStage::Activate,
+            OperationStage::Complete,
+        ] {
+            operation.advance_to(stage).unwrap();
+        }
+
+        let error = operation.advance_to(OperationStage::Download).unwrap_err();
+
+        assert_eq!(error.code, "PLUGIN_OPERATION_STATE_INVALID");
+        assert_eq!(
+            operation.steps,
+            vec![
+                "download",
+                "verify",
+                "staging",
+                "health-check",
+                "activate",
+                "complete",
+            ]
+        );
     }
 
     fn inspected_package() -> InspectedPackage {

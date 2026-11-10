@@ -72,6 +72,7 @@ export interface ManagedCatalogApp extends CatalogApp {
   remoteActionsAllowed: boolean;
   updateAvailable: boolean;
   addedPermissions: string[];
+  removedPermissions: string[];
 }
 
 export interface PluginCommandError {
@@ -91,6 +92,7 @@ export interface PluginHistoryRecord {
   operationId: string | null;
   correlationId: string | null;
   steps: string[];
+  finalAvailableVersion: string | null;
 }
 
 export type PluginOperationStage =
@@ -115,10 +117,12 @@ export interface PluginOperationSnapshot {
   entry: string | null;
   permissions: string[];
   stage: PluginOperationStage;
+  steps: PluginOperationStage[];
   downloadedBytes: number;
   totalBytes: number;
   errorCode: string | null;
   message: string | null;
+  finalAvailableVersion: string | null;
 }
 
 export interface CatalogInstallResult {
@@ -138,6 +142,7 @@ export interface PluginApi {
   completeCatalogInstall(operationId: string): Promise<CatalogInstallResult>;
   failCatalogInstall(operationId: string): Promise<PluginOperationSnapshot>;
   getOperation(operationId: string): Promise<PluginOperationSnapshot>;
+  getLatestOperation(): Promise<PluginOperationSnapshot | null>;
   listenOperations(listener: (operation: PluginOperationSnapshot) => void): Promise<() => void>;
   confirmPluginLaunch(appId: string, version: string): Promise<boolean>;
   rollbackPluginLaunch(appId: string, version: string): Promise<InstalledPlugin | null>;
