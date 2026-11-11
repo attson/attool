@@ -89,6 +89,28 @@ describe('Catalog key rotation ceremony', () => {
     );
   });
 
+  it('derives an independent Time Publisher authorization plan', () => {
+    const fixture = createFixture();
+
+    assert.deepEqual(
+      createProductionPublisherAuthorizationPlan({
+        root: fixture.root,
+        application: {
+          appId: 'com.attson.time',
+          slug: 'time',
+          publisherId: 'com.attson'
+        },
+        now: new Date('2026-11-12T08:09:10.987Z')
+      }),
+      {
+        publisherId: 'com.attson',
+        publisherKeyId: 'attson-time-2026-01',
+        issuedAt: '2026-11-12T08:09:10.000Z',
+        notAfter: '2027-11-12T08:09:10.000Z'
+      }
+    );
+  });
+
   it('authorizes one Publisher key without rotating the Catalog key', async () => {
     const fixture = createFixture();
     const directory = await mkdtemp(path.join(tmpdir(), 'attool-publisher-authorization-'));

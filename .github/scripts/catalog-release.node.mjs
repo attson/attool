@@ -76,6 +76,25 @@ const previousCatalog = {
 };
 
 describe('Catalog release generation', () => {
+  it('loads Time release policy by app ID and slug', async () => {
+    const expected = {
+      appId: 'com.attson.time',
+      slug: 'time',
+      repository: 'attsontools/attime',
+      artifactPrefix: 'AT.Time',
+      name: '时间工具',
+      description: '时间戳 / 时区 / Cron / Duration',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATTIME_PUBLISHER_KEY_ID',
+      icon: 'clock',
+      hostApi: { min: '1.0.0', max: '1.x' },
+      permissions: ['host.theme.read']
+    };
+
+    assert.deepEqual(await loadCatalogApplication('com.attson.time'), expected);
+    assert.deepEqual(await loadCatalogApplicationBySlug('time'), expected);
+  });
+
   it('loads Generator release policy by app ID and slug', async () => {
     const expected = {
       appId: 'com.attson.generator',
