@@ -57,6 +57,24 @@
         "host.theme.read",
         "host.file.save"
       ]
+    },
+    {
+      "appId": "com.attson.time",
+      "slug": "time",
+      "repository": "attsontools/attime",
+      "artifactPrefix": "AT.Time",
+      "name": "时间工具",
+      "description": "时间戳 / 时区 / Cron / Duration",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATTIME_PUBLISHER_KEY_ID",
+      "icon": "clock",
+      "hostApi": {
+        "min": "1.0.0",
+        "max": "1.x"
+      },
+      "permissions": [
+        "host.theme.read"
+      ]
     }
   ]
 }
