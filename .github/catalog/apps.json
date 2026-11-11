@@ -38,6 +38,25 @@
       "permissions": [
         "host.theme.read"
       ]
+    },
+    {
+      "appId": "com.attson.generator",
+      "slug": "generator",
+      "repository": "attsontools/atgenerator",
+      "artifactPrefix": "AT.Generator",
+      "name": "生成器",
+      "description": "密码 / UUID / QR / Lorem / 假数据 / 骰子",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATGENERATOR_PUBLISHER_KEY_ID",
+      "icon": "dice",
+      "hostApi": {
+        "min": "1.0.0",
+        "max": "1.x"
+      },
+      "permissions": [
+        "host.theme.read",
+        "host.file.save"
+      ]
     }
   ]
 }

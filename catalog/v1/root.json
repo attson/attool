@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sequence": 4,
-  "issuedAt": "2026-11-11T13:32:02.000Z",
+  "sequence": 5,
+  "issuedAt": "2026-11-11T16:18:56.000Z",
   "expiresAt": "2031-11-11T03:17:47.000Z",
   "catalogKeys": [
     {
@@ -49,6 +49,14 @@
           "status": "active",
           "notBefore": "2026-11-11T13:32:02.000Z",
           "notAfter": "2027-11-11T13:32:02.000Z"
+        },
+        {
+          "keyId": "attson-generator-2026-01",
+          "algorithm": "ed25519",
+          "publicKey": "bNLRYXXfy3sPw09PIjqzdmU6kQ1F0LQn/3VrGjLEAq8=",
+          "status": "active",
+          "notBefore": "2026-11-11T16:18:56.000Z",
+          "notAfter": "2027-11-11T16:18:56.000Z"
         }
       ]
     }
