@@ -18,6 +18,7 @@ import {
   inspectCodecPackage,
   inspectPluginPackage,
   loadCatalogApplication,
+  loadCatalogApplicationBySlug,
   prepareCatalogRelease,
   prepareCatalogRenewal,
   renewCatalog,
@@ -75,6 +76,25 @@ const previousCatalog = {
 };
 
 describe('Catalog release generation', () => {
+  it('loads Generator release policy by app ID and slug', async () => {
+    const expected = {
+      appId: 'com.attson.generator',
+      slug: 'generator',
+      repository: 'attsontools/atgenerator',
+      artifactPrefix: 'AT.Generator',
+      name: '生成器',
+      description: '密码 / UUID / QR / Lorem / 假数据 / 骰子',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATGENERATOR_PUBLISHER_KEY_ID',
+      icon: 'dice',
+      hostApi: { min: '1.0.0', max: '1.x' },
+      permissions: ['host.theme.read', 'host.file.save']
+    };
+
+    assert.deepEqual(await loadCatalogApplication('com.attson.generator'), expected);
+    assert.deepEqual(await loadCatalogApplicationBySlug('generator'), expected);
+  });
+
   it('loads Text release policy from the versioned application registry', async () => {
     const application = await loadCatalogApplication('com.attson.text');
 
