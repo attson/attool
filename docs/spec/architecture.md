@@ -10,9 +10,9 @@
 │  │                   Dashboard / SettingsModal /           │
 │  │                   UpdateBanner / ...                    │
 │  ├─ ui/*             Panel / TaskRow / StatPill / Kbd     │
-│  ├─ <9 工具>/*       clipboard / image / json / time /    │
-│  │                   network / http / douyin / ecommerce /│
-│  │                   ai（懒加载）                          │
+│  ├─ <8 工具>/*       clipboard / image / json / network / │
+│  │                   http / douyin / ecommerce / ai       │
+│  │                   （懒加载）                             │
 │  ├─ composables/*    useTheme / useSidebarState /         │
 │  │                   useUpdater / useClipboardHistory /    │
 │  │                   useHttpStore（HTTP 单例）...          │
@@ -83,7 +83,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator` 与 `attime` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。Time 迁移期仍保留宿主内置版本，待下一阶段移除后才由动态插件提供唯一入口。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator` 与 `attime` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
 
 ### 包与安装状态
 
@@ -102,8 +102,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 ### 前端装配与应用外置
 
 - `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
-- 平台不再内置 `codec`、`text` 与 `generator`；`com.attson.codec`、`com.attson.text`、`com.attson.generator` 插件分别是编码转换、文本工具与生成器在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
-- `com.attson.time` 已通过生产 Catalog 完成安装、打开、停用、启用、卸载与重装验证；当前仍与内置 Time 并存，内置版本将在独立阶段移除。
+- 平台不再内置 `codec`、`text`、`generator` 与 `time`；`com.attson.codec`、`com.attson.text`、`com.attson.generator`、`com.attson.time` 插件分别是编码转换、文本工具、生成器与时间工具在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
 - `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec`、`attext`、`atgenerator` 与 `attime` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
 
 ### 官方 Catalog、升级与回滚

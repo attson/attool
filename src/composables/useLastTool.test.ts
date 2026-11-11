@@ -36,6 +36,12 @@ describe('useLastTool', () => {
     expect(lastToolId.value).toBe('plugin:com.attson.codec');
   });
 
+  it('maps the removed time tool to the external application', () => {
+    const { storage } = fakeStorage({ 'attool.lastTool': 'time' });
+    const { lastToolId } = useLastTool(storage);
+    expect(lastToolId.value).toBe('plugin:com.attson.time');
+  });
+
   it('remember persists tool id and updates state', () => {
     const { storage, data } = fakeStorage();
     const { lastToolId, remember } = useLastTool(storage);

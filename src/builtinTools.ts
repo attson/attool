@@ -9,7 +9,6 @@ export const builtinTools: Tool[] = [
   { id: 'video-link', name: '视频链接抽取', description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video', group: 'download' },
   { id: 'image', name: '图片工具', description: '截图 / 录屏 / 标注 / 压缩 / 转换 / OCR', status: 'ready', icon: 'image', group: 'edit' },
   { id: 'network', name: '网络工具', description: 'URL 分析 / Ping / 端口检查 / DNS', status: 'ready', icon: 'wifi', group: 'network' },
-  { id: 'time', name: '时间工具', description: '时间戳 / 时区 / Cron / Duration', status: 'ready', icon: 'clock', group: 'utility' },
   { id: 'http', name: 'HTTP 请求', description: 'GET/POST/... + headers / body / 响应', status: 'ready', icon: 'send', group: 'network' },
   { id: 'ai-chat', name: 'AI 对话', description: '多提供商多模型 AI 助手（OpenAI 兼容 / Claude / Ollama）', status: 'ready', icon: 'chat', group: 'utility' }
 ];
