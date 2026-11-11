@@ -3,8 +3,12 @@ name: Publish Catalog
 on:
   workflow_dispatch:
     inputs:
-      codec_tag:
-        description: Public attsontools/atcodec release tag
+      app_id:
+        description: Registered application ID
+        required: true
+        type: string
+      release_tag:
+        description: Public application release tag
         required: true
         type: string
 
@@ -18,7 +22,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Verify Codec and prepare Catalog PR
+    name: Verify application and prepare Catalog PR
     runs-on: ubuntu-24.04
     environment: prod
     steps:
@@ -32,6 +36,23 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Resolve registered application
+        id: application
+        env:
+          APP_ID: ${{ inputs.app_id }}
+        run: |
+          APPLICATION=$(jq -cer --arg app_id "$APP_ID" '
+            [.apps[] | select(.appId == $app_id)] |
+            if length == 1 then .[0] else error("application is not registered") end
+          ' .github/catalog/apps.json)
+          {
+            echo "slug=$(jq -r '.slug' <<<"$APPLICATION")"
+            echo "repository=$(jq -r '.repository' <<<"$APPLICATION")"
+            echo "artifact_prefix=$(jq -r '.artifactPrefix' <<<"$APPLICATION")"
+            echo "name=$(jq -r '.name' <<<"$APPLICATION")"
+            echo "publisher_key_secret=$(jq -r '.publisherKeySecret' <<<"$APPLICATION")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Ensure no Catalog update is pending
         env:
@@ -65,43 +86,54 @@ jobs:
             exit 1
           fi
 
-      - name: Read public Codec release
+      - name: Read public application release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          CODEC_TAG: ${{ inputs.codec_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APP_REPOSITORY: ${{ steps.application.outputs.repository }}
+          APP_SLUG: ${{ steps.application.outputs.slug }}
+          ARTIFACT_PREFIX: ${{ steps.application.outputs.artifact_prefix }}
         run: |
-          if [[ ! "$CODEC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Codec tag must be a v-prefixed SemVer" >&2
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be a v-prefixed SemVer" >&2
             exit 1
           fi
-          mkdir -p "${RUNNER_TEMP}/codec-assets"
-          gh api "repos/attsontools/atcodec/releases/tags/${CODEC_TAG}" > "${RUNNER_TEMP}/codec-release-source.json"
-          jq -e '.draft == false and .published_at != null' "${RUNNER_TEMP}/codec-release-source.json" >/dev/null
-          jq '{
+          ASSET_DIRECTORY="${RUNNER_TEMP}/${APP_SLUG}-assets"
+          RELEASE_SOURCE="${RUNNER_TEMP}/${APP_SLUG}-release-source.json"
+          RELEASE_JSON="${RUNNER_TEMP}/${APP_SLUG}-release.json"
+          mkdir -p "$ASSET_DIRECTORY"
+          gh api "repos/${APP_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "$RELEASE_SOURCE"
+          jq -e '.draft == false and .published_at != null' "$RELEASE_SOURCE" >/dev/null
+          jq --arg prefix "${ARTIFACT_PREFIX}_" '{
             tagName: .tag_name,
             publishedAt: .published_at,
             notes: (.body // ""),
-            assets: [.assets[] | select(.name | endswith(".atpkg")) | {
+            assets: [.assets[] | select((.name | startswith($prefix)) and (.name | endswith(".atpkg"))) | {
               fileName: .name,
               size: .size,
               url: .browser_download_url
             }]
-          }' "${RUNNER_TEMP}/codec-release-source.json" > "${RUNNER_TEMP}/codec-release.json"
-          test "$(jq '.assets | length' "${RUNNER_TEMP}/codec-release.json")" -eq 5
-          gh release download "$CODEC_TAG" \
-            --repo attsontools/atcodec \
-            --pattern '*.atpkg' \
-            --dir "${RUNNER_TEMP}/codec-assets"
-          echo "tag=$CODEC_TAG" >> "$GITHUB_OUTPUT"
-          echo "version=${CODEC_TAG#v}" >> "$GITHUB_OUTPUT"
+          }' "$RELEASE_SOURCE" > "$RELEASE_JSON"
+          test "$(jq '.assets | length' "$RELEASE_JSON")" -eq 5
+          gh release download "$RELEASE_TAG" \
+            --repo "$APP_REPOSITORY" \
+            --pattern "${ARTIFACT_PREFIX}_*.atpkg" \
+            --dir "$ASSET_DIRECTORY"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "release_json=$RELEASE_JSON" >> "$GITHUB_OUTPUT"
+          echo "asset_directory=$ASSET_DIRECTORY" >> "$GITHUB_OUTPUT"
 
       - name: Verify packages and sign next Catalog
         env:
           ATTOOL_CATALOG_ROOT_PUBLIC_KEY: ${{ secrets.ATTOOL_CATALOG_ROOT_PUBLIC_KEY }}
           ATTOOL_CATALOG_SIGNING_KEY_ID: ${{ secrets.ATTOOL_CATALOG_SIGNING_KEY_ID }}
           ATTOOL_CATALOG_SIGNING_PRIVATE_KEY: ${{ secrets.ATTOOL_CATALOG_SIGNING_PRIVATE_KEY }}
-          ATCODEC_PUBLISHER_KEY_ID: ${{ secrets.ATCODEC_PUBLISHER_KEY_ID }}
+          ATTOOL_PUBLISHER_KEY_ID: ${{ secrets[steps.application.outputs.publisher_key_secret] }}
+          APP_ID: ${{ inputs.app_id }}
+          RELEASE_JSON: ${{ steps.release.outputs.release_json }}
+          ASSET_DIRECTORY: ${{ steps.release.outputs.asset_directory }}
         run: |
           GENERATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           EXPIRES_AT=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
@@ -113,11 +145,12 @@ jobs:
             )
           fi
           pnpm publish:catalog -- \
+            --app "$APP_ID" \
             --root catalog/v1/root.json \
             --root-signature catalog/v1/root.json.sig \
             "${CATALOG_ARGS[@]}" \
-            --release "${RUNNER_TEMP}/codec-release.json" \
-            --assets "${RUNNER_TEMP}/codec-assets" \
+            --release "$RELEASE_JSON" \
+            --assets "$ASSET_DIRECTORY" \
             --output catalog/v1 \
             --generated-at "$GENERATED_AT" \
             --expires-at "$EXPIRES_AT"
@@ -131,11 +164,13 @@ jobs:
       - name: Create Catalog pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          CODEC_TAG: ${{ steps.release.outputs.tag }}
-          CODEC_VERSION: ${{ steps.release.outputs.version }}
+          APP_NAME: ${{ steps.application.outputs.name }}
+          APP_SLUG: ${{ steps.application.outputs.slug }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          BRANCH="catalog/codec-${CODEC_VERSION}"
+          BRANCH="catalog/${APP_SLUG}-${RELEASE_VERSION}"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Catalog branch already exists: $BRANCH" >&2
             exit 1
@@ -143,11 +178,11 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add catalog/v1/catalog.json catalog/v1/catalog.json.sig
-          git commit -m "chore: publish Codec ${CODEC_VERSION} catalog"
+          git commit -m "chore: publish ${APP_NAME} ${RELEASE_VERSION} catalog"
           git push origin "HEAD:refs/heads/${BRANCH}"
           gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base "$DEFAULT_BRANCH" \
             --head "$BRANCH" \
-            --title "chore: publish Codec ${CODEC_VERSION} catalog" \
-            --body "Publishes verified Codec release ${CODEC_TAG} through the signed production Catalog. Root metadata is unchanged."
+            --title "chore: publish ${APP_NAME} ${RELEASE_VERSION} catalog" \
+            --body "Publishes verified ${APP_NAME} release ${RELEASE_TAG} through the signed production Catalog. Root metadata is unchanged."

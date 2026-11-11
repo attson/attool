@@ -158,6 +158,86 @@ export async function writeOverlapCeremony({
   return rotated;
 }
 
+export async function writePublisherAuthorizationCeremony({
+  root,
+  rootSignature,
+  rootPublicKey,
+  rootPrivateKey,
+  offlineDirectory,
+  transferDirectory,
+  publisherId,
+  publisherKeyId,
+  issuedAt,
+  notAfter,
+  appSlug,
+  repositorySlug,
+  publisherKeySecret
+}) {
+  const offlinePath = path.resolve(offlineDirectory);
+  const transferPath = path.resolve(transferDirectory);
+  assertSeparateDirectories(offlinePath, transferPath);
+  await assertMissing(offlinePath);
+  await assertMissing(transferPath);
+  if (!/^[a-z0-9-]+$/.test(appSlug) || !/^[a-z0-9-]+$/.test(repositorySlug)) {
+    throw new Error('Application and repository slugs must use lowercase ASCII');
+  }
+  if (!/^[A-Z][A-Z0-9_]*_KEY_ID$/.test(publisherKeySecret)) {
+    throw new Error('Publisher key secret name is invalid');
+  }
+
+  const publisherKeys = generateKeyPairSync('ed25519');
+  const authorized = createPublisherAuthorizationRoot({
+    root,
+    rootSignature,
+    rootPublicKey,
+    rootPrivateKey,
+    publisherId,
+    publisherKey: {
+      keyId: publisherKeyId,
+      publicKey: rawPublicKey(publisherKeys.publicKey)
+    },
+    issuedAt,
+    notAfter
+  });
+
+  let offlineCreated = false;
+  let transferCreated = false;
+  try {
+    await mkdir(offlinePath, { mode: 0o700 });
+    offlineCreated = true;
+    await mkdir(transferPath, { mode: 0o700 });
+    transferCreated = true;
+    const publicDirectory = path.join(transferPath, 'public');
+    const attoolSecrets = path.join(transferPath, 'github-secrets', 'attool');
+    const applicationSecrets = path.join(transferPath, 'github-secrets', repositorySlug);
+    await Promise.all([
+      mkdir(publicDirectory, { recursive: true, mode: 0o700 }),
+      mkdir(attoolSecrets, { recursive: true, mode: 0o700 }),
+      mkdir(applicationSecrets, { recursive: true, mode: 0o700 })
+    ]);
+
+    const privateKey = exportPrivateKey(publisherKeys.privateKey);
+    const publicKey = rawPublicKey(publisherKeys.publicKey);
+    const secretPrefix = publisherKeySecret.slice(0, -'_KEY_ID'.length);
+    await Promise.all([
+      writeSecret(path.join(offlinePath, 'publisher-private.pem'), privateKey),
+      writePublic(path.join(publicDirectory, 'root.json'), `${JSON.stringify(authorized.root, null, 2)}\n`),
+      writePublic(path.join(publicDirectory, 'root.json.sig'), `${authorized.signature}\n`),
+      writePublic(path.join(publicDirectory, `${appSlug}-publisher-public-key.txt`), `${publicKey}\n`),
+      writeSecret(path.join(attoolSecrets, publisherKeySecret), `${publisherKeyId}\n`),
+      writeSecret(path.join(applicationSecrets, publisherKeySecret), `${publisherKeyId}\n`),
+      writeSecret(path.join(applicationSecrets, `${secretPrefix}_PRIVATE_KEY`), privateKey),
+      writeSecret(path.join(applicationSecrets, `${secretPrefix}_PUBLIC_KEY`), `${publicKey}\n`)
+    ]);
+  } catch (error) {
+    if (offlineCreated) await rm(offlinePath, { recursive: true, force: true });
+    if (transferCreated) await rm(transferPath, { recursive: true, force: true });
+    throw error;
+  }
+
+  return authorized;
+}
+
 export async function writeStatusCeremony({
   root,
   rootSignature,
@@ -239,6 +319,49 @@ export function createOverlapRoot({
       ...root.catalogKeys,
       delegatedKey(catalogKey, issuedAt, notAfter)
     ],
+    publishers: root.publishers.map((candidate) => candidate.publisherId === publisherId
+      ? {
+          ...candidate,
+          keys: [...candidate.keys, delegatedKey(publisherKey, issuedAt, notAfter)]
+        }
+      : candidate)
+  });
+  return signRoot(nextRoot, rootPrivateKeyInput);
+}
+
+export function createPublisherAuthorizationRoot({
+  root: rootInput,
+  rootSignature,
+  rootPublicKey,
+  rootPrivateKey: rootPrivateKeyInput,
+  publisherId,
+  publisherKey,
+  issuedAt,
+  notAfter
+}) {
+  const root = verifyRootAuthority({
+    root: rootInput,
+    rootSignature,
+    rootPublicKey,
+    rootPrivateKey: rootPrivateKeyInput
+  });
+  if (Date.parse(issuedAt) <= Date.parse(root.issuedAt)) {
+    throw new Error('Authorized Root issuedAt must be later than the current Root');
+  }
+  if (Date.parse(notAfter) <= Date.parse(issuedAt) || Date.parse(notAfter) > Date.parse(root.expiresAt)) {
+    throw new Error('Delegated key validity must end after issuedAt and before Root expiry');
+  }
+  const publisher = root.publishers.find((candidate) => candidate.publisherId === publisherId);
+  if (!publisher) throw new Error(`Publisher ${publisherId} is not declared by Root`);
+  if (publisher.keys.some((key) => key.keyId === publisherKey.keyId)) {
+    throw new Error(`Publisher key ID already exists: ${publisherKey.keyId}`);
+  }
+
+  const nextRoot = parseTrustRoot({
+    ...root,
+    sequence: root.sequence + 1,
+    issuedAt,
+    catalogKeys: root.catalogKeys,
     publishers: root.publishers.map((candidate) => candidate.publisherId === publisherId
       ? {
           ...candidate,

@@ -28,8 +28,113 @@ import {
   parseProductionRetirementArguments,
   runProductionRetirement
 } from './retire-production-catalog-keys.mjs';
+import {
+  createProductionPublisherAuthorizationPlan,
+  parseProductionPublisherArguments,
+  runProductionPublisherAuthorization
+} from './authorize-production-publisher.mjs';
 
 describe('Catalog key rotation ceremony', () => {
+  it('accepts a one-argument production Publisher authorization command', () => {
+    assert.deepEqual(parseProductionPublisherArguments(['--', 'text']), {
+      appSlug: 'text'
+    });
+    assert.throws(
+      () => parseProductionPublisherArguments([]),
+      /Usage: pnpm authorize:publisher:prod/
+    );
+  });
+
+  it('derives a Text-only Publisher authorization plan', () => {
+    const fixture = createFixture();
+
+    assert.deepEqual(
+      createProductionPublisherAuthorizationPlan({
+        root: fixture.root,
+        application: {
+          appId: 'com.attson.text',
+          slug: 'text',
+          publisherId: 'com.attson'
+        },
+        now: new Date('2026-11-12T08:09:10.987Z')
+      }),
+      {
+        publisherId: 'com.attson',
+        publisherKeyId: 'attson-text-2026-01',
+        issuedAt: '2026-11-12T08:09:10.000Z',
+        notAfter: '2027-11-12T08:09:10.000Z'
+      }
+    );
+  });
+
+  it('authorizes one Publisher key without rotating the Catalog key', async () => {
+    const fixture = createFixture();
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-publisher-authorization-'));
+    const rootOfflineDirectory = path.join(directory, 'root-offline');
+    const metadataDirectory = path.join(directory, 'metadata');
+    const offlineDirectory = path.join(directory, 'text-offline');
+    const transferDirectory = path.join(directory, 'text-transfer');
+    const application = {
+      appId: 'com.attson.text',
+      slug: 'text',
+      repository: 'attsontools/attext',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATTEXT_PUBLISHER_KEY_ID'
+    };
+    try {
+      await Promise.all([
+        mkdir(rootOfflineDirectory, { mode: 0o700 }),
+        mkdir(metadataDirectory)
+      ]);
+      await Promise.all([
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-private.pem'),
+          fixture.rootKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+          { mode: 0o600 }
+        ),
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-public.txt'),
+          `${rawPublicKey(fixture.rootKeys.publicKey)}\n`
+        ),
+        writeFile(path.join(metadataDirectory, 'root.json'), `${JSON.stringify(fixture.root)}\n`),
+        writeFile(path.join(metadataDirectory, 'root.json.sig'), `${fixture.rootSignature}\n`)
+      ]);
+
+      const result = await runProductionPublisherAuthorization({
+        application,
+        rootOfflineDirectory,
+        offlineDirectory,
+        transferDirectory,
+        metadataDirectory,
+        now: new Date('2026-11-12T08:09:10Z')
+      });
+
+      assert.equal(result.root.sequence, 2);
+      assert.deepEqual(result.root.catalogKeys, fixture.root.catalogKeys);
+      assert.deepEqual(
+        result.root.publishers[0].keys.map(({ keyId }) => keyId),
+        ['attson-codec-2026-01', 'attson-text-2026-01']
+      );
+      assert.equal(
+        JSON.parse(await readFile(path.join(transferDirectory, 'public', 'root.json'), 'utf8')).sequence,
+        2
+      );
+      assert.equal(
+        await readFile(path.join(transferDirectory, 'github-secrets', 'attool', 'ATTEXT_PUBLISHER_KEY_ID'), 'utf8'),
+        'attson-text-2026-01\n'
+      );
+      assert.equal(
+        await readFile(path.join(transferDirectory, 'github-secrets', 'attext', 'ATTEXT_PUBLISHER_KEY_ID'), 'utf8'),
+        'attson-text-2026-01\n'
+      );
+      const privateFile = path.join(offlineDirectory, 'publisher-private.pem');
+      assert.match(await readFile(privateFile, 'utf8'), /BEGIN PRIVATE KEY/);
+      assert.equal((await stat(privateFile)).mode & 0o777, 0o600);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('derives the next production key IDs and one-year validity window', () => {
     const fixture = createFixture();
 

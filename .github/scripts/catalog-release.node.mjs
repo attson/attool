@@ -16,6 +16,8 @@ import {
 import {
   createCatalog,
   inspectCodecPackage,
+  inspectPluginPackage,
+  loadCatalogApplication,
   prepareCatalogRelease,
   prepareCatalogRenewal,
   renewCatalog,
@@ -29,6 +31,9 @@ const version = '0.1.0-alpha.1';
 const tagName = `v${version}`;
 const catalogKeyId = 'catalog-2026-01';
 const publisherKeyId = 'attson-codec-2026-01';
+const textPublisherKeyId = 'attson-text-2026-01';
+const codecApplication = await loadCatalogApplication('com.attson.codec');
+const textApplication = await loadCatalogApplication('com.attson.text');
 
 const root = {
   schemaVersion: 1,
@@ -39,7 +44,7 @@ const root = {
   publishers: [{
     publisherId: 'com.attson',
     name: 'Attson',
-    keys: [trustKey(publisherKeyId)]
+    keys: [trustKey(publisherKeyId), trustKey(textPublisherKeyId)]
   }]
 };
 
@@ -70,10 +75,70 @@ const previousCatalog = {
 };
 
 describe('Catalog release generation', () => {
+  it('loads Text release policy from the versioned application registry', async () => {
+    const application = await loadCatalogApplication('com.attson.text');
+
+    assert.deepEqual(application, {
+      appId: 'com.attson.text',
+      slug: 'text',
+      repository: 'attsontools/attext',
+      artifactPrefix: 'AT.Text',
+      name: '文本工具',
+      description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATTEXT_PUBLISHER_KEY_ID',
+      icon: 'type',
+      hostApi: { min: '1.0.0', max: '1.x' },
+      permissions: ['host.theme.read']
+    });
+  });
+
+  it('rejects ambiguous or out-of-scope application registry entries', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-application-registry-'));
+    const registryPath = path.join(directory, 'apps.json');
+    try {
+      await writeFile(registryPath, JSON.stringify({
+        schemaVersion: 1,
+        apps: [
+          codecApplication,
+          {
+            ...codecApplication,
+            appId: 'com.attson.other',
+            repository: 'example/other'
+          }
+        ]
+      }));
+
+      await assert.rejects(
+        () => loadCatalogApplication('com.attson.other', registryPath),
+        /official attsontools repository/
+      );
+
+      await writeFile(registryPath, JSON.stringify({
+        schemaVersion: 1,
+        apps: [
+          codecApplication,
+          {
+            ...codecApplication,
+            appId: 'com.attson.other',
+            repository: 'attsontools/atother'
+          }
+        ]
+      }));
+      await assert.rejects(
+        () => loadCatalogApplication('com.attson.other', registryPath),
+        /duplicate slugs/
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('creates the next signed-release payload from all five immutable Codec assets', () => {
     const catalog = createCatalog({
       root,
       previousCatalog,
+      application: codecApplication,
       release: release(),
       catalogKeyId,
       publisherKeyId,
@@ -89,6 +154,47 @@ describe('Catalog release generation', () => {
       catalog.apps[0].channels.stable.artifacts.map(({ os, arch }) => `${os}/${arch}`),
       ['linux/aarch64', 'linux/x86_64', 'macos/aarch64', 'macos/x86_64', 'windows/x86_64']
     );
+  });
+
+  it('adds Text without changing the existing Codec application', async () => {
+    const application = await loadCatalogApplication('com.attson.text');
+    const catalog = createCatalog({
+      root,
+      previousCatalog,
+      application,
+      release: textRelease(),
+      catalogKeyId,
+      publisherKeyId: textPublisherKeyId,
+      generatedAt,
+      expiresAt
+    });
+
+    assert.equal(catalog.sequence, previousCatalog.sequence + 1);
+    assert.deepEqual(catalog.apps[0], previousCatalog.apps[0]);
+    assert.deepEqual(catalog.apps[1], {
+      appId: 'com.attson.text',
+      name: '文本工具',
+      description: '整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比',
+      publisherId: 'com.attson',
+      icon: 'type',
+      channels: {
+        stable: {
+          version,
+          publishedAt: '2026-11-11T00:00:00Z',
+          notes: 'Text production drill',
+          publisherKeyId: textPublisherKeyId,
+          hostApi: { min: '1.0.0', max: '1.x' },
+          permissions: ['host.theme.read'],
+          artifacts: [
+            textArtifact('linux', 'aarch64'),
+            textArtifact('linux', 'x86_64'),
+            textArtifact('macos', 'aarch64'),
+            textArtifact('macos', 'x86_64'),
+            textArtifact('windows', 'x86_64')
+          ]
+        }
+      }
+    });
   });
 
   it('renews Catalog metadata without changing the published applications', () => {
@@ -147,14 +253,14 @@ describe('Catalog release generation', () => {
     const incomplete = release();
     incomplete.assets.pop();
     assert.throws(
-      () => createCatalog({ root, previousCatalog, release: incomplete, catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
+      () => createCatalog({ root, previousCatalog, application: codecApplication, release: incomplete, catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
       /exactly the five supported plugin targets/
     );
 
     const redirected = release();
     redirected.assets[0].url = 'https://example.com/AT.Codec.atpkg';
     assert.throws(
-      () => createCatalog({ root, previousCatalog, release: redirected, catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
+      () => createCatalog({ root, previousCatalog, application: codecApplication, release: redirected, catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
       /immutable attsontools\/atcodec Release URL/
     );
 
@@ -168,6 +274,7 @@ describe('Catalog release generation', () => {
             channels: { stable: { ...previousCatalog.apps[0].channels.stable, version } }
           }]
         },
+        application: codecApplication,
         release: release(),
         catalogKeyId,
         publisherKeyId,
@@ -180,7 +287,7 @@ describe('Catalog release generation', () => {
     const retiredRoot = structuredClone(root);
     retiredRoot.catalogKeys[0].status = 'retired';
     assert.throws(
-      () => createCatalog({ root: retiredRoot, previousCatalog, release: release(), catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
+      () => createCatalog({ root: retiredRoot, previousCatalog, application: codecApplication, release: release(), catalogKeyId, publisherKeyId, generatedAt, expiresAt }),
       /active Catalog signing key/
     );
   });
@@ -192,6 +299,7 @@ describe('Catalog release generation', () => {
     const catalog = createCatalog({
       root: signingRoot,
       previousCatalog,
+      application: codecApplication,
       release: release(),
       catalogKeyId,
       publisherKeyId,
@@ -263,6 +371,39 @@ describe('Catalog release generation', () => {
         }),
         /manifest signature is invalid/
       );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('inspects a Text package using its independent identity and permissions', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-text-catalog-test-'));
+    const publisherKeys = generateKeyPairSync('ed25519');
+    const packageRoot = structuredClone(root);
+    packageRoot.publishers[0].keys[1].publicKey = rawPublicKey(publisherKeys.publicKey);
+    try {
+      const packagePath = await createPluginPackage(
+        directory,
+        publisherKeys.privateKey,
+        'linux',
+        'x86_64',
+        {
+          application: textApplication,
+          publisherKeyId: textPublisherKeyId
+        }
+      );
+      const inspected = await inspectPluginPackage({
+        packagePath,
+        application: textApplication,
+        root: packageRoot,
+        publishedAt: generatedAt,
+        expectedVersion: version,
+        expectedPublisherKeyId: textPublisherKeyId
+      });
+
+      assert.equal(inspected.manifest.appId, 'com.attson.text');
+      assert.deepEqual(inspected.manifest.permissions, ['host.theme.read']);
+      assert.equal(inspected.fileName, `AT.Text_${version}_linux_x86_64.atpkg`);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -376,6 +517,7 @@ describe('Catalog release generation', () => {
         rootPublicKey: rawPublicKey(rootKeys.publicKey),
         previousCatalog,
         previousCatalogSignature: signTrustMetadata(previousCatalog, catalogKeys.privateKey),
+        application: codecApplication,
         release: { tagName, publishedAt: generatedAt, notes: 'Production drill', assets },
         assetDirectory: directory,
         catalogKeyId,
@@ -395,6 +537,7 @@ describe('Catalog release generation', () => {
         root: signedRoot,
         rootSignature: signTrustMetadata(signedRoot, rootKeys.privateKey),
         rootPublicKey: rawPublicKey(rootKeys.publicKey),
+        application: codecApplication,
         release: { tagName, publishedAt: generatedAt, notes: 'Initial production release', assets },
         assetDirectory: directory,
         catalogKeyId,
@@ -415,6 +558,7 @@ describe('Catalog release generation', () => {
     const result = spawnSync('pnpm', [
       'publish:catalog',
       '--',
+      '--app', 'com.attson.codec',
       '--root', missingRoot,
       '--root-signature', 'missing-root-signature',
       '--release', 'missing-release',
@@ -432,6 +576,40 @@ describe('Catalog release generation', () => {
     assert.doesNotMatch(output, /Invalid argument/);
     assert.match(output, /ENOENT/);
     assert.match(output, /attool-missing-catalog-root\.json/);
+  });
+
+  it('rejects applications that are not in the release registry', () => {
+    const result = spawnSync('pnpm', [
+      'publish:catalog',
+      '--',
+      '--app', 'com.example.untrusted',
+      '--root', 'missing-root',
+      '--root-signature', 'missing-root-signature',
+      '--release', 'missing-release',
+      '--assets', 'missing-assets',
+      '--output', 'missing-output',
+      '--generated-at', generatedAt,
+      '--expires-at', expiresAt
+    ], {
+      cwd: path.resolve(import.meta.dirname, '../..'),
+      encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Unknown Catalog application: com\.example\.untrusted/);
+  });
+
+  it('dispatches Catalog releases by registered application ID', async () => {
+    const workflow = await readFile(
+      path.resolve(import.meta.dirname, '../workflows/catalog.yml'),
+      'utf8'
+    );
+
+    assert.match(workflow, /^\s+app_id:\s*$/m);
+    assert.match(workflow, /^\s+release_tag:\s*$/m);
+    assert.match(workflow, /\.github\/catalog\/apps\.json/);
+    assert.match(workflow, /--app "\$APP_ID"/);
+    assert.doesNotMatch(workflow, /^\s+codec_tag:\s*$/m);
   });
 
   it('does not require Codec release inputs in renewal mode', () => {
@@ -498,32 +676,71 @@ function artifact(os, arch) {
   };
 }
 
+function textRelease() {
+  return {
+    tagName,
+    publishedAt: '2026-11-11T00:00:00Z',
+    notes: 'Text production drill',
+    assets: [
+      textArtifact('linux', 'aarch64'),
+      textArtifact('linux', 'x86_64'),
+      textArtifact('macos', 'aarch64'),
+      textArtifact('macos', 'x86_64'),
+      textArtifact('windows', 'x86_64')
+    ]
+  };
+}
+
+function textArtifact(os, arch) {
+  const fileName = `AT.Text_${version}_${os}_${arch}.atpkg`;
+  return {
+    os,
+    arch,
+    fileName,
+    size: 4096,
+    sha256: 'b'.repeat(64),
+    url: `https://github.com/attsontools/attext/releases/download/${tagName}/${fileName}`
+  };
+}
+
 function rawPublicKey(publicKey) {
   const jwk = publicKey.export({ format: 'jwk' });
   return Buffer.from(jwk.x, 'base64url').toString('base64');
 }
 
-async function createPluginPackage(directory, privateKey, os = 'linux', arch = 'x86_64') {
+async function createPluginPackage(
+  directory,
+  privateKey,
+  os = 'linux',
+  arch = 'x86_64',
+  {
+    application = codecApplication,
+    publisherKeyId: manifestPublisherKeyId = publisherKeyId
+  } = {}
+) {
   const stage = path.join(directory, 'stage');
   const ui = path.join(stage, 'ui');
   await mkdir(ui, { recursive: true });
-  const content = Buffer.from('<main>Codec</main>');
+  const content = Buffer.from(`<main>${application.name}</main>`);
   await writeFile(path.join(ui, 'index.html'), content);
   const manifest = parseManifest({
     schemaVersion: 1,
-    appId: 'com.attson.codec',
-    name: '编码转换',
+    appId: application.appId,
+    name: application.name,
     version,
-    publisher: { id: 'com.attson', name: 'Attson', keyId: publisherKeyId },
+    publisher: { id: application.publisherId, name: 'Attson', keyId: manifestPublisherKeyId },
     target: { os, arch },
-    hostApi: { min: '1.0.0', max: '1.x' },
+    hostApi: application.hostApi,
     ui: { entry: 'ui/index.html' },
-    permissions: ['host.theme.read', 'host.file.save', 'host.notification.show'],
+    permissions: application.permissions,
     files: { 'ui/index.html': createHash('sha256').update(content).digest('hex') }
   });
   await writeFile(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(path.join(stage, 'manifest.sig'), `${signManifest(manifest, privateKey)}\n`);
-  const packagePath = path.join(directory, `AT.Codec_${version}_${os}_${arch}.atpkg`);
+  const packagePath = path.join(
+    directory,
+    `${application.artifactPrefix}_${version}_${os}_${arch}.atpkg`
+  );
   zipPackage(stage, packagePath);
   return packagePath;
 }

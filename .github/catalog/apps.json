@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "appId": "com.attson.codec",
+      "slug": "codec",
+      "repository": "attsontools/atcodec",
+      "artifactPrefix": "AT.Codec",
+      "name": "编码转换",
+      "description": "Base64、URL、Unicode、Hex、Hash 与 JWT",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATCODEC_PUBLISHER_KEY_ID",
+      "icon": "codec",
+      "hostApi": {
+        "min": "1.0.0",
+        "max": "1.x"
+      },
+      "permissions": [
+        "host.theme.read",
+        "host.file.save",
+        "host.notification.show"
+      ]
+    },
+    {
+      "appId": "com.attson.text",
+      "slug": "text",
+      "repository": "attsontools/attext",
+      "artifactPrefix": "AT.Text",
+      "name": "文本工具",
+      "description": "整理 / 排序 / 大小写 / 拆合 / 抽取 / 对比",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATTEXT_PUBLISHER_KEY_ID",
+      "icon": "type",
+      "hostApi": {
+        "min": "1.0.0",
+        "max": "1.x"
+      },
+      "permissions": [
+        "host.theme.read"
+      ]
+    }
+  ]
+}

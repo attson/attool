@@ -83,7 +83,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；当前以 `atcodec` 验证纯前端应用的双制品、远程发现、升级与回滚闭环，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec` 已验证纯前端应用的双制品、远程发现、升级与回滚闭环，后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
 
 ### 包与安装状态
 
@@ -107,7 +107,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ### 官方 Catalog、升级与回滚
 
-- `catalog/v1/root.json` 授权 Catalog Signing Key 与 Codec Publisher Key；Root 由离线 Root Key 签名，AT Tool 正式构建只嵌入 Root 公钥。Catalog 与 AT Tool updater 使用相互独立的密钥体系。
+- `catalog/v1/root.json` 授权 Catalog Signing Key 与各独立应用的 Publisher Key；Root 由离线 Root Key 签名，AT Tool 正式构建只嵌入 Root 公钥。Catalog 与 AT Tool updater 使用相互独立的密钥体系，每个应用使用独立 Publisher Key。
 - 平台验证 Root、Catalog、Publisher manifest 签名、目标制品 SHA-256/大小和包内文件 hash。新元数据无效、过期或序列回退时不得覆盖上一份有效缓存；缓存过期后可继续运行已安装应用，但禁止新的远程安装和升级。
 - 官方 GitHub URL 先直接下载；仅在 `github.com` 或 `raw.githubusercontent.com` 的规范 HTTPS 请求发生传输失败时，使用 `gh-proxy.com` 重试。代理响应仍必须通过相同的 Root、Catalog、Publisher 签名、大小、SHA-256 与包内文件 hash 校验，代理不进入信任边界。
 - 远程安装与升级先下载到 staging 并登记 `pending`，通过 target、Host API、权限和隔离健康检查后再原子切换 `current`。切换前失败保持旧版本不变；首次运行确认失败恢复 `previous`，并记录稳定错误码与 correlation ID。
@@ -115,13 +115,14 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ### Catalog 发布链
 
-- `atcodec` 的一个 tag 由受保护 `prod` Environment 构建五个目标，每个目标同时产生独立安装包和 Publisher 签名 `.atpkg`；正式 Release 必须恰好包含十个非空资产。
-- `.github/workflows/catalog.yml` 只接受 `attsontools/atcodec` 的公开 Release。工作流下载五个 `.atpkg`，逐包核对不可变 Release URL、文件名、目标、版本、Publisher Key、签名、文件集合与 hash。
-- Catalog 发布器先离线验证已提交的 Root 和上一版 Catalog，再使用 Root 授权且处于有效窗口的 Catalog Signing Key 生成 7 天有效、严格递增的下一序列。首次发布从 `sequence: 1` 开始，后续 Codec 版本必须严格递增。
+- 独立应用的一个 tag 由受保护 `prod` Environment 构建五个目标，每个目标同时产生独立安装包和 Publisher 签名 `.atpkg`；正式 Release 必须恰好包含十个非空资产。
+- `.github/catalog/apps.json` 是官方应用来源注册表，固定声明 `appId`、仓库、资产前缀、展示信息、Host API、权限和 Publisher secret 名。`.github/workflows/catalog.yml` 只接受注册表中的 `attsontools/*` 公开 Release，下载五个 `.atpkg`，逐包核对不可变 Release URL、文件名、目标、版本、Publisher Key、签名、Host API、权限、文件集合与 hash。
+- Catalog 发布器先离线验证已提交的 Root 和上一版 Catalog，再使用 Root 授权且处于有效窗口的 Catalog Signing Key 生成 7 天有效、严格递增的下一序列。首次发布从 `sequence: 1` 开始；已有应用只接受严格更高版本，首次接入的应用追加到 `apps` 且不得改写其他应用。
 - `.github/workflows/catalog-renew.yml` 每周一、周四续签 Catalog：递增序列并更新生成与过期时间，但必须逐字保留 `apps` 及其制品信息；续签只能使用 Root 当前授权且处于有效窗口的 Catalog Signing Key。
 - 发布和续签共享 `production-catalog` 并发组，且任一 `catalog/*` PR 未合并时都拒绝生成新候选，避免多个候选从同一序列分叉。
-- 两个工作流都不生成或修改 Root，也不直接写默认分支；发布创建 `catalog/codec-<version>` PR，续签创建 `catalog/renew-sequence-<sequence>` PR，由受保护的 `main` 合并后生效。
+- 两个工作流都不生成或修改 Root，也不直接写默认分支；发布创建 `catalog/<app-slug>-<version>` PR，续签创建 `catalog/renew-sequence-<sequence>` PR，由受保护的 `main` 合并后生效。
 - `pnpm rotate:catalog-keys` 是通用离线 Root ceremony 入口；生产 overlap 使用三路径快捷入口 `pnpm rotate:catalog-keys:prod -- <Root 离线目录> <新离线目录> <新 transfer 目录>`，自动从已提交 Root 推导下一组 Catalog/Publisher Key ID 与一年有效期。`overlap` 校验当前 Root 签名及 Root 私钥后生成新 Key，并把离线备份、GitHub transfer secrets 与公共 Root 元数据写入两两独立且预先不存在的目录；`status` 只生成递增序列的 Root 与签名，用于把旧 Key 改为 `retired` 或 `revoked`。状态切换必须保留对应角色的 active 替代 Key，`revoked` 为不可恢复终态，任何输出都不得覆盖已有目录。
+- 新应用 Publisher 授权使用 `pnpm authorize:publisher:prod -- <app-slug>`。命令从应用注册表和当前年份 Root 离线目录推导 key ID 与输出路径，只新增一个 Publisher Key 并递增 Root sequence，不生成 Catalog Key；私钥备份与可传输的公开 Root/GitHub secrets 分目录写入，失败时清理本次不完整输出。
 
 ## 软件更新（v0.8.5 起自研）
 
