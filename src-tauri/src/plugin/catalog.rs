@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use super::github_proxy::send_with_fallback;
+
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const CATALOG_BASE_URL: &str =
     "https://raw.githubusercontent.com/attsontools/attool/main/catalog/v1";
@@ -716,9 +718,7 @@ async fn fetch_text(
 ) -> Result<String, CatalogError> {
     use futures_util::StreamExt;
 
-    let response = client
-        .get(url)
-        .send()
+    let response = send_with_fallback(client, url)
         .await
         .map_err(|error| CatalogError::new(code, format!("Catalog request failed: {error}")))?;
     if !response.status().is_success() {
