@@ -6,7 +6,6 @@ export type ToolIconId =
   | 'download'
   | 'layout'
   | 'clipboard'
-  | 'type'
   | 'wifi'
   | 'code'
   | 'video'

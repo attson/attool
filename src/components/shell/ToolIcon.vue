@@ -37,13 +37,6 @@ defineProps<{ name: ToolIconId; size?: number }>();
       <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
     </template>
 
-    <!-- type / text -->
-    <template v-else-if="name === 'type'">
-      <polyline points="4 7 4 4 20 4 20 7" />
-      <line x1="9" y1="20" x2="15" y2="20" />
-      <line x1="12" y1="4" x2="12" y2="20" />
-    </template>
-
     <!-- wifi / network -->
     <template v-else-if="name === 'wifi'">
       <path d="M5 12.55a11 11 0 0 1 14 0" />
