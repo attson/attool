@@ -121,7 +121,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 - `.github/workflows/catalog-renew.yml` 每周一、周四续签 Catalog：递增序列并更新生成与过期时间，但必须逐字保留 `apps` 及其制品信息；续签只能使用 Root 当前授权且处于有效窗口的 Catalog Signing Key。
 - 发布和续签共享 `production-catalog` 并发组，且任一 `catalog/*` PR 未合并时都拒绝生成新候选，避免多个候选从同一序列分叉。
 - 两个工作流都不生成或修改 Root，也不直接写默认分支；发布创建 `catalog/codec-<version>` PR，续签创建 `catalog/renew-sequence-<sequence>` PR，由受保护的 `main` 合并后生效。
-- `pnpm rotate:catalog-keys` 是离线 Root ceremony 入口：`overlap` 校验当前 Root 签名及 Root 私钥后生成新的 Catalog/Publisher Key，并把离线备份、GitHub transfer secrets 与公共 Root 元数据写入互不包含且预先不存在的目录；`status` 只生成递增序列的 Root 与签名，用于把旧 Key 改为 `retired` 或 `revoked`。状态切换必须保留对应角色的 active 替代 Key，`revoked` 为不可恢复终态，任何输出都不得覆盖已有目录。
+- `pnpm rotate:catalog-keys` 是通用离线 Root ceremony 入口；生产 overlap 使用三路径快捷入口 `pnpm rotate:catalog-keys:prod -- <Root 离线目录> <新离线目录> <新 transfer 目录>`，自动从已提交 Root 推导下一组 Catalog/Publisher Key ID 与一年有效期。`overlap` 校验当前 Root 签名及 Root 私钥后生成新 Key，并把离线备份、GitHub transfer secrets 与公共 Root 元数据写入两两独立且预先不存在的目录；`status` 只生成递增序列的 Root 与签名，用于把旧 Key 改为 `retired` 或 `revoked`。状态切换必须保留对应角色的 active 替代 Key，`revoked` 为不可恢复终态，任何输出都不得覆盖已有目录。
 
 ## 软件更新（v0.8.5 起自研）
 

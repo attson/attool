@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -18,8 +18,105 @@ import {
   writeOverlapCeremony,
   writeStatusCeremony
 } from './rotate-catalog-keys.mjs';
+import {
+  createProductionRotationPlan,
+  parseProductionArguments,
+  runProductionRotation
+} from './rotate-production-catalog-keys.mjs';
 
 describe('Catalog key rotation ceremony', () => {
+  it('derives the next production key IDs and one-year validity window', () => {
+    const fixture = createFixture();
+
+    assert.deepEqual(
+      createProductionRotationPlan({
+        root: fixture.root,
+        now: new Date('2026-11-12T08:09:10.987Z')
+      }),
+      {
+        catalogKeyId: 'catalog-2026-02',
+        publisherId: 'com.attson',
+        publisherKeyId: 'attson-codec-2026-02',
+        issuedAt: '2026-11-12T08:09:10.000Z',
+        notAfter: '2027-11-12T08:09:10.000Z'
+      }
+    );
+  });
+
+  it('accepts exactly three production ceremony directories', () => {
+    assert.deepEqual(
+      parseProductionArguments(['--', '/root-offline', '/new-offline', '/new-transfer']),
+      {
+        rootOfflineDirectory: '/root-offline',
+        offlineDirectory: '/new-offline',
+        transferDirectory: '/new-transfer'
+      }
+    );
+    assert.throws(
+      () => parseProductionArguments(['/root-offline', '/new-offline']),
+      /Usage: pnpm rotate:catalog-keys:prod/
+    );
+  });
+
+  it('runs production overlap rotation from three directory arguments', async () => {
+    const fixture = createFixture();
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-production-rotation-'));
+    const rootOfflineDirectory = path.join(directory, 'root-offline');
+    const metadataDirectory = path.join(directory, 'metadata');
+    const offlineDirectory = path.join(directory, 'new-offline');
+    const transferDirectory = path.join(directory, 'new-transfer');
+    try {
+      await Promise.all([
+        mkdir(rootOfflineDirectory, { mode: 0o700 }),
+        mkdir(metadataDirectory)
+      ]);
+      await Promise.all([
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-private.pem'),
+          fixture.rootKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+          { mode: 0o600 }
+        ),
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-public.txt'),
+          `${rawPublicKey(fixture.rootKeys.publicKey)}\n`
+        ),
+        writeFile(path.join(metadataDirectory, 'root.json'), `${JSON.stringify(fixture.root)}\n`),
+        writeFile(path.join(metadataDirectory, 'root.json.sig'), `${fixture.rootSignature}\n`)
+      ]);
+
+      await assert.rejects(
+        () => runProductionRotation({
+          rootOfflineDirectory,
+          offlineDirectory,
+          transferDirectory: path.join(rootOfflineDirectory, 'transfer'),
+          metadataDirectory,
+          now: new Date('2026-11-12T08:09:10Z')
+        }),
+        /must be separate and non-nested/
+      );
+
+      const result = await runProductionRotation({
+        rootOfflineDirectory,
+        offlineDirectory,
+        transferDirectory,
+        metadataDirectory,
+        now: new Date('2026-11-12T08:09:10Z')
+      });
+
+      assert.equal(result.root.sequence, 2);
+      assert.deepEqual(
+        result.root.catalogKeys.map(({ keyId }) => keyId),
+        ['catalog-2026-01', 'catalog-2026-02']
+      );
+      assert.equal(
+        JSON.parse(await readFile(path.join(transferDirectory, 'public', 'root.json'), 'utf8')).sequence,
+        2
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('parses explicit overlap and status ceremony arguments', () => {
     assert.deepEqual(
       parseRotationArguments([
