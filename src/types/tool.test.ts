@@ -12,9 +12,10 @@ describe('Tool.group', () => {
     }
   });
 
-  it('11 个内置 tool 全数', () => {
-    expect(tools).toHaveLength(11);
+  it('10 个内置 tool 全数', () => {
+    expect(tools).toHaveLength(10);
     expect(tools.some((tool) => tool.id === 'codec')).toBe(false);
+    expect(tools.some((tool) => tool.id === 'generator')).toBe(false);
     expect(tools.some((tool) => tool.id === 'text')).toBe(false);
   });
 });
