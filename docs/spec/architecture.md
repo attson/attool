@@ -83,7 +83,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext` 与 `atgenerator` 已验证纯前端应用的双制品、远程发现和生命周期闭环，后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext` 与 `atgenerator` 已验证纯前端应用的双制品、远程发现和生命周期闭环，`attime` 已完成五平台双制品 Release，待 Catalog 与真实生命周期验证后外置。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
 
 ### 包与安装状态
 
