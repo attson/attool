@@ -7,6 +7,7 @@ use tokio::{fs::File, io::AsyncWriteExt};
 
 use super::{
     catalog::{CatalogArtifact, CatalogInstallPlan, CatalogTargetArch, CatalogTargetOs},
+    github_proxy::send_with_fallback,
     package::InspectedPackage,
 };
 
@@ -254,12 +255,14 @@ pub async fn download_artifact(
     mut on_progress: impl FnMut(u64),
 ) -> Result<(), RemoteInstallError> {
     let result = async {
-        let response = client.get(&artifact.url).send().await.map_err(|error| {
-            RemoteInstallError::new(
-                "PLUGIN_DOWNLOAD_HTTP_FAILED",
-                format!("Plugin download failed: {error}"),
-            )
-        })?;
+        let response = send_with_fallback(client, &artifact.url)
+            .await
+            .map_err(|error| {
+                RemoteInstallError::new(
+                    "PLUGIN_DOWNLOAD_HTTP_FAILED",
+                    format!("Plugin download failed: {error}"),
+                )
+            })?;
         if !response.status().is_success() {
             return Err(RemoteInstallError::new(
                 "PLUGIN_DOWNLOAD_HTTP_FAILED",
