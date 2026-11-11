@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "sequence": 2,
-  "issuedAt": "2026-11-11T10:43:11.000Z",
+  "sequence": 3,
+  "issuedAt": "2026-11-11T11:54:06.000Z",
   "expiresAt": "2031-11-11T03:17:47.000Z",
   "catalogKeys": [
     {
       "keyId": "catalog-2026-01",
       "algorithm": "ed25519",
       "publicKey": "1S3dxwsm8oXDb0IgQLDA9wcmYIfHwOy5pokUT8mOXPE=",
-      "status": "active",
+      "status": "retired",
       "notBefore": "2026-11-11T03:17:47.000Z",
       "notAfter": "2027-11-11T03:17:47.000Z"
     },
@@ -30,7 +30,7 @@
           "keyId": "attson-codec-2026-01",
           "algorithm": "ed25519",
           "publicKey": "ZijeWCKbbKogQLd9VwX/tza/70l0K9dWAoLXZqpXFJo=",
-          "status": "active",
+          "status": "retired",
           "notBefore": "2026-11-11T03:17:47.000Z",
           "notAfter": "2027-11-11T03:17:47.000Z"
         },
