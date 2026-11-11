@@ -83,7 +83,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext` 与 `atgenerator` 已验证纯前端应用的双制品、远程发现和生命周期闭环，`attime` 已完成五平台双制品 Release，待 Catalog 与真实生命周期验证后外置。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator` 与 `attime` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。Time 迁移期仍保留宿主内置版本，待下一阶段移除后才由动态插件提供唯一入口。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
 
 ### 包与安装状态
 
@@ -103,7 +103,8 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 - `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
 - 平台不再内置 `codec`、`text` 与 `generator`；`com.attson.codec`、`com.attson.text`、`com.attson.generator` 插件分别是编码转换、文本工具与生成器在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
-- `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec`、`attext` 与 `atgenerator` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
+- `com.attson.time` 已通过生产 Catalog 完成安装、打开、停用、启用、卸载与重装验证；当前仍与内置 Time 并存，内置版本将在独立阶段移除。
+- `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec`、`attext`、`atgenerator` 与 `attime` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
 
 ### 官方 Catalog、升级与回滚
 
@@ -320,7 +321,7 @@ SSE / WebSocket 长连接。所有 session 共享 `HttpStreamState`（通过 `.m
 - **逻辑模块** —— Vitest，colocated `*.test.ts`：composable / theme / utils / HTTP 工具的 `variables.ts` `curl.ts` `openapiImport.ts` `httpApi.ts` / `streamMessageTone.ts` / `useHttpStore.stream.test.ts` / `useHttpStore.collections.test.ts`
 - **Vue SFC** —— 不写单元测试（不引 jsdom）；改动后人工目视回归
 - **后端 Rust** —— 模板模块、updater 模块（`updater::verify` + `updater::check` 单测覆盖签名 / SHA256SUMS lookup / semver 比较）、HTTP stream 模块（`stream::parser` 9 条 / `stream::buffer` 5 条 / `stream::session` 6 条 / `stream::ws::tests` 2 条 UTF-8 截断测试）
-- **插件** —— Vitest 覆盖动态导航、store 状态和 Host API；Rust 单测覆盖签名、target、路径、hash、原子激活、停启、卸载与历史；真实 Tauri 窗口已验证 Codec、Text 与 Generator 的远程发现、安装、Host API、主题、停启和卸载
+- **插件** —— Vitest 覆盖动态导航、store 状态和 Host API；Rust 单测覆盖签名、target、路径、hash、原子激活、停启、卸载与历史；真实 Tauri 窗口已验证 Codec、Text、Generator 与 Time 的远程发现、安装、Host API、主题、停启和卸载
 - **集成** —— HTTP stream 有 `src-tauri/tests/stream_it.rs` 起本地 TCP server 模拟 SSE 200 / SSE 401 / WS echo；其余依赖 `pnpm tauri:dev` + 手动操作验收
 
 ## 构建与发布
