@@ -16,6 +16,7 @@
     "publish:catalog": "tsx .github/scripts/publish-catalog.mjs",
     "rotate:catalog-keys": "tsx .github/scripts/rotate-catalog-keys.mjs",
     "rotate:catalog-keys:prod": "tsx .github/scripts/rotate-production-catalog-keys.mjs",
+    "rotate:catalog-keys:retire:prod": "tsx .github/scripts/retire-production-catalog-keys.mjs",
     "test": "vitest run",
     "test:catalog": "tsx --test .github/scripts/catalog-release.node.mjs .github/scripts/catalog-key-rotation.node.mjs"
   },
