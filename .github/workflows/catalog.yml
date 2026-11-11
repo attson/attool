@@ -41,7 +41,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --state open \
             --json headRefName \
-            --jq '[.[] | select(.headRefName | startswith("catalog/codec-"))] | length')
+            --jq '[.[] | select(.headRefName | startswith("catalog/"))] | length')
           if [ "$OPEN_CATALOG_PRS" -ne 0 ]; then
             echo "Merge or close the pending Catalog pull request before publishing another version" >&2
             exit 1

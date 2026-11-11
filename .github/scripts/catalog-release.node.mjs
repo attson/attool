@@ -17,6 +17,8 @@ import {
   createCatalog,
   inspectCodecPackage,
   prepareCatalogRelease,
+  prepareCatalogRenewal,
+  renewCatalog,
   signCatalog,
   verifyCatalogState
 } from './publish-catalog.mjs';
@@ -86,6 +88,58 @@ describe('Catalog release generation', () => {
     assert.deepEqual(
       catalog.apps[0].channels.stable.artifacts.map(({ os, arch }) => `${os}/${arch}`),
       ['linux/aarch64', 'linux/x86_64', 'macos/aarch64', 'macos/x86_64', 'windows/x86_64']
+    );
+  });
+
+  it('renews Catalog metadata without changing the published applications', () => {
+    const catalog = renewCatalog({
+      root,
+      previousCatalog,
+      catalogKeyId,
+      generatedAt,
+      expiresAt
+    });
+
+    assert.equal(catalog.sequence, 8);
+    assert.equal(catalog.generatedAt, generatedAt);
+    assert.equal(catalog.expiresAt, expiresAt);
+    assert.equal(catalog.signingKeyId, catalogKeyId);
+    assert.deepEqual(catalog.apps, previousCatalog.apps);
+  });
+
+  it('rejects a Catalog renewal that moves time backward or does not extend expiry', () => {
+    assert.throws(
+      () => renewCatalog({
+        root,
+        previousCatalog,
+        catalogKeyId,
+        generatedAt: '2026-11-09T00:00:00Z',
+        expiresAt
+      }),
+      /generatedAt must be later/
+    );
+    assert.throws(
+      () => renewCatalog({
+        root,
+        previousCatalog,
+        catalogKeyId,
+        generatedAt,
+        expiresAt: previousCatalog.expiresAt
+      }),
+      /expiresAt must be later/
+    );
+
+    const retiredRoot = structuredClone(root);
+    retiredRoot.catalogKeys[0].status = 'retired';
+    assert.throws(
+      () => renewCatalog({
+        root: retiredRoot,
+        previousCatalog,
+        catalogKeyId,
+        generatedAt,
+        expiresAt
+      }),
+      /active Catalog signing key/
     );
   });
 
@@ -260,6 +314,31 @@ describe('Catalog release generation', () => {
     );
   });
 
+  it('prepares a signed renewal from the verified previous Catalog', () => {
+    const rootKeys = generateKeyPairSync('ed25519');
+    const catalogKeys = generateKeyPairSync('ed25519');
+    const signedRoot = structuredClone(root);
+    signedRoot.catalogKeys[0].publicKey = rawPublicKey(catalogKeys.publicKey);
+    const renewed = prepareCatalogRenewal({
+      root: signedRoot,
+      rootSignature: signTrustMetadata(signedRoot, rootKeys.privateKey),
+      rootPublicKey: rawPublicKey(rootKeys.publicKey),
+      previousCatalog,
+      previousCatalogSignature: signTrustMetadata(previousCatalog, catalogKeys.privateKey),
+      catalogKeyId,
+      catalogPrivateKey: catalogKeys.privateKey,
+      generatedAt,
+      expiresAt
+    });
+
+    assert.equal(renewed.catalog.sequence, 8);
+    assert.deepEqual(renewed.catalog.apps, previousCatalog.apps);
+    assert.equal(
+      verifyTrustMetadataSignature(renewed.catalog, renewed.signature, catalogKeys.publicKey),
+      true
+    );
+  });
+
   it('prepares a verifiable Catalog from five inspected Codec packages', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'attool-catalog-release-'));
     const rootKeys = generateKeyPairSync('ed25519');
@@ -353,6 +432,31 @@ describe('Catalog release generation', () => {
     assert.doesNotMatch(output, /Invalid argument/);
     assert.match(output, /ENOENT/);
     assert.match(output, /attool-missing-catalog-root\.json/);
+  });
+
+  it('does not require Codec release inputs in renewal mode', () => {
+    const missingRoot = path.join(tmpdir(), 'attool-missing-renewal-root.json');
+    const result = spawnSync('pnpm', [
+      'publish:catalog',
+      '--',
+      '--mode', 'renew',
+      '--root', missingRoot,
+      '--root-signature', 'missing-root-signature',
+      '--catalog', 'missing-catalog',
+      '--catalog-signature', 'missing-catalog-signature',
+      '--output', 'missing-output',
+      '--generated-at', generatedAt,
+      '--expires-at', expiresAt
+    ], {
+      cwd: path.resolve(import.meta.dirname, '../..'),
+      encoding: 'utf8'
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(output, /--release is required|--assets is required/);
+    assert.match(output, /ENOENT/);
+    assert.match(output, /attool-missing-renewal-root\.json/);
   });
 });
 

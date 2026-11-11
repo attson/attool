@@ -113,6 +113,39 @@ export function createCatalog({
   return parsePluginCatalog(catalog);
 }
 
+export function renewCatalog({
+  root: rootInput,
+  previousCatalog: previousCatalogInput,
+  catalogKeyId,
+  generatedAt,
+  expiresAt
+}) {
+  const root = parseTrustRoot(rootInput);
+  const previousCatalog = parsePluginCatalog(previousCatalogInput);
+  const signingKey = root.catalogKeys.find((key) => key.keyId === catalogKeyId);
+  if (!signingKey || !canSignWithCatalogKey(signingKey, generatedAt)) {
+    throw new Error(`${catalogKeyId} must be an active Catalog signing key at ${generatedAt}`);
+  }
+  if (Date.parse(generatedAt) <= Date.parse(previousCatalog.generatedAt)) {
+    throw new Error('Renewed Catalog generatedAt must be later than the previous Catalog');
+  }
+  if (Date.parse(expiresAt) <= Date.parse(previousCatalog.expiresAt)) {
+    throw new Error('Renewed Catalog expiresAt must be later than the previous Catalog');
+  }
+  if (Date.parse(expiresAt) <= Date.parse(generatedAt)) {
+    throw new Error('Renewed Catalog expiresAt must be later than generatedAt');
+  }
+
+  return parsePluginCatalog({
+    ...previousCatalog,
+    sequence: previousCatalog.sequence + 1,
+    generatedAt,
+    expiresAt,
+    signingKeyId: catalogKeyId,
+    apps: previousCatalog.apps
+  });
+}
+
 export function signCatalog({ root: rootInput, catalog: catalogInput, privateKey: privateKeyInput }) {
   const root = parseTrustRoot(rootInput);
   const catalog = parsePluginCatalog(catalogInput);
@@ -271,6 +304,38 @@ export async function prepareCatalogRelease({
         generatedAt,
         expiresAt
       });
+  return {
+    catalog,
+    signature: signCatalog({ root, catalog, privateKey: catalogPrivateKey })
+  };
+}
+
+export function prepareCatalogRenewal({
+  root: rootInput,
+  rootSignature,
+  rootPublicKey,
+  previousCatalog: previousCatalogInput,
+  previousCatalogSignature,
+  catalogKeyId,
+  catalogPrivateKey,
+  generatedAt,
+  expiresAt
+}) {
+  const { root, catalog: previousCatalog } = verifyCatalogState({
+    root: rootInput,
+    rootSignature,
+    rootPublicKey,
+    catalog: previousCatalogInput,
+    catalogSignature: previousCatalogSignature,
+    at: generatedAt
+  });
+  const catalog = renewCatalog({
+    root,
+    previousCatalog,
+    catalogKeyId,
+    generatedAt,
+    expiresAt
+  });
   return {
     catalog,
     signature: signCatalog({ root, catalog, privateKey: catalogPrivateKey })
@@ -522,25 +587,32 @@ function requireEqual(actual, expected, label) {
 async function main(argv = process.argv.slice(2), env = process.env) {
   const args = parseArguments(argv);
   const root = JSON.parse(await readFile(args.root, 'utf8'));
-  const release = JSON.parse(await readFile(args.release, 'utf8'));
-  const prepared = await prepareCatalogRelease({
+  const rootSignature = await readFile(args.rootSignature, 'utf8');
+  const previousCatalog = args.catalog
+    ? JSON.parse(await readFile(args.catalog, 'utf8'))
+    : undefined;
+  const previousCatalogSignature = args.catalogSignature
+    ? await readFile(args.catalogSignature, 'utf8')
+    : undefined;
+  const common = {
     root,
-    rootSignature: await readFile(args.rootSignature, 'utf8'),
+    rootSignature,
     rootPublicKey: requiredEnvironment(env, 'ATTOOL_CATALOG_ROOT_PUBLIC_KEY'),
-    previousCatalog: args.catalog
-      ? JSON.parse(await readFile(args.catalog, 'utf8'))
-      : undefined,
-    previousCatalogSignature: args.catalogSignature
-      ? await readFile(args.catalogSignature, 'utf8')
-      : undefined,
-    release,
-    assetDirectory: args.assets,
+    previousCatalog,
+    previousCatalogSignature,
     catalogKeyId: requiredEnvironment(env, 'ATTOOL_CATALOG_SIGNING_KEY_ID'),
     catalogPrivateKey: requiredEnvironment(env, 'ATTOOL_CATALOG_SIGNING_PRIVATE_KEY'),
-    publisherKeyId: requiredEnvironment(env, 'ATCODEC_PUBLISHER_KEY_ID'),
     generatedAt: args.generatedAt,
     expiresAt: args.expiresAt
-  });
+  };
+  const prepared = args.mode === 'renew'
+    ? prepareCatalogRenewal(common)
+    : await prepareCatalogRelease({
+        ...common,
+        release: JSON.parse(await readFile(args.release, 'utf8')),
+        assetDirectory: args.assets,
+        publisherKeyId: requiredEnvironment(env, 'ATCODEC_PUBLISHER_KEY_ID')
+      });
 
   await mkdir(args.output, { recursive: true });
   await writeFile(
@@ -553,9 +625,9 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     `${prepared.signature}\n`,
     { mode: 0o644 }
   );
-  console.log(
-    `Prepared Catalog sequence ${prepared.catalog.sequence} for Codec ${versionFromTag(release.tagName)}`
-  );
+  const version = prepared.catalog.apps.find((app) => app.appId === CODEC_APP_ID)
+    ?.channels.stable.version;
+  console.log(`${args.mode === 'renew' ? 'Renewed' : 'Prepared'} Catalog sequence ${prepared.catalog.sequence} for Codec ${version}`);
 }
 
 function parseArguments(argv) {
@@ -572,18 +644,23 @@ function parseArguments(argv) {
   const required = [
     'root',
     'root-signature',
-    'release',
-    'assets',
     'output',
     'generated-at',
     'expires-at'
   ];
+  const mode = values.mode ?? 'release';
+  if (!['release', 'renew'].includes(mode)) {
+    throw new Error('--mode must be release or renew');
+  }
+  if (mode === 'release') required.push('release', 'assets');
+  if (mode === 'renew') required.push('catalog', 'catalog-signature');
   const missing = required.find((name) => !values[name]);
   if (missing) throw new Error(`--${missing} is required`);
   if (Boolean(values.catalog) !== Boolean(values['catalog-signature'])) {
     throw new Error('--catalog and --catalog-signature must be provided together');
   }
   return {
+    mode,
     root: values.root,
     rootSignature: values['root-signature'],
     catalog: values.catalog,

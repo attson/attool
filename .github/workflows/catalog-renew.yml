@@ -1,0 +1,111 @@
+name: Renew Catalog
+
+on:
+  schedule:
+    - cron: '17 3 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: production-catalog
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    name: Renew signed Catalog metadata
+    runs-on: ubuntu-24.04
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Ensure no Catalog update is pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OPEN_CATALOG_PRS=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("catalog/"))] | length')
+          if [ "$OPEN_CATALOG_PRS" -ne 0 ]; then
+            echo "Merge or close the pending Catalog pull request before renewing metadata" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test Catalog publisher
+        run: pnpm test:catalog
+
+      - name: Require committed trust metadata
+        run: |
+          test -f catalog/v1/root.json
+          test -f catalog/v1/root.json.sig
+          test -f catalog/v1/catalog.json
+          test -f catalog/v1/catalog.json.sig
+
+      - name: Renew signed Catalog
+        id: renewal
+        env:
+          ATTOOL_CATALOG_ROOT_PUBLIC_KEY: ${{ secrets.ATTOOL_CATALOG_ROOT_PUBLIC_KEY }}
+          ATTOOL_CATALOG_SIGNING_KEY_ID: ${{ secrets.ATTOOL_CATALOG_SIGNING_KEY_ID }}
+          ATTOOL_CATALOG_SIGNING_PRIVATE_KEY: ${{ secrets.ATTOOL_CATALOG_SIGNING_PRIVATE_KEY }}
+        run: |
+          GENERATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          EXPIRES_AT=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
+          pnpm publish:catalog -- \
+            --mode renew \
+            --root catalog/v1/root.json \
+            --root-signature catalog/v1/root.json.sig \
+            --catalog catalog/v1/catalog.json \
+            --catalog-signature catalog/v1/catalog.json.sig \
+            --output catalog/v1 \
+            --generated-at "$GENERATED_AT" \
+            --expires-at "$EXPIRES_AT"
+          echo "sequence=$(jq -r '.sequence' catalog/v1/catalog.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify renewal scope
+        run: |
+          git diff --exit-code -- catalog/v1/root.json catalog/v1/root.json.sig
+          git show HEAD:catalog/v1/catalog.json | jq -S '.apps' > "${RUNNER_TEMP}/previous-apps.json"
+          jq -S '.apps' catalog/v1/catalog.json > "${RUNNER_TEMP}/renewed-apps.json"
+          diff -u "${RUNNER_TEMP}/previous-apps.json" "${RUNNER_TEMP}/renewed-apps.json"
+          git diff --check
+          test -n "$(git status --short -- catalog/v1/catalog.json catalog/v1/catalog.json.sig)"
+
+      - name: Push Catalog renewal branch
+        env:
+          SEQUENCE: ${{ steps.renewal.outputs.sequence }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BRANCH="catalog/renew-sequence-${SEQUENCE}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Catalog branch already exists: $BRANCH" >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add catalog/v1/catalog.json catalog/v1/catalog.json.sig
+          git commit -m "chore: renew Catalog sequence ${SEQUENCE}"
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${DEFAULT_BRANCH}...${BRANCH}?expand=1"
+          {
+            echo "## Catalog renewal sequence ${SEQUENCE}"
+            echo
+            echo "Signed branch \`${BRANCH}\` was pushed without changing application versions or artifacts."
+            echo
+            echo "[Create the protected Catalog pull request](${COMPARE_URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
