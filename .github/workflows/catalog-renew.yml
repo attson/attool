@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: production-catalog
@@ -86,7 +86,7 @@ jobs:
           git diff --check
           test -n "$(git status --short -- catalog/v1/catalog.json catalog/v1/catalog.json.sig)"
 
-      - name: Push Catalog renewal branch
+      - name: Create Catalog renewal pull request
         env:
           SEQUENCE: ${{ steps.renewal.outputs.sequence }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -101,11 +101,9 @@ jobs:
           git add catalog/v1/catalog.json catalog/v1/catalog.json.sig
           git commit -m "chore: renew Catalog sequence ${SEQUENCE}"
           git push origin "HEAD:refs/heads/${BRANCH}"
-          COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${DEFAULT_BRANCH}...${BRANCH}?expand=1"
-          {
-            echo "## Catalog renewal sequence ${SEQUENCE}"
-            echo
-            echo "Signed branch \`${BRANCH}\` was pushed without changing application versions or artifacts."
-            echo
-            echo "[Create the protected Catalog pull request](${COMPARE_URL})"
-          } >> "$GITHUB_STEP_SUMMARY"
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$DEFAULT_BRANCH" \
+            --head "$BRANCH" \
+            --title "chore: renew Catalog sequence ${SEQUENCE}" \
+            --body "Renews the signed production Catalog validity window without changing application versions or artifacts. Root metadata is unchanged."

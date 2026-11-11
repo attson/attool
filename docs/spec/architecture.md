@@ -109,6 +109,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 - `catalog/v1/root.json` 授权 Catalog Signing Key 与 Codec Publisher Key；Root 由离线 Root Key 签名，AT Tool 正式构建只嵌入 Root 公钥。Catalog 与 AT Tool updater 使用相互独立的密钥体系。
 - 平台验证 Root、Catalog、Publisher manifest 签名、目标制品 SHA-256/大小和包内文件 hash。新元数据无效、过期或序列回退时不得覆盖上一份有效缓存；缓存过期后可继续运行已安装应用，但禁止新的远程安装和升级。
+- 官方 GitHub URL 先直接下载；仅在 `github.com` 或 `raw.githubusercontent.com` 的规范 HTTPS 请求发生传输失败时，使用 `gh-proxy.com` 重试。代理响应仍必须通过相同的 Root、Catalog、Publisher 签名、大小、SHA-256 与包内文件 hash 校验，代理不进入信任边界。
 - 远程安装与升级先下载到 staging 并登记 `pending`，通过 target、Host API、权限和隔离健康检查后再原子切换 `current`。切换前失败保持旧版本不变；首次运行确认失败恢复 `previous`，并记录稳定错误码与 correlation ID。
 - 应用管理合并 Catalog 与本地 registry，提供“应用目录 / 已安装 / 操作记录”。升级只接受严格更高 SemVer；新增权限必须由用户确认完整差集，权限不变或减少不重复授权。
 
@@ -116,8 +117,10 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 - `atcodec` 的一个 tag 由受保护 `prod` Environment 构建五个目标，每个目标同时产生独立安装包和 Publisher 签名 `.atpkg`；正式 Release 必须恰好包含十个非空资产。
 - `.github/workflows/catalog.yml` 只接受 `attsontools/atcodec` 的公开 Release。工作流下载五个 `.atpkg`，逐包核对不可变 Release URL、文件名、目标、版本、Publisher Key、签名、文件集合与 hash。
-- Catalog 发布器先离线验证已提交的 Root 和上一版 Catalog，再使用 Root 授权且处于有效窗口的 Catalog Signing Key 生成严格递增的下一序列。首次发布从 `sequence: 1` 开始，后续 Codec 版本必须严格递增。
-- 工作流不生成或修改 Root，也不直接写默认分支；每次更新创建 `catalog/codec-<version>` PR。存在未合并的 Codec Catalog PR 时拒绝并行生成下一版本，避免多个候选从同一序列分叉。
+- Catalog 发布器先离线验证已提交的 Root 和上一版 Catalog，再使用 Root 授权且处于有效窗口的 Catalog Signing Key 生成 7 天有效、严格递增的下一序列。首次发布从 `sequence: 1` 开始，后续 Codec 版本必须严格递增。
+- `.github/workflows/catalog-renew.yml` 每周一、周四续签 Catalog：递增序列并更新生成与过期时间，但必须逐字保留 `apps` 及其制品信息；续签只能使用 Root 当前授权且处于有效窗口的 Catalog Signing Key。
+- 发布和续签共享 `production-catalog` 并发组，且任一 `catalog/*` PR 未合并时都拒绝生成新候选，避免多个候选从同一序列分叉。
+- 两个工作流都不生成或修改 Root，也不直接写默认分支；发布创建 `catalog/codec-<version>` PR，续签创建 `catalog/renew-sequence-<sequence>` PR，由受保护的 `main` 合并后生效。
 
 ## 软件更新（v0.8.5 起自研）
 
