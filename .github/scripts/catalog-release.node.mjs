@@ -330,6 +330,30 @@ describe('Catalog release generation', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it('accepts the pnpm argument separator in the Catalog publisher CLI', () => {
+    const missingRoot = path.join(tmpdir(), 'attool-missing-catalog-root.json');
+    const result = spawnSync('pnpm', [
+      'publish:catalog',
+      '--',
+      '--root', missingRoot,
+      '--root-signature', 'missing-root-signature',
+      '--release', 'missing-release',
+      '--assets', 'missing-assets',
+      '--output', 'missing-output',
+      '--generated-at', generatedAt,
+      '--expires-at', expiresAt
+    ], {
+      cwd: path.resolve(import.meta.dirname, '../..'),
+      encoding: 'utf8'
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(output, /Invalid argument/);
+    assert.match(output, /ENOENT/);
+    assert.match(output, /attool-missing-catalog-root\.json/);
+  });
 });
 
 function trustKey(keyId) {
