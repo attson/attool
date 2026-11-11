@@ -13,7 +13,8 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 - “应用管理”（`id: app-management`）位于侧栏“平台”分组，展示内置工具和已安装插件，支持本地 `.atpkg` 预览、权限确认、安装、停用、启用、卸载、筛选和安装历史。
 - 平台只接受签名有效、文件 hash 完整、target 匹配且 Host API 兼容的包。插件 UI 通过独立 `attool-plugin://<appId>` origin 和 sandboxed iframe 运行，公共桌面能力只能通过版本化 Host API 调用。
 - Codec 是首个从平台完全外置的双制品应用：`atcodec` 仓库可生成独立 Tauri 安装包和 `com.attson.codec` 插件包；两种形态共享编码核心和 Vue UI。平台不再包含内置 Codec 实现，安装的插件是唯一入口。
-- P0 只支持本地安装和单版本应用。官方在线目录、插件升级回滚、原生 service 与独立版共享数据分别在后续阶段实现。
+- 官方 Catalog 由 AT Tool 主仓维护并签名，平台可按当前 OS/架构远程安装和主动升级 Codec；新版本先进入 `pending`，健康检查与原子切换通过后成为 `current`，失败时保留或恢复上一可用版本。
+- P1 仍只接入纯前端 Codec。原生 service、独立版与插件版共享数据、第三方发布者和开放式应用市场留在后续阶段。
 
 下面详列 3 个“重后端”内置工具作为代表，其余见汇总表。
 

@@ -688,7 +688,12 @@ async function clearCompleted() {
         </template>
 
         <template v-else-if="selectedTool.source === 'plugin' && selectedPlugin">
-          <PluginFrame :key="selectedPlugin.appId" :app="selectedPlugin" :theme="theme" />
+          <PluginFrame
+            :key="`${selectedPlugin.appId}:${selectedPlugin.version}`"
+            :app="selectedPlugin"
+            :theme="theme"
+            @version-state="pluginStore.replaceInstalled"
+          />
         </template>
       </AppShell>
 

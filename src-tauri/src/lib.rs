@@ -1159,6 +1159,15 @@ pub fn run() {
             };
             plugin::protocol::handle_plugin_request(&runtime, request)
         })
+        .register_uri_scheme_protocol("attool-plugin-probe", |context, request| {
+            let Some(runtime) = context
+                .app_handle()
+                .try_state::<plugin::commands::PluginRuntime>()
+            else {
+                return plugin::protocol::unavailable_response();
+            };
+            plugin::protocol::handle_probe_request(&runtime, request)
+        })
         .on_permission_request(|_, kind| match kind {
             tauri::webview::PermissionKind::DisplayCapture => {
                 tauri::webview::PermissionResponse::Allow
@@ -1308,6 +1317,15 @@ pub fn run() {
             let plugin_runtime = plugin::commands::PluginRuntime::p0(plugin_store)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(plugin_runtime);
+            let catalog_runtime = plugin::catalog::CatalogRuntime::production(
+                app.path()
+                    .app_data_dir()
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+                    .join("plugins")
+                    .join("catalog.sqlite3"),
+            )
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(catalog_runtime);
 
             let show_item =
                 MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
@@ -1430,6 +1448,16 @@ pub fn run() {
             plugin::commands::plugin_list_history,
             plugin::commands::plugin_set_enabled,
             plugin::commands::plugin_uninstall,
+            plugin::commands::plugin_catalog_refresh,
+            plugin::commands::plugin_catalog_list,
+            plugin::commands::plugin_install_catalog_app,
+            plugin::commands::plugin_update_catalog_app,
+            plugin::commands::plugin_complete_catalog_install,
+            plugin::commands::plugin_fail_catalog_install,
+            plugin::commands::plugin_get_operation,
+            plugin::commands::plugin_get_latest_operation,
+            plugin::commands::plugin_confirm_plugin_launch,
+            plugin::commands::plugin_rollback_plugin_launch,
             ecommerce::commands::import_psd_template,
             ecommerce::commands::list_ecommerce_templates,
             ecommerce::commands::load_ecommerce_template,

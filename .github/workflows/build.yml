@@ -24,6 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     environment: prod
     env:
+      ATTOOL_CATALOG_ROOT_PUBLIC_KEY: ${{ secrets.ATTOOL_CATALOG_ROOT_PUBLIC_KEY }}
       ATTOOL_UPDATE_VERIFY_PUBLIC_KEY: ${{ secrets.ATTOOL_UPDATE_VERIFY_PUBLIC_KEY }}
 
     steps:

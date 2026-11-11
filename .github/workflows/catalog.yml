@@ -1,0 +1,153 @@
+name: Publish Catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      codec_tag:
+        description: Public attsontools/atcodec release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: production-catalog
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify Codec and prepare Catalog PR
+    runs-on: ubuntu-24.04
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Ensure no Catalog update is pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OPEN_CATALOG_PRS=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("catalog/codec-"))] | length')
+          if [ "$OPEN_CATALOG_PRS" -ne 0 ]; then
+            echo "Merge or close the pending Catalog pull request before publishing another version" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test Catalog publisher
+        run: pnpm test:catalog
+
+      - name: Require committed trust metadata
+        run: |
+          test -f catalog/v1/root.json
+          test -f catalog/v1/root.json.sig
+          CATALOG_FILE_COUNT=0
+          [ ! -f catalog/v1/catalog.json ] || CATALOG_FILE_COUNT=$((CATALOG_FILE_COUNT + 1))
+          [ ! -f catalog/v1/catalog.json.sig ] || CATALOG_FILE_COUNT=$((CATALOG_FILE_COUNT + 1))
+          if [ "$CATALOG_FILE_COUNT" -eq 1 ]; then
+            echo "Catalog and Catalog signature must either both exist or both be absent" >&2
+            exit 1
+          fi
+
+      - name: Read public Codec release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEC_TAG: ${{ inputs.codec_tag }}
+        run: |
+          if [[ ! "$CODEC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Codec tag must be a v-prefixed SemVer" >&2
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/codec-assets"
+          gh api "repos/attsontools/atcodec/releases/tags/${CODEC_TAG}" > "${RUNNER_TEMP}/codec-release-source.json"
+          jq -e '.draft == false and .published_at != null' "${RUNNER_TEMP}/codec-release-source.json" >/dev/null
+          jq '{
+            tagName: .tag_name,
+            publishedAt: .published_at,
+            notes: (.body // ""),
+            assets: [.assets[] | select(.name | endswith(".atpkg")) | {
+              fileName: .name,
+              size: .size,
+              url: .browser_download_url
+            }]
+          }' "${RUNNER_TEMP}/codec-release-source.json" > "${RUNNER_TEMP}/codec-release.json"
+          test "$(jq '.assets | length' "${RUNNER_TEMP}/codec-release.json")" -eq 5
+          gh release download "$CODEC_TAG" \
+            --repo attsontools/atcodec \
+            --pattern '*.atpkg' \
+            --dir "${RUNNER_TEMP}/codec-assets"
+          echo "tag=$CODEC_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${CODEC_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify packages and sign next Catalog
+        env:
+          ATTOOL_CATALOG_ROOT_PUBLIC_KEY: ${{ secrets.ATTOOL_CATALOG_ROOT_PUBLIC_KEY }}
+          ATTOOL_CATALOG_SIGNING_KEY_ID: ${{ secrets.ATTOOL_CATALOG_SIGNING_KEY_ID }}
+          ATTOOL_CATALOG_SIGNING_PRIVATE_KEY: ${{ secrets.ATTOOL_CATALOG_SIGNING_PRIVATE_KEY }}
+          ATCODEC_PUBLISHER_KEY_ID: ${{ secrets.ATCODEC_PUBLISHER_KEY_ID }}
+        run: |
+          GENERATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          EXPIRES_AT=$(date -u -d '+7 days' '+%Y-%m-%dT%H:%M:%SZ')
+          CATALOG_ARGS=()
+          if [ -f catalog/v1/catalog.json ]; then
+            CATALOG_ARGS+=(
+              --catalog catalog/v1/catalog.json
+              --catalog-signature catalog/v1/catalog.json.sig
+            )
+          fi
+          pnpm publish:catalog -- \
+            --root catalog/v1/root.json \
+            --root-signature catalog/v1/root.json.sig \
+            "${CATALOG_ARGS[@]}" \
+            --release "${RUNNER_TEMP}/codec-release.json" \
+            --assets "${RUNNER_TEMP}/codec-assets" \
+            --output catalog/v1 \
+            --generated-at "$GENERATED_AT" \
+            --expires-at "$EXPIRES_AT"
+
+      - name: Ensure Root was not modified
+        run: |
+          git diff --exit-code -- catalog/v1/root.json catalog/v1/root.json.sig
+          git diff --check
+          test -n "$(git status --short -- catalog/v1/catalog.json catalog/v1/catalog.json.sig)"
+
+      - name: Create Catalog pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEC_TAG: ${{ steps.release.outputs.tag }}
+          CODEC_VERSION: ${{ steps.release.outputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BRANCH="catalog/codec-${CODEC_VERSION}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Catalog branch already exists: $BRANCH" >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add catalog/v1/catalog.json catalog/v1/catalog.json.sig
+          git commit -m "chore: publish Codec ${CODEC_VERSION} catalog"
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$DEFAULT_BRANCH" \
+            --head "$BRANCH" \
+            --title "chore: publish Codec ${CODEC_VERSION} catalog" \
+            --body "Publishes verified Codec release ${CODEC_TAG} through the signed production Catalog. Root metadata is unchanged."

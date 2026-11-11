@@ -45,6 +45,59 @@ pub fn handle_plugin_request(
     }
 }
 
+pub fn handle_probe_request(
+    runtime: &PluginRuntime,
+    request: Request<Vec<u8>>,
+) -> Response<Vec<u8>> {
+    if request.method() != Method::GET && request.method() != Method::HEAD {
+        return error_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "PLUGIN_ASSET_METHOD_NOT_ALLOWED",
+        );
+    }
+    let value = request.uri().to_string();
+    let rest = match value.strip_prefix("attool-plugin-probe://") {
+        Some(rest) => rest,
+        None => return error_response(StatusCode::BAD_REQUEST, "PLUGIN_ASSET_URL_INVALID"),
+    };
+    let without_fragment = rest.split('#').next().unwrap_or(rest);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    let (operation_id, raw_path) = match without_query.split_once('/') {
+        Some(parts) => parts,
+        None => {
+            return error_response(StatusCode::BAD_REQUEST, "PLUGIN_ASSET_PATH_INVALID");
+        }
+    };
+    if uuid::Uuid::parse_str(operation_id).is_err() {
+        return error_response(StatusCode::BAD_REQUEST, "PLUGIN_OPERATION_ID_INVALID");
+    }
+    let relative_path = match percent_decode_str(raw_path).decode_utf8() {
+        Ok(path) if is_safe_relative_path(&path) => path.into_owned(),
+        _ => return error_response(StatusCode::BAD_REQUEST, "PLUGIN_ASSET_PATH_INVALID"),
+    };
+    match runtime.read_probe_asset(operation_id, &relative_path) {
+        Ok(asset) => {
+            let body = if request.method() == Method::HEAD {
+                Vec::new()
+            } else {
+                asset.bytes
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, asset.content_type)
+                .header(header::CONTENT_SECURITY_POLICY, PLUGIN_CSP)
+                .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                .header(header::CACHE_CONTROL, "no-store")
+                .body(body)
+                .expect("valid plugin probe response")
+        }
+        Err(error) => error_response(status_for_error(&error), &error.code),
+    }
+}
+
 pub fn unavailable_response() -> Response<Vec<u8>> {
     error_response(
         StatusCode::SERVICE_UNAVAILABLE,

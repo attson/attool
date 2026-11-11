@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { usePluginStore } from './usePluginStore';
-import type { InstalledPlugin, PluginApi } from '../components/plugins/types';
+import type {
+  CatalogSnapshot,
+  InstalledPlugin,
+  PluginApi,
+  PluginOperationSnapshot
+} from '../components/plugins/types';
 
 const codec: InstalledPlugin = {
   appId: 'com.attson.codec',
@@ -16,12 +21,56 @@ const codec: InstalledPlugin = {
   installedAt: '2026-11-10T00:00:00Z'
 };
 
+const catalog: CatalogSnapshot = {
+  rootSequence: 3,
+  catalogSequence: 18,
+  generatedAt: '2026-11-10T08:00:00Z',
+  expiresAt: '2026-11-17T08:00:00Z',
+  expired: false,
+  apps: [
+    {
+      appId: codec.appId,
+      name: '编码转换',
+      description: 'Base64、URL、Unicode、Hex、Hash 与 JWT',
+      publisherId: 'com.attson',
+      publisherName: 'Attson',
+      icon: 'codec',
+      latestVersion: '1.1.0',
+      publishedAt: '2026-11-10T07:00:00Z',
+      notes: '新增一键复制转换结果',
+      publisherKeyId: 'codec-2026-01',
+      hostApiMin: '1.0.0',
+      hostApiMax: '1.x',
+      permissions: ['host.theme.read'],
+      target: {
+        os: 'linux',
+        arch: 'x86_64',
+        url: 'https://github.com/attsontools/atcodec/releases/download/v1.1.0/AT.Codec_1.1.0_linux_x86_64.atpkg',
+        fileName: 'AT.Codec_1.1.0_linux_x86_64.atpkg',
+        size: 4096,
+        sha256: 'a'.repeat(64)
+      }
+    }
+  ]
+};
+
 function fakeApi(): PluginApi {
   return {
     inspectPackage: vi.fn(),
     installPackage: vi.fn(),
     listInstalled: vi.fn().mockResolvedValue([{ ...codec }]),
     listHistory: vi.fn().mockResolvedValue([]),
+    listCatalog: vi.fn().mockResolvedValue({ ...catalog }),
+    refreshCatalog: vi.fn().mockResolvedValue({ ...catalog }),
+    installCatalogApp: vi.fn(),
+    updateCatalogApp: vi.fn(),
+    completeCatalogInstall: vi.fn(),
+    failCatalogInstall: vi.fn(),
+    getOperation: vi.fn(),
+    getLatestOperation: vi.fn().mockResolvedValue(null),
+    listenOperations: vi.fn().mockResolvedValue(() => {}),
+    confirmPluginLaunch: vi.fn(),
+    rollbackPluginLaunch: vi.fn(),
     setEnabled: vi.fn().mockResolvedValue(undefined),
     uninstall: vi.fn().mockResolvedValue(undefined)
   };
@@ -73,5 +122,167 @@ describe('usePluginStore', () => {
 
     await expect(store.uninstall(codec.appId, false)).resolves.toBeUndefined();
     expect(store.apps.value).toEqual([]);
+  });
+
+  it('loads the cached catalog and merges the installed version', async () => {
+    const store = usePluginStore(fakeApi());
+
+    await store.load();
+
+    expect(store.catalogApps.value).toHaveLength(1);
+    expect(store.catalogApps.value[0]).toMatchObject({
+      name: '编码转换',
+      latestVersion: '1.1.0',
+      installedVersion: '0.1.0-alpha.0'
+    });
+  });
+
+  it('loads installed apps when operation event subscription is unavailable', async () => {
+    const api = fakeApi();
+    vi.mocked(api.listenOperations).mockRejectedValue(new Error('event bridge unavailable'));
+    const store = usePluginStore(api);
+
+    await store.load();
+
+    expect(store.apps.value).toEqual([codec]);
+    expect(store.catalog.value?.catalogSequence).toBe(18);
+    expect(store.error.value).toMatchObject({
+      code: 'PLUGIN_UNKNOWN_ERROR',
+      message: 'Error: event bridge unavailable'
+    });
+  });
+
+  it('restores the latest persisted operation when the management page reloads', async () => {
+    const api = fakeApi();
+    const persisted: PluginOperationSnapshot = {
+      operationId: 'operation-refresh',
+      correlationId: 'correlation-refresh',
+      appId: codec.appId,
+      name: codec.name,
+      version: '1.1.0',
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null,
+      finalAvailableVersion: codec.version
+    };
+    vi.mocked(api.getLatestOperation).mockResolvedValue(persisted);
+    const store = usePluginStore(api);
+
+    await store.load();
+
+    expect(store.operation.value).toEqual(persisted);
+  });
+
+  it('preserves the cached catalog when refresh fails', async () => {
+    const api = fakeApi();
+    const store = usePluginStore(api);
+    await store.load();
+    vi.mocked(api.refreshCatalog).mockRejectedValue({
+      code: 'CATALOG_SIGNATURE_INVALID',
+      message: 'Catalog signature verification failed',
+      correlationId: 'catalog-correlation'
+    });
+
+    await expect(store.refreshCatalog()).rejects.toMatchObject({
+      code: 'CATALOG_SIGNATURE_INVALID'
+    });
+    expect(store.catalog.value?.catalogSequence).toBe(18);
+    expect(store.catalogError.value).toMatchObject({
+      code: 'CATALOG_SIGNATURE_INVALID',
+      correlationId: 'catalog-correlation'
+    });
+  });
+
+  it('keeps a remote install out of navigation until health check activation completes', async () => {
+    const api = fakeApi();
+    const pending: PluginOperationSnapshot = {
+      operationId: 'operation-1',
+      correlationId: 'correlation-1',
+      appId: codec.appId,
+      name: codec.name,
+      version: codec.version,
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null,
+      finalAvailableVersion: null
+    };
+    vi.mocked(api.listInstalled).mockResolvedValue([]);
+    vi.mocked(api.installCatalogApp).mockResolvedValue(pending);
+    vi.mocked(api.completeCatalogInstall).mockResolvedValue({
+      operation: { ...pending, stage: 'complete', steps: [...pending.steps, 'complete'] },
+      installed: codec
+    });
+    const store = usePluginStore(api);
+    await store.load();
+
+    await store.installCatalog(codec.appId, codec.permissions);
+    expect(store.navigationTools.value).toEqual([]);
+    expect(store.operation.value?.stage).toBe('health-check');
+
+    await store.completeCatalogInstall('operation-1');
+    expect(store.navigationTools.value.map((tool) => tool.id)).toEqual([
+      'plugin:com.attson.codec'
+    ]);
+  });
+
+  it('starts an upgrade with no added permissions without replacing the current version', async () => {
+    const api = fakeApi();
+    const pending: PluginOperationSnapshot = {
+      operationId: 'operation-update',
+      correlationId: 'correlation-update',
+      appId: codec.appId,
+      name: codec.name,
+      version: '1.1.0',
+      publisherId: codec.publisherId,
+      publisherName: codec.publisherName,
+      publisherKeyId: codec.publisherKeyId,
+      entry: codec.entry,
+      permissions: codec.permissions,
+      stage: 'health-check' as const,
+      steps: ['download', 'verify', 'staging', 'health-check'],
+      downloadedBytes: 4096,
+      totalBytes: 4096,
+      errorCode: null,
+      message: null,
+      finalAvailableVersion: codec.version
+    };
+    vi.mocked(api.updateCatalogApp).mockResolvedValue(pending);
+    const store = usePluginStore(api);
+    await store.load();
+
+    await store.updateCatalog(codec.appId, []);
+
+    expect(api.updateCatalogApp).toHaveBeenCalledWith(codec.appId, []);
+    expect(store.apps.value[0].version).toBe(codec.version);
+    expect(store.operation.value).toEqual(pending);
+  });
+
+  it('replaces the current navigation version after automatic rollback', async () => {
+    const api = fakeApi();
+    const rolledBack = { ...codec, version: '0.1.0-alpha.0' };
+    const store = usePluginStore(api);
+    await store.load();
+
+    store.replaceInstalled({ ...codec, version: '1.1.0' });
+    store.replaceInstalled(rolledBack);
+
+    expect(store.apps.value).toEqual([rolledBack]);
+    expect(store.navigationTools.value[0].name).toBe('编码转换');
   });
 });
