@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sequence": 1,
-  "issuedAt": "2026-11-11T03:17:47.000Z",
+  "sequence": 2,
+  "issuedAt": "2026-11-11T10:43:11.000Z",
   "expiresAt": "2031-11-11T03:17:47.000Z",
   "catalogKeys": [
     {
@@ -11,6 +11,14 @@
       "status": "active",
       "notBefore": "2026-11-11T03:17:47.000Z",
       "notAfter": "2027-11-11T03:17:47.000Z"
+    },
+    {
+      "keyId": "catalog-2026-02",
+      "algorithm": "ed25519",
+      "publicKey": "gLn6Py5JlWdVqI52x+FAEOgNsRQAmxb1um40Z9qyZdM=",
+      "status": "active",
+      "notBefore": "2026-11-11T10:43:11.000Z",
+      "notAfter": "2027-11-11T10:43:11.000Z"
     }
   ],
   "publishers": [
@@ -25,6 +33,14 @@
           "status": "active",
           "notBefore": "2026-11-11T03:17:47.000Z",
           "notAfter": "2027-11-11T03:17:47.000Z"
+        },
+        {
+          "keyId": "attson-codec-2026-02",
+          "algorithm": "ed25519",
+          "publicKey": "tFyyxM1XlSz9US7bkJ2KwALEJ2IoA9mlIusPtLV8GmM=",
+          "status": "active",
+          "notBefore": "2026-11-11T10:43:11.000Z",
+          "notAfter": "2027-11-11T10:43:11.000Z"
         }
       ]
     }
