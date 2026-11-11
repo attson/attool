@@ -559,6 +559,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 }
 
 function parseArguments(argv) {
+  if (argv[0] === '--') argv = argv.slice(1);
   const values = {};
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
