@@ -12,7 +12,7 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 
 - “应用管理”（`id: app-management`）位于侧栏“平台”分组，展示内置工具和已安装插件，支持本地 `.atpkg` 预览、权限确认、安装、停用、启用、卸载、筛选和安装历史。
 - 平台只接受签名有效、文件 hash 完整、target 匹配且 Host API 兼容的包。插件 UI 通过独立 `attool-plugin://<appId>` origin 和 sandboxed iframe 运行，公共桌面能力只能通过版本化 Host API 调用。
-- Codec 与 Text 均为从平台完全外置的双制品应用：`atcodec`、`attext` 仓库分别生成独立 Tauri 安装包和 `com.attson.codec`、`com.attson.text` 插件包。平台不再包含两者的内置实现，安装的插件是唯一入口。
+- Codec、Text 与 Generator 均为从平台完全外置的双制品应用：`atcodec`、`attext`、`atgenerator` 仓库分别生成独立 Tauri 安装包和 `com.attson.codec`、`com.attson.text`、`com.attson.generator` 插件包。平台不再包含三者的内置实现，安装的插件是唯一入口。
 - 官方 Catalog 由 AT Tool 主仓维护并签名，平台可按当前 OS/架构远程安装和主动升级多个官方应用；新版本先进入 `pending`，健康检查与原子切换通过后成为 `current`，失败时保留或恢复上一可用版本。
 - 当前仅接入纯前端应用。原生 service、独立版与插件版共享数据、第三方发布者和开放式应用市场留在后续阶段。
 
@@ -89,7 +89,6 @@ Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环�
 | 视频链接抽取（`douyin`） | 抖音 / B站 / 小红书 / YouTube 链接与文案解析；YouTube 使用内置 yt-dlp + EJS + QuickJS | `douyin/bilibili/xhs/youtube.rs` |
 | 图片（`image`） | 统一捕获工作台（截图 / 录屏，截图选区支持标注与快捷 OCR）、压缩、格式转换、EXIF、OCR；OCR 内置 Tesseract 与中英日语言模型 | `imaging/`（含 xcap 截图）+ `recording.rs` |
 | 网络（`network`） | URL 分解、Ping、端口、DNS | `network/` |
-| 生成器（`generator`） | 密码、UUID·ULID、二维码、Lorem、假数据、骰子 | `qrcode.rs`（二维码），其余前端 |
 | 时间（`time`） | 时间戳、时区、Cron、Duration | 纯前端 |
 
 ## 不在范围内
