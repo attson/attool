@@ -617,12 +617,6 @@ fn install_plan_from_verified(
     os: CatalogTargetOs,
     arch: CatalogTargetArch,
 ) -> Result<CatalogInstallPlan, CatalogError> {
-    if app_id != "com.attson.codec" {
-        return Err(CatalogError::new(
-            "CATALOG_APP_NOT_FOUND",
-            "The requested official application was not found",
-        ));
-    }
     let app = verified
         .catalog
         .apps
@@ -689,10 +683,29 @@ fn validate_official_artifact_url(
 ) -> Result<(), CatalogError> {
     let url = Url::parse(&artifact.url)
         .map_err(|_| CatalogError::new("CATALOG_ARTIFACT_INVALID", "Artifact URL is invalid"))?;
-    let expected_path = format!(
-        "/attsontools/atcodec/releases/download/v{version}/{}",
-        artifact.file_name
-    );
+    let expected_tag = format!("v{version}");
+    let path_segments = url
+        .path_segments()
+        .map(|segments| segments.collect::<Vec<_>>())
+        .unwrap_or_default();
+    let repository_is_valid = path_segments
+        .get(1)
+        .map(|repository| {
+            !repository.is_empty()
+                && *repository != "."
+                && *repository != ".."
+                && repository
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        })
+        .unwrap_or(false);
+    let is_official_release_path = path_segments.len() == 6
+        && path_segments[0] == "attsontools"
+        && repository_is_valid
+        && path_segments[2] == "releases"
+        && path_segments[3] == "download"
+        && path_segments[4] == expected_tag
+        && path_segments[5] == artifact.file_name;
     if url.scheme() != "https"
         || url.host_str() != Some("github.com")
         || !url.username().is_empty()
@@ -700,11 +713,11 @@ fn validate_official_artifact_url(
         || url.port().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || url.path() != expected_path
+        || !is_official_release_path
     {
         return Err(CatalogError::new(
             "CATALOG_ARTIFACT_URL_UNTRUSTED",
-            "Catalog artifact is not an immutable official Codec release asset",
+            "Catalog artifact is not an immutable official application release asset",
         ));
     }
     Ok(())
@@ -1508,6 +1521,51 @@ mod tests {
         )
         .expect_err("alternate endpoint components must fail");
         assert_eq!(error.code, "CATALOG_ARTIFACT_URL_UNTRUSTED");
+    }
+
+    #[test]
+    fn install_plan_accepts_a_second_official_catalog_application() {
+        let verifier = CatalogVerifier::from_base64(ROOT_PUBLIC_KEY).unwrap();
+        let mut verified = verifier
+            .verify(
+                ROOT_JSON,
+                ROOT_SIGNATURE,
+                CATALOG_JSON,
+                CATALOG_SIGNATURE,
+                Utc.with_ymd_and_hms(2026, 11, 11, 0, 0, 0).unwrap(),
+                0,
+                0,
+                true,
+            )
+            .unwrap();
+        let mut text = verified.catalog.apps[0].clone();
+        text.app_id = "com.attson.text".to_string();
+        text.name = "文本工具".to_string();
+        text.channels.stable.version = "0.1.0-alpha.0".to_string();
+        text.channels.stable.artifacts[0].file_name =
+            "AT.Text_0.1.0-alpha.0_linux_x86_64.atpkg".to_string();
+        text.channels.stable.artifacts[0].url = concat!(
+            "https://github.com/attsontools/attext/releases/download/",
+            "v0.1.0-alpha.0/AT.Text_0.1.0-alpha.0_linux_x86_64.atpkg"
+        )
+        .to_string();
+        verified.catalog.apps.push(text);
+
+        let plan = install_plan_from_verified(
+            &verified,
+            "com.attson.text",
+            CatalogTargetOs::Linux,
+            CatalogTargetArch::X86_64,
+        )
+        .unwrap();
+
+        assert_eq!(plan.app_id, "com.attson.text");
+        assert_eq!(plan.name, "文本工具");
+        assert_eq!(plan.version, "0.1.0-alpha.0");
+        assert_eq!(
+            plan.artifact.url,
+            "https://github.com/attsontools/attext/releases/download/v0.1.0-alpha.0/AT.Text_0.1.0-alpha.0_linux_x86_64.atpkg"
+        );
     }
 
     #[test]
