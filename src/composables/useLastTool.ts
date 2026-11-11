@@ -6,7 +6,8 @@ const STORAGE_KEY = 'attool.lastTool';
 const LEGACY_ID_MAP: Record<string, string> = {
   douyin: 'video-link',
   recording: 'image',
-  codec: 'plugin:com.attson.codec'
+  codec: 'plugin:com.attson.codec',
+  time: 'plugin:com.attson.time'
 };
 
 export function useLastTool(storage: KVStorage = localStorage) {
