@@ -17,6 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   canSignWithCatalogKey,
@@ -32,21 +33,6 @@ import {
   verifyTrustMetadataSignature
 } from '@attson/plugin-sdk/node';
 
-const CODEC_APP_ID = 'com.attson.codec';
-const CODEC_REPOSITORY = 'attsontools/atcodec';
-const CODEC_APP = {
-  appId: CODEC_APP_ID,
-  name: '编码转换',
-  description: 'Base64、URL、Unicode、Hex、Hash 与 JWT',
-  publisherId: 'com.attson',
-  icon: 'codec'
-};
-const CODEC_HOST_API = { min: '1.0.0', max: '1.x' };
-const CODEC_PERMISSIONS = [
-  'host.theme.read',
-  'host.file.save',
-  'host.notification.show'
-];
 const EXPECTED_TARGETS = [
   ['linux', 'aarch64'],
   ['linux', 'x86_64'],
@@ -54,10 +40,53 @@ const EXPECTED_TARGETS = [
   ['macos', 'x86_64'],
   ['windows', 'x86_64']
 ];
+const DEFAULT_APPLICATION_REGISTRY = path.resolve(import.meta.dirname, '../catalog/apps.json');
+
+export async function loadCatalogApplication(
+  appId,
+  registryPath = DEFAULT_APPLICATION_REGISTRY
+) {
+  const applications = await loadCatalogApplications(registryPath);
+  const application = applications.find((candidate) => candidate.appId === appId);
+  if (!application) throw new Error(`Unknown Catalog application: ${appId}`);
+  return application;
+}
+
+export async function loadCatalogApplicationBySlug(
+  slug,
+  registryPath = DEFAULT_APPLICATION_REGISTRY
+) {
+  const applications = await loadCatalogApplications(registryPath);
+  const application = applications.find((candidate) => candidate.slug === slug);
+  if (!application) throw new Error(`Unknown Catalog application slug: ${slug}`);
+  return application;
+}
+
+async function loadCatalogApplications(registryPath) {
+  const registry = JSON.parse(await readFile(registryPath, 'utf8'));
+  if (registry.schemaVersion !== 1 || !Array.isArray(registry.apps)) {
+    throw new Error('Catalog application registry must use schema version 1');
+  }
+  for (const candidate of registry.apps) requireApplicationPolicy(candidate);
+  const uniqueFields = [
+    ['appId', 'app IDs'],
+    ['slug', 'slugs'],
+    ['repository', 'repositories'],
+    ['artifactPrefix', 'artifact prefixes'],
+    ['publisherKeySecret', 'Publisher key secrets']
+  ];
+  for (const [field, label] of uniqueFields) {
+    if (new Set(registry.apps.map((candidate) => candidate[field])).size !== registry.apps.length) {
+      throw new Error(`Catalog application registry contains duplicate ${label}`);
+    }
+  }
+  return registry.apps;
+}
 
 export function createCatalog({
   root: rootInput,
   previousCatalog: previousCatalogInput,
+  application,
   release,
   catalogKeyId,
   publisherKeyId,
@@ -71,43 +100,48 @@ export function createCatalog({
     throw new Error(`${catalogKeyId} must be an active Catalog signing key at ${generatedAt}`);
   }
 
-  const codecApp = previousCatalog.apps.find((app) => app.appId === CODEC_APP_ID);
-  if (!codecApp) throw new Error(`Previous Catalog must contain ${CODEC_APP_ID}`);
+  requireApplicationPolicy(application);
+  const previousApp = previousCatalog.apps.find((app) => app.appId === application.appId);
 
-  const publisher = root.publishers.find((candidate) => candidate.publisherId === codecApp.publisherId);
+  const publisher = root.publishers.find((candidate) => candidate.publisherId === application.publisherId);
   const publisherKey = publisher?.keys.find((key) => key.keyId === publisherKeyId);
   if (!publisherKey || !canSignWithCatalogKey(publisherKey, release.publishedAt)) {
     throw new Error(`${publisherKeyId} must be an active Publisher key at ${release.publishedAt}`);
   }
 
-  const version = versionFromTag(release.tagName);
-  if (compareSemver(version, codecApp.channels.stable.version) <= 0) {
-    throw new Error(`Codec version ${version} must be strictly newer than ${codecApp.channels.stable.version}`);
+  const version = versionFromTag(release.tagName, application.name);
+  if (previousApp && compareSemver(version, previousApp.channels.stable.version) <= 0) {
+    throw new Error(
+      `${application.name} version ${version} must be strictly newer than ${previousApp.channels.stable.version}`
+    );
   }
 
-  const artifacts = validateArtifacts(release.assets, release.tagName, version);
+  const stable = {
+    version,
+    publishedAt: release.publishedAt,
+    notes: release.notes,
+    publisherKeyId,
+    hostApi: application.hostApi,
+    permissions: application.permissions,
+    artifacts: validateArtifacts(application, release.assets, release.tagName, version)
+  };
+  const nextApp = {
+    appId: application.appId,
+    name: application.name,
+    description: application.description,
+    publisherId: application.publisherId,
+    icon: application.icon,
+    channels: { stable }
+  };
   const catalog = {
     schemaVersion: 1,
     sequence: previousCatalog.sequence + 1,
     generatedAt,
     expiresAt,
     signingKeyId: catalogKeyId,
-    apps: previousCatalog.apps.map((app) => app.appId === CODEC_APP_ID
-      ? {
-          ...app,
-          channels: {
-            stable: {
-              version,
-              publishedAt: release.publishedAt,
-              notes: release.notes,
-              publisherKeyId,
-              hostApi: app.channels.stable.hostApi,
-              permissions: app.channels.stable.permissions,
-              artifacts
-            }
-          }
-        }
-      : app)
+    apps: previousApp
+      ? previousCatalog.apps.map((app) => app.appId === application.appId ? nextApp : app)
+      : [...previousCatalog.apps, nextApp]
   };
 
   return parsePluginCatalog(catalog);
@@ -228,6 +262,7 @@ export async function prepareCatalogRelease({
   rootPublicKey,
   previousCatalog: previousCatalogInput,
   previousCatalogSignature,
+  application,
   release,
   assetDirectory,
   catalogKeyId,
@@ -254,20 +289,22 @@ export async function prepareCatalogRelease({
         catalog: undefined
       };
   const { root, catalog: previousCatalog } = verifiedState;
-  const version = versionFromTag(release.tagName);
+  requireApplicationPolicy(application);
+  const version = versionFromTag(release.tagName, application.name);
   if (!Array.isArray(release.assets) || release.assets.length !== EXPECTED_TARGETS.length) {
-    throw new Error('Codec release must contain exactly the five supported plugin targets');
+    throw new Error(`${application.name} release must contain exactly the five supported plugin targets`);
   }
 
   const inspectedAssets = [];
   for (const [os, arch] of EXPECTED_TARGETS) {
-    const fileName = `AT.Codec_${version}_${os}_${arch}.atpkg`;
+    const fileName = `${application.artifactPrefix}_${version}_${os}_${arch}.atpkg`;
     const releaseAsset = release.assets.find((asset) => asset.fileName === fileName);
     if (!releaseAsset) {
-      throw new Error('Codec release must contain exactly the five supported plugin targets');
+      throw new Error(`${application.name} release must contain exactly the five supported plugin targets`);
     }
-    const inspected = await inspectCodecPackage({
+    const inspected = await inspectPluginPackage({
       packagePath: path.join(assetDirectory, fileName),
+      application,
       root,
       publishedAt: release.publishedAt,
       expectedVersion: version,
@@ -291,6 +328,7 @@ export async function prepareCatalogRelease({
     ? createCatalog({
         root,
         previousCatalog,
+        application,
         release: verifiedRelease,
         catalogKeyId,
         publisherKeyId,
@@ -298,6 +336,7 @@ export async function prepareCatalogRelease({
         expiresAt
       })
     : createInitialCatalog({
+        application,
         release: verifiedRelease,
         catalogKeyId,
         publisherKeyId,
@@ -342,8 +381,8 @@ export function prepareCatalogRenewal({
   };
 }
 
-function createInitialCatalog({ release, catalogKeyId, publisherKeyId, generatedAt, expiresAt }) {
-  const version = versionFromTag(release.tagName);
+function createInitialCatalog({ application, release, catalogKeyId, publisherKeyId, generatedAt, expiresAt }) {
+  const version = versionFromTag(release.tagName, application.name);
   return parsePluginCatalog({
     schemaVersion: 1,
     sequence: 1,
@@ -351,24 +390,29 @@ function createInitialCatalog({ release, catalogKeyId, publisherKeyId, generated
     expiresAt,
     signingKeyId: catalogKeyId,
     apps: [{
-      ...CODEC_APP,
+      appId: application.appId,
+      name: application.name,
+      description: application.description,
+      publisherId: application.publisherId,
+      icon: application.icon,
       channels: {
         stable: {
           version,
           publishedAt: release.publishedAt,
           notes: release.notes,
           publisherKeyId,
-          hostApi: CODEC_HOST_API,
-          permissions: CODEC_PERMISSIONS,
-          artifacts: validateArtifacts(release.assets, release.tagName, version)
+          hostApi: application.hostApi,
+          permissions: application.permissions,
+          artifacts: validateArtifacts(application, release.assets, release.tagName, version)
         }
       }
     }]
   });
 }
 
-export async function inspectCodecPackage({
+export async function inspectPluginPackage({
   packagePath,
+  application,
   root: rootInput,
   publishedAt,
   expectedVersion,
@@ -390,14 +434,17 @@ export async function inspectCodecPackage({
     const manifest = parseManifest(JSON.parse(
       await readFile(path.join(extracted, 'manifest.json'), 'utf8')
     ));
+    requireApplicationPolicy(application);
     const expectedFileName =
-      `AT.Codec_${expectedVersion}_${manifest.target.os}_${manifest.target.arch}.atpkg`;
+      `${application.artifactPrefix}_${expectedVersion}_${manifest.target.os}_${manifest.target.arch}.atpkg`;
     requireEqual(path.basename(packagePath), expectedFileName, 'file name');
-    requireEqual(manifest.appId, CODEC_APP_ID, 'app ID');
-    requireEqual(manifest.name, '编码转换', 'application name');
+    requireEqual(manifest.appId, application.appId, 'app ID');
+    requireEqual(manifest.name, application.name, 'application name');
     requireEqual(manifest.version, expectedVersion, 'version');
-    requireEqual(manifest.publisher.id, 'com.attson', 'publisher ID');
+    requireEqual(manifest.publisher.id, application.publisherId, 'publisher ID');
     requireEqual(manifest.publisher.keyId, expectedPublisherKeyId, 'Publisher Key ID');
+    requireEqual(manifest.hostApi, application.hostApi, 'Host API range');
+    requireEqual(manifest.permissions, application.permissions, 'permissions');
 
     const publisher = root.publishers.find(
       (candidate) => candidate.publisherId === manifest.publisher.id
@@ -442,25 +489,32 @@ export async function inspectCodecPackage({
   }
 }
 
-function validateArtifacts(assets, tagName, version) {
+export async function inspectCodecPackage(options) {
+  return inspectPluginPackage({
+    application: await loadCatalogApplication('com.attson.codec'),
+    ...options
+  });
+}
+
+function validateArtifacts(application, assets, tagName, version) {
   if (!Array.isArray(assets) || assets.length !== EXPECTED_TARGETS.length) {
-    throw new Error('Codec release must contain exactly the five supported plugin targets');
+    throw new Error(`${application.name} release must contain exactly the five supported plugin targets`);
   }
 
   const byTarget = new Map(assets.map((asset) => [`${asset.os}/${asset.arch}`, asset]));
   if (byTarget.size !== EXPECTED_TARGETS.length) {
-    throw new Error('Codec release must contain exactly the five supported plugin targets');
+    throw new Error(`${application.name} release must contain exactly the five supported plugin targets`);
   }
 
   return EXPECTED_TARGETS.map(([os, arch]) => {
     const asset = byTarget.get(`${os}/${arch}`);
     if (!asset) {
-      throw new Error('Codec release must contain exactly the five supported plugin targets');
+      throw new Error(`${application.name} release must contain exactly the five supported plugin targets`);
     }
-    const fileName = `AT.Codec_${version}_${os}_${arch}.atpkg`;
-    const expectedUrl = `https://github.com/${CODEC_REPOSITORY}/releases/download/${tagName}/${fileName}`;
+    const fileName = `${application.artifactPrefix}_${version}_${os}_${arch}.atpkg`;
+    const expectedUrl = `https://github.com/${application.repository}/releases/download/${tagName}/${fileName}`;
     if (asset.fileName !== fileName || asset.url !== expectedUrl) {
-      throw new Error(`${fileName} must use an immutable ${CODEC_REPOSITORY} Release URL`);
+      throw new Error(`${fileName} must use an immutable ${application.repository} Release URL`);
     }
     return {
       os,
@@ -473,9 +527,9 @@ function validateArtifacts(assets, tagName, version) {
   });
 }
 
-function versionFromTag(tagName) {
+function versionFromTag(tagName, applicationName = 'Application') {
   if (typeof tagName !== 'string' || !tagName.startsWith('v')) {
-    throw new Error('Codec release tag must start with v');
+    throw new Error(`${applicationName} release tag must start with v`);
   }
   return parseSemver(tagName.slice(1)).raw;
 }
@@ -579,13 +633,61 @@ async function hashFile(filePath) {
 }
 
 function requireEqual(actual, expected, label) {
-  if (actual !== expected) {
-    throw new Error(`Plugin package ${label} mismatch: expected ${expected}, received ${actual}`);
+  if (!isDeepStrictEqual(actual, expected)) {
+    throw new Error(
+      `Plugin package ${label} mismatch: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`
+    );
+  }
+}
+
+function requireApplicationPolicy(application) {
+  const requiredStrings = [
+    'appId',
+    'slug',
+    'repository',
+    'artifactPrefix',
+    'name',
+    'description',
+    'publisherId',
+    'publisherKeySecret',
+    'icon'
+  ];
+  if (!application || requiredStrings.some((field) => typeof application[field] !== 'string' || !application[field])) {
+    throw new Error('Catalog application policy is invalid');
+  }
+  if (!/^[a-z0-9]+(?:\.[a-z0-9]+)+$/.test(application.appId)) {
+    throw new Error(`Catalog application ID is invalid: ${application.appId}`);
+  }
+  if (!/^[a-z0-9-]+$/.test(application.slug)) {
+    throw new Error(`Catalog application slug is invalid: ${application.slug}`);
+  }
+  if (!/^attsontools\/[a-z0-9-]+$/.test(application.repository)) {
+    throw new Error(`Catalog application must use an official attsontools repository: ${application.repository}`);
+  }
+  if (!/^AT\.[A-Za-z0-9.]+$/.test(application.artifactPrefix)) {
+    throw new Error(`Catalog artifact prefix is invalid: ${application.artifactPrefix}`);
+  }
+  if (!/^[A-Z][A-Z0-9_]*_PUBLISHER_KEY_ID$/.test(application.publisherKeySecret)) {
+    throw new Error(`Catalog Publisher secret name is invalid: ${application.publisherKeySecret}`);
+  }
+  if ([application.name, application.description, application.icon].some((value) => /[\r\n]/.test(value))) {
+    throw new Error(`Catalog application display metadata is invalid for ${application.appId}`);
+  }
+  if (
+    !application.hostApi ||
+    typeof application.hostApi.min !== 'string' ||
+    typeof application.hostApi.max !== 'string' ||
+    !Array.isArray(application.permissions)
+  ) {
+    throw new Error(`Catalog application policy is invalid for ${application.appId}`);
   }
 }
 
 async function main(argv = process.argv.slice(2), env = process.env) {
   const args = parseArguments(argv);
+  const application = args.mode === 'release'
+    ? await loadCatalogApplication(args.app)
+    : undefined;
   const root = JSON.parse(await readFile(args.root, 'utf8'));
   const rootSignature = await readFile(args.rootSignature, 'utf8');
   const previousCatalog = args.catalog
@@ -609,9 +711,10 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     ? prepareCatalogRenewal(common)
     : await prepareCatalogRelease({
         ...common,
+        application,
         release: JSON.parse(await readFile(args.release, 'utf8')),
         assetDirectory: args.assets,
-        publisherKeyId: requiredEnvironment(env, 'ATCODEC_PUBLISHER_KEY_ID')
+        publisherKeyId: requiredEnvironment(env, 'ATTOOL_PUBLISHER_KEY_ID')
       });
 
   await mkdir(args.output, { recursive: true });
@@ -625,9 +728,11 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     `${prepared.signature}\n`,
     { mode: 0o644 }
   );
-  const version = prepared.catalog.apps.find((app) => app.appId === CODEC_APP_ID)
-    ?.channels.stable.version;
-  console.log(`${args.mode === 'renew' ? 'Renewed' : 'Prepared'} Catalog sequence ${prepared.catalog.sequence} for Codec ${version}`);
+  const version = application
+    ? prepared.catalog.apps.find((app) => app.appId === application.appId)?.channels.stable.version
+    : undefined;
+  const suffix = application ? ` for ${application.name} ${version}` : '';
+  console.log(`${args.mode === 'renew' ? 'Renewed' : 'Prepared'} Catalog sequence ${prepared.catalog.sequence}${suffix}`);
 }
 
 function parseArguments(argv) {
@@ -652,7 +757,7 @@ function parseArguments(argv) {
   if (!['release', 'renew'].includes(mode)) {
     throw new Error('--mode must be release or renew');
   }
-  if (mode === 'release') required.push('release', 'assets');
+  if (mode === 'release') required.push('app', 'release', 'assets');
   if (mode === 'renew') required.push('catalog', 'catalog-signature');
   const missing = required.find((name) => !values[name]);
   if (missing) throw new Error(`--${missing} is required`);
@@ -661,6 +766,7 @@ function parseArguments(argv) {
   }
   return {
     mode,
+    app: values.app,
     root: values.root,
     rootSignature: values['root-signature'],
     catalog: values.catalog,
