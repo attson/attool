@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -23,6 +23,11 @@ import {
   parseProductionArguments,
   runProductionRotation
 } from './rotate-production-catalog-keys.mjs';
+import {
+  createProductionRetirementPlan,
+  parseProductionRetirementArguments,
+  runProductionRetirement
+} from './retire-production-catalog-keys.mjs';
 
 describe('Catalog key rotation ceremony', () => {
   it('derives the next production key IDs and one-year validity window', () => {
@@ -111,6 +116,166 @@ describe('Catalog key rotation ceremony', () => {
       assert.equal(
         JSON.parse(await readFile(path.join(transferDirectory, 'public', 'root.json'), 'utf8')).sequence,
         2
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('derives a production retirement plan from the keys used by the Catalog', () => {
+    const fixture = createRetirementFixture();
+
+    assert.deepEqual(
+      createProductionRetirementPlan({
+        root: fixture.root,
+        catalog: fixture.catalog,
+        now: new Date('2026-11-13T08:09:10.987Z')
+      }),
+      {
+        catalogKeyId: 'catalog-2026-01',
+        publisherId: 'com.attson',
+        publisherKeyId: 'attson-codec-2026-01',
+        issuedAt: '2026-11-13T08:09:10.000Z'
+      }
+    );
+  });
+
+  it('fails closed when production retirement candidates are ambiguous', () => {
+    const fixture = createRetirementFixture();
+    const ambiguousRoot = structuredClone(fixture.root);
+    ambiguousRoot.catalogKeys.push({
+      ...ambiguousRoot.catalogKeys[0],
+      keyId: 'catalog-2025-01'
+    });
+
+    assert.throws(
+      () => createProductionRetirementPlan({
+        root: ambiguousRoot,
+        catalog: fixture.catalog,
+        now: new Date('2026-11-13T08:09:10Z')
+      }),
+      /exactly one other active Catalog key/
+    );
+
+    const missingReplacement = structuredClone(fixture.root);
+    missingReplacement.catalogKeys.find(({ keyId }) => keyId === fixture.catalog.signingKeyId).status = 'retired';
+    assert.throws(
+      () => createProductionRetirementPlan({
+        root: missingReplacement,
+        catalog: fixture.catalog,
+        now: new Date('2026-11-13T08:09:10Z')
+      }),
+      /must be an active Catalog key/
+    );
+
+    const ambiguousPublisherRoot = structuredClone(fixture.root);
+    ambiguousPublisherRoot.publishers[0].keys.push({
+      ...ambiguousPublisherRoot.publishers[0].keys[0],
+      keyId: 'attson-codec-2025-01'
+    });
+    assert.throws(
+      () => createProductionRetirementPlan({
+        root: ambiguousPublisherRoot,
+        catalog: fixture.catalog,
+        now: new Date('2026-11-13T08:09:10Z')
+      }),
+      /exactly one other active com.attson key/
+    );
+  });
+
+  it('accepts exactly two production retirement directories', () => {
+    assert.deepEqual(
+      parseProductionRetirementArguments(['--', '/root-offline', '/public-output']),
+      {
+        rootOfflineDirectory: '/root-offline',
+        outputDirectory: '/public-output'
+      }
+    );
+    assert.throws(
+      () => parseProductionRetirementArguments(['/root-offline']),
+      /Usage: pnpm rotate:catalog-keys:retire:prod/
+    );
+  });
+
+  it('retires superseded production keys into a public-only directory', async () => {
+    const fixture = createRetirementFixture();
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-production-retirement-'));
+    const rootOfflineDirectory = path.join(directory, 'root-offline');
+    const metadataDirectory = path.join(directory, 'metadata');
+    const outputDirectory = path.join(directory, 'public-output');
+    try {
+      await Promise.all([
+        mkdir(rootOfflineDirectory, { mode: 0o700 }),
+        mkdir(metadataDirectory)
+      ]);
+      await Promise.all([
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-private.pem'),
+          fixture.rootKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+          { mode: 0o600 }
+        ),
+        writeFile(
+          path.join(rootOfflineDirectory, 'root-public.txt'),
+          `${rawPublicKey(fixture.rootKeys.publicKey)}\n`
+        ),
+        writeFile(path.join(metadataDirectory, 'root.json'), `${JSON.stringify(fixture.root)}\n`),
+        writeFile(path.join(metadataDirectory, 'root.json.sig'), `${fixture.rootSignature}\n`),
+        writeFile(path.join(metadataDirectory, 'catalog.json'), `${JSON.stringify(fixture.catalog)}\n`),
+        writeFile(path.join(metadataDirectory, 'catalog.json.sig'), `${fixture.catalogSignature}\n`)
+      ]);
+
+      await assert.rejects(
+        () => runProductionRetirement({
+          rootOfflineDirectory,
+          outputDirectory: path.join(rootOfflineDirectory, 'public-output'),
+          metadataDirectory,
+          now: new Date('2026-11-13T08:09:10Z')
+        }),
+        /must be separate and non-nested/
+      );
+
+      await writeFile(
+        path.join(metadataDirectory, 'catalog.json.sig'),
+        `${fixture.rootSignature}\n`
+      );
+      await assert.rejects(
+        () => runProductionRetirement({
+          rootOfflineDirectory,
+          outputDirectory,
+          metadataDirectory,
+          now: new Date('2026-11-13T08:09:10Z')
+        }),
+        /Previous Catalog signature is invalid/
+      );
+
+      await writeFile(
+        path.join(metadataDirectory, 'catalog.json.sig'),
+        `${fixture.catalogSignature}\n`
+      );
+
+      const result = await runProductionRetirement({
+        rootOfflineDirectory,
+        outputDirectory,
+        metadataDirectory,
+        now: new Date('2026-11-13T08:09:10Z')
+      });
+
+      assert.equal(result.root.sequence, 3);
+      assert.equal(result.root.catalogKeys[0].status, 'retired');
+      assert.equal(result.root.catalogKeys[1].status, 'active');
+      assert.equal(result.root.publishers[0].keys[0].status, 'retired');
+      assert.equal(result.root.publishers[0].keys[1].status, 'active');
+      assert.equal((await stat(path.join(outputDirectory, 'root.json'))).mode & 0o777, 0o644);
+      assert.equal((await stat(path.join(outputDirectory, 'root.json.sig'))).mode & 0o777, 0o644);
+      assert.deepEqual((await readdir(outputDirectory)).sort(), ['root.json', 'root.json.sig']);
+      await assert.rejects(
+        () => runProductionRetirement({
+          rootOfflineDirectory,
+          outputDirectory,
+          metadataDirectory,
+          now: new Date('2026-11-13T08:09:11Z')
+        }),
+        /Output directory already exists/
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -612,6 +777,68 @@ function createOverlap(fixture) {
     issuedAt: '2026-11-12T00:00:00Z',
     notAfter: '2027-11-12T00:00:00Z'
   });
+}
+
+function createRetirementFixture() {
+  const fixture = createFixture();
+  const catalogKeys = generateKeyPairSync('ed25519');
+  const publisherKeys = generateKeyPairSync('ed25519');
+  const overlap = createOverlapRoot({
+    root: fixture.root,
+    rootSignature: fixture.rootSignature,
+    rootPublicKey: rawPublicKey(fixture.rootKeys.publicKey),
+    rootPrivateKey: fixture.rootKeys.privateKey,
+    catalogKey: {
+      keyId: 'catalog-2026-02',
+      publicKey: rawPublicKey(catalogKeys.publicKey)
+    },
+    publisherId: 'com.attson',
+    publisherKey: {
+      keyId: 'attson-codec-2026-02',
+      publicKey: rawPublicKey(publisherKeys.publicKey)
+    },
+    issuedAt: '2026-11-12T00:00:00Z',
+    notAfter: '2027-11-12T00:00:00Z'
+  });
+  const catalog = {
+    schemaVersion: 1,
+    sequence: 2,
+    generatedAt: '2026-11-12T01:00:00Z',
+    expiresAt: '2026-11-19T01:00:00Z',
+    signingKeyId: 'catalog-2026-02',
+    apps: [{
+      appId: 'com.attson.codec',
+      name: '编码转换',
+      description: 'Base64、URL、Unicode、Hex、Hash 与 JWT',
+      publisherId: 'com.attson',
+      icon: 'codec',
+      channels: {
+        stable: {
+          version: '0.1.0-alpha.2',
+          publishedAt: '2026-11-12T01:00:00Z',
+          notes: 'Key transition release',
+          publisherKeyId: 'attson-codec-2026-02',
+          hostApi: { min: '1.0.0', max: '1.x' },
+          permissions: ['host.theme.read'],
+          artifacts: [{
+            os: 'linux',
+            arch: 'x86_64',
+            fileName: 'AT.Codec_0.1.0-alpha.2_linux_x86_64.atpkg',
+            url: 'https://github.com/attsontools/atcodec/releases/download/v0.1.0-alpha.2/AT.Codec_0.1.0-alpha.2_linux_x86_64.atpkg',
+            sha256: 'a'.repeat(64),
+            size: 1
+          }]
+        }
+      }
+    }]
+  };
+  return {
+    ...fixture,
+    root: overlap.root,
+    rootSignature: overlap.signature,
+    catalog,
+    catalogSignature: signTrustMetadata(catalog, catalogKeys.privateKey)
+  };
 }
 
 function createFixture() {
