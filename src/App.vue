@@ -52,7 +52,6 @@ const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.v
 const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 const ImageTool = defineAsyncComponent(() => import('./components/image/ImageTool.vue'));
 const NetworkTool = defineAsyncComponent(() => import('./components/network/NetworkTool.vue'));
-const TextTool = defineAsyncComponent(() => import('./components/text/TextTool.vue'));
 const GeneratorTool = defineAsyncComponent(() => import('./components/generator/GeneratorTool.vue'));
 const TimeTool = defineAsyncComponent(() => import('./components/time/TimeTool.vue'));
 const HttpTool = defineAsyncComponent(() => import('./components/http/HttpTool.vue'));
@@ -657,10 +656,6 @@ async function clearCompleted() {
 
         <template v-else-if="selectedTool.id === 'network'">
           <NetworkTool />
-        </template>
-
-        <template v-else-if="selectedTool.id === 'text'">
-          <TextTool />
         </template>
 
         <template v-else-if="selectedTool.id === 'generator'">

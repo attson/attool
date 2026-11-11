@@ -99,11 +99,11 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 - iframe 与平台通过 `MessageChannel` 上的 JSON-RPC 2.0 通信。Host API 1.0 握手返回 session ID、correlation ID、应用元数据、主题和已批准能力；请求校验 `appId`、API 版本、消息大小、超时和权限。
 - P0 权限只有 `host.theme.read`、`host.notification.show`、`host.file.save`。文件保存必须经过系统保存对话框，插件不能指定任意落盘路径；切换工具、停用或卸载会销毁 iframe 和消息端口。
 
-### 前端装配与 Codec 外置
+### 前端装配与应用外置
 
 - `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
-- 平台不再内置 `codec`；`com.attson.codec` 插件是编码转换在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
-- `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，共享同一 Vue UI 和编码核心。
+- 平台不再内置 `codec` 与 `text`；`com.attson.codec`、`com.attson.text` 插件分别是编码转换与文本工具在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
+- `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec` 与 `attext` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
 
 ### 官方 Catalog、升级与回滚
 
