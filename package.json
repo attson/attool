@@ -14,8 +14,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --config src-tauri/tauri.release.conf.json",
     "publish:catalog": "tsx .github/scripts/publish-catalog.mjs",
+    "rotate:catalog-keys": "tsx .github/scripts/rotate-catalog-keys.mjs",
     "test": "vitest run",
-    "test:catalog": "tsx --test .github/scripts/catalog-release.node.mjs"
+    "test:catalog": "tsx --test .github/scripts/catalog-release.node.mjs .github/scripts/catalog-key-rotation.node.mjs"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
