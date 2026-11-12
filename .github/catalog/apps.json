@@ -75,6 +75,24 @@
       "permissions": [
         "host.theme.read"
       ]
+    },
+    {
+      "appId": "com.attson.json",
+      "slug": "json",
+      "repository": "attsontools/atjson",
+      "artifactPrefix": "AT.JSON",
+      "name": "JSON 工具",
+      "description": "格式化 / 查询 / 对比 / 转换",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATJSON_PUBLISHER_KEY_ID",
+      "icon": "code",
+      "hostApi": {
+        "min": "1.0.0",
+        "max": "1.x"
+      },
+      "permissions": [
+        "host.theme.read"
+      ]
     }
   ]
 }

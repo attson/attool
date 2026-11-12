@@ -76,6 +76,25 @@ const previousCatalog = {
 };
 
 describe('Catalog release generation', () => {
+  it('loads JSON release policy by app ID and slug', async () => {
+    const expected = {
+      appId: 'com.attson.json',
+      slug: 'json',
+      repository: 'attsontools/atjson',
+      artifactPrefix: 'AT.JSON',
+      name: 'JSON 工具',
+      description: '格式化 / 查询 / 对比 / 转换',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATJSON_PUBLISHER_KEY_ID',
+      icon: 'code',
+      hostApi: { min: '1.0.0', max: '1.x' },
+      permissions: ['host.theme.read']
+    };
+
+    assert.deepEqual(await loadCatalogApplication('com.attson.json'), expected);
+    assert.deepEqual(await loadCatalogApplicationBySlug('json'), expected);
+  });
+
   it('loads Time release policy by app ID and slug', async () => {
     const expected = {
       appId: 'com.attson.time',
