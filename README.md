@@ -9,14 +9,13 @@
 | **Aria2 下载** | shell out 到本机 `aria2c`，多连接 / 分片 / 批量 URL / 实时进度 |
 | **主图模板** | PSD 导入（`psd-tools` 桥接）+ 字段占位 `{{key}}` + 笛卡尔展开批量导出 PNG |
 | **剪贴板** | 剪贴板历史记录，图片 / 文本预览，Paste 风格快速恢复，快捷键可自定义 |
-| **JSON** | 格式化、JSONPath 查询、对比、YAML/CSV/XML 转换（Monaco 编辑器） |
 | **视频链接抽取** | 抖音 / B站 / 小红书 / YouTube 视频链接与文案解析 |
 | **图片** | 截图与录屏统一捕获工作台、压缩、格式转换、EXIF 读取/去除、标注、OCR |
 | **网络** | URL 分解、Ping、端口检查、DNS 查询 |
 | **HTTP 请求** | Apifox-lite：多 tab + SQLite 持久化 / 请求集合目录树 / OpenAPI JSON 导入（可配置 base URL 或 `{{baseUrl}}`）/ 发送历史侧栏 / 多环境变量 `{{var}}` / Bearer & Basic auth / cURL 双向导入导出 / form-data 文件上传 / 响应 Pretty · Raw · Preview / 取消进行中请求 / 快捷键（⌘Enter / T / W / B / E）。v0.8.9 起 tab 分 **HTTP / SSE / WebSocket** 三种：SSE 覆盖 AI 流式接口调试（自定义 Header + Bearer Token）；WebSocket 支持双向收发 + 发送模板；长连接切走 tab 不断线，`{{var}}` 展开也适用于 SSE / WS 的 URL / Header / 发送内容 |
 | **AI 对话** | 多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换 |
 
-编码转换、文本工具、生成器与时间工具已拆分为独立应用，可在平台的“应用管理”中按需安装；独立安装包与平台插件包分别由对应应用仓库发布。
+编码转换、文本工具、生成器、时间工具与 JSON 工具已拆分为独立应用，可在平台的“应用管理”中按需安装；独立安装包与平台插件包分别由对应应用仓库发布。
 
 截图支持全平台：macOS 用系统 `screencapture`，Linux / Windows 用 xcap。录屏通过系统屏幕来源选择器捕获画面，可组合系统音频与麦克风，停止后预览并保存。默认全局快捷键为 `CommandOrControl+Shift+R`，首次按下开始选择录制来源，录制中再次按下停止。
 

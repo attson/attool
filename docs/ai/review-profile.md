@@ -113,7 +113,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 迁移要求：本地数据库和设置必须原地升级且保留用户数据；无法兼容时需要明确迁移、备份、失败回滚和用户提示。
 - 发布影响：平台脚本、runtime、sidecar、签名或配置变更必须经目标矩阵构建；tag 发布会直接创建公开 release，不把未验证行为留给发版时发现。
 - 安全/权限：重点关注 updater 信任链、Tauri capability、asset protocol、本地文件路径、命令执行、剪贴板/屏幕内容和 API key 泄露。
-- 性能/容量：关注 Monaco/JSON 大文件、SSE/WS 2000 条与 5 MB buffer、录屏分块落盘、图片批处理和下载并发；避免主线程或 Tauri async runtime 被阻塞。
+- 性能/容量：关注 Monaco/OpenAPI JSON 大文件、SSE/WS 2000 条与 5 MB buffer、录屏分块落盘、图片批处理和下载并发；避免主线程或 Tauri async runtime 被阻塞。
 
 ## 跨仓库联动
 

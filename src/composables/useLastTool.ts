@@ -7,6 +7,7 @@ const LEGACY_ID_MAP: Record<string, string> = {
   douyin: 'video-link',
   recording: 'image',
   codec: 'plugin:com.attson.codec',
+  json: 'plugin:com.attson.json',
   time: 'plugin:com.attson.time'
 };
 

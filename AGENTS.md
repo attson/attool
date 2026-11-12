@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。平台内置 Aria2 下载、主图模板、剪贴板、JSON、视频链接抽取、图片（含跨平台截图与录屏）、网络、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）、AI 对话（多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换）。编码转换、文本工具、生成器与时间工具通过官方 Catalog 作为独立应用按需安装。
+个人桌面工具箱（Tauri 2 + Vue 3 + Naive UI）。平台内置 Aria2 下载、主图模板、剪贴板、视频链接抽取、图片（含跨平台截图与录屏）、网络、HTTP 请求（Apifox-lite：多 tab / 历史 / 环境变量 / cURL / multipart，v0.8.9 起 tab 分 HTTP / SSE / WebSocket 三种，支持 AI 长连接调试；v0.9.0 起 OpenAPI 支持 URL 导入 + 每集合独立间隔的定时同步 + 智能 merge 保留用户改动）、AI 对话（多提供商多模型 AI 助手：OpenAI 兼容 / Anthropic Claude / 本地 Ollama，流式 Markdown + 会话侧栏 + 模型热切换）。编码转换、文本工具、生成器、时间工具与 JSON 工具通过官方 Catalog 作为独立应用按需安装。
 
 ## 技术栈
 
@@ -12,7 +12,7 @@
 | 包管理 | pnpm（`packageManager: pnpm@10.29.3` 锁版本，用 `corepack enable` 自动匹配） |
 | 测试 | Vitest 4（无 jsdom，纯逻辑） |
 | 本地存储 | rusqlite（bundled SQLite） |
-| 编辑器 | Monaco Editor（JSON 工具） |
+| 编辑器 | Monaco Editor（HTTP OpenAPI 导入与 Schema 预览） |
 | 截图 | macOS core-graphics / Linux·Windows xcap 0.8 |
 | 更新 | 自研 updater（Ed25519 签名 SHA256SUMS + 平台专用 apply 脚本，覆盖 mac/win/**Linux**） |
 | 外部命令 | `aria2c`（下载）；PSD 解析器以 PyInstaller sidecar 随正式包分发 |
@@ -51,13 +51,12 @@ src/
 ├── components/
 │   ├── shell/                   # 外壳：AppShell / Sidebar / Topbar / Dashboard / ToolIcon
 │   │                            #   / SettingsModal / UpdateBanner / ShortcutErrorNotifier
-│   ├── ui/                      # 通用原子：Panel / TaskRow / StatPill / Kbd
+│   ├── ui/                      # 通用原子：Panel / TaskRow / StatPill / Kbd / CodeEditor
 │   ├── clipboard/               # 剪贴板：ClipboardTool + ClipboardHistoryWindow（独立窗口）+ ItemCard
 │   ├── ecommerce/               # 主图模板：TemplateTool + 5 子组件（图层树/属性/画布/资源/批量）
 │   ├── image/                   # 图片：ImageTool（tabs：压缩/转换/EXIF/标注/OCR/截图）
 │   │                            #   + CaptureOverlay（截图浮层）+ CapturePinWindow
 │   ├── recording/               # 录屏：系统源选择/音频/暂停/预览 + 分块落盘
-│   ├── json/                    # JSON：格式化/JSONPath 查询/对比/转换（Monaco）
 │   ├── network/                 # 网络：URL 分解/Ping/端口/DNS
 │   ├── douyin/                  # 视频链接抽取（抖音，后端另支持 B站/小红书/YouTube）
 │   ├── http/                    # HTTP 请求：三栏（Sidebar + TabBar + kind-branch 内容区）

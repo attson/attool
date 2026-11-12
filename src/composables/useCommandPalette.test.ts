@@ -4,7 +4,7 @@ import type { Tool } from '../types/tool';
 
 const fakeTools: Tool[] = [
   { id: 'http',  name: 'HTTP 请求', description: 'HTTP body/headers',   status: 'ready', icon: 'send',     group: 'network' },
-  { id: 'json',  name: 'JSON 工具', description: '格式化 / JSONPath',   status: 'ready', icon: 'code',     group: 'edit' },
+  { id: 'plugin:com.attson.json', name: 'JSON 工具', description: '格式化 / JSONPath', status: 'ready', icon: 'code', group: 'edit', source: 'plugin', pluginAppId: 'com.attson.json' },
   { id: 'aria2', name: 'Aria2',    description: '多连接下载',           status: 'ready', icon: 'download', group: 'download' }
 ];
 
@@ -21,7 +21,7 @@ describe('useCommandPalette', () => {
   it('substring 匹配 name', () => {
     const cp = useCommandPalette({ tools: () => fakeTools, onOpenTool: vi.fn() });
     cp.query.value = 'json';
-    expect(cp.results.value.map((r) => r.id)).toEqual(['json']);
+    expect(cp.results.value.map((r) => r.id)).toEqual(['plugin:com.attson.json']);
   });
 
   it('substring 匹配 description', () => {
@@ -41,7 +41,7 @@ describe('useCommandPalette', () => {
     const cp = useCommandPalette({ tools: () => fakeTools, onOpenTool });
     cp.query.value = 'json';
     cp.results.value[0].onSelect();
-    expect(onOpenTool).toHaveBeenCalledWith('json');
+    expect(onOpenTool).toHaveBeenCalledWith('plugin:com.attson.json');
   });
 
   it('提供 envs 时空 query 也列出环境', () => {

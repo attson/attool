@@ -10,8 +10,8 @@
 │  │                   Dashboard / SettingsModal /           │
 │  │                   UpdateBanner / ...                    │
 │  ├─ ui/*             Panel / TaskRow / StatPill / Kbd     │
-│  ├─ <8 工具>/*       clipboard / image / json / network / │
-│  │                   http / douyin / ecommerce / ai       │
+│  ├─ <7 工具>/*       clipboard / image / network / http / │
+│  │                   douyin / ecommerce / ai              │
 │  │                   （懒加载）                             │
 │  ├─ composables/*    useTheme / useSidebarState /         │
 │  │                   useUpdater / useClipboardHistory /    │
@@ -66,7 +66,7 @@
 
 | 层 | 存储 | 例 |
 |---|---|---|
-| UI session | Vue ref | 当前选中工具、表单值、loading flags、JSON 工作页及各功能 pane 输入（应用退出即清） |
+| UI session | Vue ref | 当前选中工具、表单值、loading flags（应用退出即清） |
 | 浏览器持久 | `localStorage` | sidebar 折叠状态、上次打开工具、主题、属性面板折叠 |
 | 应用持久 | rusqlite（Tauri data dir） | 下载任务历史、剪贴板历史、模板项目 / 素材库、**HTTP 工具的 tabs / history / envs / env_vars / collections**、插件 registry 与管理历史 |
 | updater 缓存 | 文件（`app_cache_dir/updater/`） | 已下载但未 apply 的 archive stage |
@@ -83,7 +83,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。JSON 迁移期仍保留宿主内置版本，待下一阶段移除后才由动态插件提供唯一入口。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
 
 ### 包与安装状态
 
@@ -102,8 +102,7 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 ### 前端装配与应用外置
 
 - `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
-- 平台不再内置 `codec`、`text`、`generator` 与 `time`；`com.attson.codec`、`com.attson.text`、`com.attson.generator`、`com.attson.time` 插件分别是编码转换、文本工具、生成器与时间工具在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
-- `com.attson.json` 已通过生产 Catalog 完成安装、打开、停用、启用、卸载与重装验证；当前仍与内置 JSON 并存，内置版本将在独立阶段移除。
+- 平台不再内置 `codec`、`text`、`generator`、`time` 与 `json`；对应插件分别是编码转换、文本工具、生成器、时间工具与 JSON 工具在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
 - `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
 
 ### 官方 Catalog、升级与回滚
@@ -225,7 +224,7 @@ HTTP 工具主容器（三栏）。组合子组件 + 纯函数模块，**按 `ac
 - `WsTool` —— ws kind：`WsRequestEditor`（URL + Params + Headers + Auth + Protocol 含 subprotocols）+ 连接控制条 + `StreamMessageList` + 发送框 + 发送模板选择
 - `StreamMessageList` —— sse / ws 共享的消息流视图：按 `messageTone` 分色（Open / Closed / Error / BufferTruncated / WsBinary / SseEvent · WsText），自动滚动到底部
 - `HttpEnvModal` —— 环境 + 变量 CRUD 弹窗（共用），变量名输入提供 `baseUrl` / `token` / `apiKey` 建议并保留自由输入
-- `HttpOpenApiImportModal` + `openapiImport.ts` —— 读取 OAS 3.x JSON，按 path 首段生成集合目录，支持 base URL 覆盖为真实 URL 或 `{{baseUrl}}`
+- `HttpOpenApiImportModal` + `openapiImport.ts` + OpenAPI Worker —— 使用通用 Monaco 读取和格式化 OAS 3.x JSON，按 path 首段生成集合目录，支持 base URL 覆盖为真实 URL 或 `{{baseUrl}}`
 - `curl.ts` / `variables.ts` / `httpApi.ts` / `streamApi.ts` / `streamMessageTone.ts` / `types.ts` —— 纯函数与类型；`variables.ts` 统一展开变量并在执行副本中用有效 `baseUrl` 补全 HTTP / SSE / WS 相对 URL，WS 基址同步转换协议；vitest 覆盖 OpenAPI 导入、集合 store、URL 解析、SSE / WS store 与 tone 分色
 
 状态全部走 `useHttpStore` 单例；子组件通过 props 拿 spec（union：`HttpRequestSpec | SseSpec | WsSpec`），通过 emit 触发修改；`useHttpStore` 用 300ms debounce 把 tabs 写回 SQLite（关闭 / 发送 / 拖拽即时 flush）。HTTP `send` 与 SSE / WS `openStream` 都在调后端前生成已展开、已补全 URL 的执行副本；解析失败会复位发送 / 连接状态且不调用底层 API。`sendWsMessage` 走 `resolveVars`，原始 tab spec 始终保留用户输入。
