@@ -5,7 +5,6 @@ export const builtinTools: Tool[] = [
   { id: 'aria2', name: 'Aria2 下载', description: 'HTTP / HTTPS / FTP / BT 多连接下载', status: 'ready', icon: 'download', group: 'download' },
   { id: 'template', name: '主图模板', description: 'PSD 导入、字段替换、批量生成主图', status: 'ready', icon: 'layout', group: 'edit' },
   { id: 'clipboard', name: '剪贴板工具', description: 'Paste 风格剪贴板历史与快捷恢复', status: 'ready', icon: 'clipboard', group: 'edit' },
-  { id: 'json', name: 'JSON 工具', description: '格式化 / 查询 / 对比 / 转换', status: 'ready', icon: 'code', group: 'edit' },
   { id: 'video-link', name: '视频链接抽取', description: '抖音 / 小红书 / B站 / YouTube（后三者建设中）', status: 'ready', icon: 'video', group: 'download' },
   { id: 'image', name: '图片工具', description: '截图 / 录屏 / 标注 / 压缩 / 转换 / OCR', status: 'ready', icon: 'image', group: 'edit' },
   { id: 'network', name: '网络工具', description: 'URL 分析 / Ping / 端口检查 / DNS', status: 'ready', icon: 'wifi', group: 'network' },

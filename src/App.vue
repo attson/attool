@@ -48,7 +48,6 @@ import {
   type RecordingResult
 } from './components/image/imageBus';
 
-const JsonTool = defineAsyncComponent(() => import('./components/json/JsonTool.vue'));
 const DouyinTool = defineAsyncComponent(() => import('./components/douyin/DouyinTool.vue'));
 const ImageTool = defineAsyncComponent(() => import('./components/image/ImageTool.vue'));
 const NetworkTool = defineAsyncComponent(() => import('./components/network/NetworkTool.vue'));
@@ -168,7 +167,6 @@ const initialToolId = (() => {
   return t && t.status === 'ready' ? id : null;
 })();
 const selectedToolId = ref<string | null>(initialToolId);
-const jsonToolVisited = ref(initialToolId === 'json');
 
 let unlistenProgress: Promise<UnlistenFn> | undefined;
 let unlistenCaptureFail: Promise<UnlistenFn> | undefined;
@@ -283,7 +281,6 @@ function selectTool(id: string) {
   const tool = tools.value.find((t) => t.id === id);
   if (!tool || tool.status !== 'ready') return;
   selectedToolId.value = id;
-  if (id === 'json') jsonToolVisited.value = true;
   rememberLastTool(id);
   if (id === 'aria2') aria2Handoff.drainInto(url);
 }
@@ -521,12 +518,6 @@ async function clearCompleted() {
             <StatPill>已完成 {{ completedCount }}</StatPill>
           </template>
         </template>
-
-        <JsonTool
-          v-if="jsonToolVisited"
-          v-show="selectedTool?.id === 'json'"
-          :active="selectedTool?.id === 'json'"
-        />
 
         <Dashboard
           v-if="!selectedTool"

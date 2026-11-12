@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NModal } from 'naive-ui';
-import CodeEditor from '../json/CodeEditor.vue';
+import CodeEditor from '../ui/CodeEditor.vue';
 
 defineProps<{
   show: boolean;

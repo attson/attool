@@ -5,6 +5,10 @@ export type OpenApiParseOutcome =
   | { ok: true; result: ImportedOpenApiCollection; elapsedMs: number }
   | { ok: false; error: string };
 
+export type OpenApiFormatOutcome =
+  | { ok: true; text: string; elapsedMs: number }
+  | { ok: false; error: string };
+
 export interface OpenApiWorkerLike {
   postMessage(msg: OpenApiWorkerReq): void;
   addEventListener(type: 'message', listener: (ev: { data: OpenApiWorkerRes }) => void): void;
@@ -13,10 +17,11 @@ export interface OpenApiWorkerLike {
 
 export interface OpenApiImportWorkerClient {
   parse(text: string, options: OpenApiImportOptions, tag?: string): Promise<OpenApiParseOutcome | null>;
+  format(text: string, indent?: number, tag?: string): Promise<OpenApiFormatOutcome | null>;
   dispose(): void;
 }
 
-type Pending = { resolve: (v: OpenApiParseOutcome | null) => void };
+type Pending = { complete: (res: OpenApiWorkerRes | null) => void };
 
 export function createOpenApiImportWorkerClient(
   workerFactory: () => OpenApiWorkerLike,
@@ -34,11 +39,10 @@ export function createOpenApiImportWorkerClient(
     pending.delete(res.id);
     if (cancelledIds.has(res.id)) {
       cancelledIds.delete(res.id);
-      p.resolve(null);
+      p.complete(null);
       return;
     }
-    if (res.ok) p.resolve({ ok: true, result: res.result, elapsedMs: res.elapsedMs });
-    else p.resolve({ ok: false, error: res.error });
+    p.complete(res);
   });
 
   return {
@@ -52,8 +56,52 @@ export function createOpenApiImportWorkerClient(
         tagToId.set(tag, id);
       }
       return new Promise((resolve) => {
-        pending.set(id, { resolve });
+        pending.set(id, {
+          complete(res) {
+            if (res === null) {
+              resolve(null);
+            } else if (res.kind !== 'parse') {
+              resolve({
+                ok: false,
+                error: `OpenAPI Worker 响应类型不匹配：期望 parse，收到 ${res.kind}`,
+              });
+            } else if (res.ok) {
+              resolve({ ok: true, result: res.result, elapsedMs: res.elapsedMs });
+            } else {
+              resolve({ ok: false, error: res.error });
+            }
+          },
+        });
         worker.postMessage({ id, kind: 'parse', text, options });
+      });
+    },
+    format(text, indent = 2, tag) {
+      const id = nextId++;
+      if (tag) {
+        const prevId = tagToId.get(tag);
+        if (prevId !== undefined && pending.has(prevId)) {
+          cancelledIds.add(prevId);
+        }
+        tagToId.set(tag, id);
+      }
+      return new Promise((resolve) => {
+        pending.set(id, {
+          complete(res) {
+            if (res === null) {
+              resolve(null);
+            } else if (res.kind !== 'format') {
+              resolve({
+                ok: false,
+                error: `OpenAPI Worker 响应类型不匹配：期望 format，收到 ${res.kind}`,
+              });
+            } else if (res.ok) {
+              resolve({ ok: true, text: res.text, elapsedMs: res.elapsedMs });
+            } else {
+              resolve({ ok: false, error: res.error });
+            }
+          },
+        });
+        worker.postMessage({ id, kind: 'format', text, indent });
       });
     },
     dispose() {

@@ -12,10 +12,11 @@ describe('Tool.group', () => {
     }
   });
 
-  it('9 个内置 tool 全数', () => {
-    expect(tools).toHaveLength(9);
+  it('8 个内置 tool 全数', () => {
+    expect(tools).toHaveLength(8);
     expect(tools.some((tool) => tool.id === 'codec')).toBe(false);
     expect(tools.some((tool) => tool.id === 'generator')).toBe(false);
+    expect(tools.some((tool) => tool.id === 'json')).toBe(false);
     expect(tools.some((tool) => tool.id === 'text')).toBe(false);
     expect(tools.some((tool) => tool.id === 'time')).toBe(false);
   });

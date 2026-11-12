@@ -3,8 +3,7 @@ import { nextTick, onUnmounted, ref, watch } from 'vue';
 import { NAlert, NButton, NInput, NModal, NSelect } from 'naive-ui';
 import { parseOpenApiToCollection, type ImportedOpenApiCollection } from './openapiImport';
 import { useOpenApiImportWorker } from '../../composables/useOpenApiImportWorker';
-import { useJsonWorker } from '../../composables/useJsonWorker';
-import CodeEditor from '../json/CodeEditor.vue';
+import CodeEditor from '../ui/CodeEditor.vue';
 
 type Source = 'file' | 'url';
 
@@ -32,7 +31,6 @@ const emit = defineEmits<{
 
 const source = ref<Source>('file');
 const worker = useOpenApiImportWorker();
-const jsonWorker = useJsonWorker();
 
 const jsonText = ref('');
 const baseUrl = ref('');
@@ -221,13 +219,7 @@ async function doFormat() {
   if (formatting.value || !jsonText.value.trim()) return;
   formatting.value = true;
   try {
-    const parsed = await jsonWorker.parse(jsonText.value, 'import-format:parse');
-    if (!parsed) return; // 被更新的同 tag 请求取代
-    if (parsed.error) {
-      error.value = parsed.error.message ?? 'JSON 解析失败,无法格式化';
-      return;
-    }
-    const out = await jsonWorker.serialize(parsed.value, 'format', 2, 'import-format:serialize');
+    const out = await worker.format(jsonText.value, 2, 'format');
     if (!out) return;
     if (out.ok) {
       jsonText.value = out.text;
