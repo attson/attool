@@ -33,6 +33,7 @@ import {
   parseProductionPublisherArguments,
   runProductionPublisherAuthorization
 } from './authorize-production-publisher.mjs';
+import { loadCatalogApplicationBySlug } from './publish-catalog.mjs';
 
 describe('Catalog key rotation ceremony', () => {
   it('accepts a one-argument production Publisher authorization command', () => {
@@ -105,6 +106,25 @@ describe('Catalog key rotation ceremony', () => {
       {
         publisherId: 'com.attson',
         publisherKeyId: 'attson-time-2026-01',
+        issuedAt: '2026-11-12T08:09:10.000Z',
+        notAfter: '2027-11-12T08:09:10.000Z'
+      }
+    );
+  });
+
+  it('derives an independent JSON Publisher authorization plan from the registry', async () => {
+    const fixture = createFixture();
+    const application = await loadCatalogApplicationBySlug('json');
+
+    assert.deepEqual(
+      createProductionPublisherAuthorizationPlan({
+        root: fixture.root,
+        application,
+        now: new Date('2026-11-12T08:09:10.987Z')
+      }),
+      {
+        publisherId: 'com.attson',
+        publisherKeyId: 'attson-json-2026-01',
         issuedAt: '2026-11-12T08:09:10.000Z',
         notAfter: '2027-11-12T08:09:10.000Z'
       }
