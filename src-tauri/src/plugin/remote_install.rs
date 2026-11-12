@@ -493,6 +493,7 @@ mod tests {
             host_api_max: "1.x".to_string(),
             entry: "ui/index.html".to_string(),
             permissions: vec!["host.theme.read".to_string()],
+            native_service: None,
             files: BTreeMap::from([("ui/index.html".to_string(), "a".repeat(64))]),
         }
     }

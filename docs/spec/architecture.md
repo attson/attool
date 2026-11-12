@@ -83,12 +83,12 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 ## 可插拔应用
 
-平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。后续应用按 `.github/catalog/apps.json` 注册策略接入，原生 service 和共享数据留在后续阶段。
+平台支持从本地包或官方 Catalog 安装签名 `.atpkg`。应用可以由独立仓库发布独立桌面安装包，也可以用同一版本和 `appId` 发布平台插件包；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 已验证纯前端应用的双制品、生产 Catalog 远程发现和生命周期闭环。`athttp` 已验证携带原生 service 的本地测试包以及独立版/插件版共享数据，正式 Publisher、Catalog 与生产 Release 留在后续阶段。
 
 ### 包与安装状态
 
-- `.atpkg` 是目标 OS/CPU 专用 ZIP，包含 `manifest.json`、`manifest.sig`、许可证和 `ui/` 静态资源；包内不允许目录条目、重复文件、未声明文件或不安全相对路径。
-- manifest schema v1 固定声明 `appId`、SemVer `version`、publisher、target、Host API 范围、UI 入口、权限和每个文件的 SHA-256。平台使用与 updater 分离的 Publisher Key 验签，并拒绝未知字段、错误 target、未知权限和不兼容 Host API。
+- `.atpkg` 是目标 OS/CPU 专用 ZIP，包含 `manifest.json`、`manifest.sig`、许可证、`ui/` 静态资源，以及可选的目标平台 `nativeService`；包内不允许目录条目、重复文件、未声明文件或不安全相对路径。
+- manifest schema v1 固定声明 `appId`、SemVer `version`、publisher、target、Host API 范围、UI 入口、权限和每个文件的 SHA-256。原生 service 还必须声明与包版本一致的入口、协议版本和文件 hash，并绑定 Host API 2.x；Unix 安装后入口权限收紧为 `0700`。平台使用与 updater 分离的 Publisher Key 验签，并拒绝未知字段、错误 target、未知权限和不兼容 Host API。
 - `src-tauri/src/plugin/install.rs` 把包解压到随机 staging，完成入口健康检查后 rename 到 `app_data_dir/plugins/apps/<appId>/<version>/`，再用 SQLite 事务写入 registry 和成功历史。registry 写入失败会删除已激活目录。
 - registry 为每个 `appId` 保存不可变版本目录以及 `current / previous / pending` 关系。停用只更新 registry 并隐藏导航；重新启用前校验入口文件 hash；卸载先把程序包和可选数据移入 staging，registry 提交失败时恢复原目录。
 
@@ -96,14 +96,23 @@ SSE / WS 的长连接会话不持久化：session 与消息 buffer 都只在后�
 
 - `attool-plugin://<appId>/<path>` 自定义协议只服务已启用且在签名清单中声明的文件，每次读取重新校验 SHA-256，并返回严格 CSP、`nosniff` 和 `no-store`。
 - 插件 UI 运行在 `sandbox="allow-scripts allow-same-origin"` iframe 中。插件 origin 与平台分离，不能读取父 DOM、Vue 状态或直接调用 Tauri commands。
-- iframe 与平台通过 `MessageChannel` 上的 JSON-RPC 2.0 通信。Host API 1.0 握手返回 session ID、correlation ID、应用元数据、主题和已批准能力；请求校验 `appId`、API 版本、消息大小、超时和权限。
-- P0 权限只有 `host.theme.read`、`host.notification.show`、`host.file.save`。文件保存必须经过系统保存对话框，插件不能指定任意落盘路径；切换工具、停用或卸载会销毁 iframe 和消息端口。
+- iframe 与平台通过 `MessageChannel` 上的 JSON-RPC 2.0 通信。纯前端插件继续使用 Host API 1.x；原生 service 插件使用 Host API 2.x。握手返回 session ID、correlation ID、应用元数据、主题和已批准能力；请求校验 `appId`、API 版本、消息大小、超时和权限。HTTP 业务帧上限为 8 MiB，请求超时覆盖最长 300 秒网络请求并保留 5 秒传输余量。
+- 基础权限为 `host.theme.read`、`host.notification.show`、`host.file.save`。HTTP 插件另声明 `host.http.request`、`host.http.stream`、`host.http.data`，分别代理一次请求、长连接和 Data API；选择 multipart 文件只向插件返回会话级不透明 token，复制、保存和文件选择都由 Host 执行，插件不获得任意本地路径访问能力。切换工具、停用或卸载会销毁 iframe 和消息端口。
+
+### 原生 Service 与共享数据
+
+- `com.attson.http` 的独立版和插件版都是 Native/Data Service 客户端。service 通过权限受限的 endpoint 文件发布临时 loopback 端口和 UUID token，客户端完成 Host/Data/Service API 握手后才能调用业务方法。
+- 平台 supervisor 从已安装且签名校验通过的插件版本启动或复用 service；并发启动者通过 `service.lock` 和 endpoint 竞争收敛到同一实例，过期租约只在确认进程已失效后清理。service 事件只发往 `main` 窗口。
+- service 对新客户端独占 `${app_data_dir}/http/http.sqlite3`，首次接管任何已有非空数据库时创建 `http.sqlite3.pre-service-v1.bak`，再执行 schema 迁移和完整性检查。迁移失败返回稳定错误，不回退到宿主内置 HTTP。
+- 同一客户端连接允许请求并发分派，因此 `http.cancel` 可以中断仍在执行的 `http.send`；响应写入仍串行化，SSE/WS 保持 2000 条、5 MiB buffer 和 generation 语义。
+- P1 过渡期仍保留宿主内置 HTTP，其旧 `HttpStore` 会在平台启动时打开同一数据库。独立版与插件版共享数据已按单一 service owner 验证，但内置入口与 service 并发写不属于受支持路径；P3 删除内置入口、旧命令和该额外数据库连接。
 
 ### 前端装配与应用外置
 
 - `usePluginStore` 从 Tauri registry 加载插件并生成动态 `Tool`；“应用管理”固定在侧栏平台分组，负责本地包预览、权限确认、安装、启停、卸载、筛选和历史查看。
 - 平台不再内置 `codec`、`text`、`generator`、`time` 与 `json`；对应插件分别是编码转换、文本工具、生成器、时间工具与 JSON 工具在平台中的唯一入口。停用或卸载插件后，平台不提供回退版内置工具。
 - `@attson/plugin-sdk` 定义 manifest、签名 canonical JSON、浏览器 Host bridge 和稳定错误；`atcodec`、`attext`、`atgenerator`、`attime` 与 `atjson` 通过 Vite host alias 在 Standalone Adapter 与 Plugin Adapter 间切换，各自共享独立版和插件版的 Vue UI 与核心逻辑。
+- `athttp` 同样通过 Vite adapter 复用 UI：独立版直接连接本地 service，插件版经 Host API 2.x 转发到相同 service。本地 `.atpkg` 已验证安装、启动、数据共享和签名/hash 契约；生产 Catalog 生命周期属于后续阶段。
 
 ### 官方 Catalog、升级与回滚
 
@@ -389,3 +398,7 @@ macOS app bundle 使用 `signingIdentity: "-"` 做 ad-hoc 签名，确保 `.app`
 ### 2026-11-11 Root 离线与 Catalog 受保护 PR 发布
 
 Root 私钥保持离线，日常 Catalog 只使用 Root 授权的独立 Signing Key；AT Tool 主仓从公开 Codec Release 验证制品后生成 Catalog PR，而不直接改 Root 或默认分支。该流程牺牲一步发布速度，换取 Root 信任边界、可审计变更和 Catalog 序列单线推进。
+
+### 2026-11-13 HTTP 共享数据由单一原生 Service 持有
+
+`athttp` 独立版和平台插件统一作为客户端连接同一 Native/Data Service，由 service 独占 SQLite、请求取消和 SSE/WS session；插件通过受权限控制的 Host API 代理访问。该方案增加了 service 分发、版本协商和 supervisor 复杂度，但避免依赖 SQLite WAL 让多个 UI 进程共享数据所有权，也避免把任意网络和本地文件权限交给 iframe。

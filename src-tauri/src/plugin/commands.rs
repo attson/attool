@@ -71,7 +71,7 @@ impl PluginRuntime {
             .map_err(|error| format!("invalid P0 plugin public key: {error}"))?;
         Ok(Self {
             store: Arc::new(Mutex::new(store)),
-            environment: HostEnvironment::current("1.0.0"),
+            environment: HostEnvironment::current("2.0.0"),
             trusted_keys: Arc::new(HashMap::from([("attool-p0-test".to_string(), key)])),
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))

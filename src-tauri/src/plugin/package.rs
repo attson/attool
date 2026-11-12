@@ -49,7 +49,17 @@ pub struct InspectedPackage {
     pub host_api_max: String,
     pub entry: String,
     pub permissions: Vec<String>,
+    pub native_service: Option<NativeService>,
     pub files: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NativeService {
+    pub entry: String,
+    pub version: String,
+    pub sha256: String,
+    pub protocol_version: u32,
 }
 
 #[derive(Debug)]
@@ -87,6 +97,8 @@ struct Manifest {
     host_api: HostApi,
     ui: Ui,
     permissions: Vec<String>,
+    #[serde(default)]
+    native_service: Option<NativeService>,
     files: BTreeMap<String, String>,
 }
 
@@ -168,6 +180,7 @@ pub fn inspect_package(
         host_api_max: manifest.host_api.max,
         entry: manifest.ui.entry,
         permissions: manifest.permissions,
+        native_service: manifest.native_service,
         files: manifest.files,
     })
 }
@@ -230,7 +243,37 @@ pub fn extract_package(
         let _ = fs::remove_dir_all(destination);
         return Err(error);
     }
+    if let Some(service) = &package.native_service {
+        if let Err(error) = set_native_service_permissions(&destination.join(&service.entry)) {
+            let _ = fs::remove_dir_all(destination);
+            return Err(error);
+        }
+    }
     Ok(package)
+}
+
+fn set_native_service_permissions(path: &Path) -> Result<(), PackageError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path)
+            .map_err(|error| {
+                PackageError::new(
+                    "PLUGIN_STAGING_FAILED",
+                    format!("Cannot inspect native service permissions: {error}"),
+                )
+            })?
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(path, permissions).map_err(|error| {
+            PackageError::new(
+                "PLUGIN_STAGING_FAILED",
+                format!("Cannot mark native service executable: {error}"),
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn verify_archive_layout(
@@ -303,7 +346,12 @@ fn validate_manifest(
     if manifest.permissions.iter().any(|permission| {
         !matches!(
             permission.as_str(),
-            "host.theme.read" | "host.file.save" | "host.notification.show"
+            "host.theme.read"
+                | "host.file.save"
+                | "host.notification.show"
+                | "host.http.request"
+                | "host.http.stream"
+                | "host.http.data"
         )
     }) {
         return Err(PackageError::new(
@@ -326,10 +374,12 @@ fn validate_manifest(
             "Invalid minimum Host API version",
         )
     })?;
-    if manifest.host_api.max != "1.x"
-        || host_min.major != 1
-        || environment.host_api_version.major != 1
-        || environment.host_api_version < host_min
+    let supported_major = host_min.major == 1 || host_min.major == 2;
+    if manifest.host_api.max != format!("{}.x", host_min.major)
+        || !supported_major
+        || environment.host_api_version.major < host_min.major
+        || (environment.host_api_version.major == host_min.major
+            && environment.host_api_version < host_min)
     {
         return Err(PackageError::new(
             "PLUGIN_HOST_API_UNSUPPORTED",
@@ -340,6 +390,31 @@ fn validate_manifest(
         return Err(PackageError::new(
             "PLUGIN_ENTRY_MISSING",
             "UI entry is not declared in manifest files",
+        ));
+    }
+    if let Some(service) = &manifest.native_service {
+        let service_hash = manifest.files.get(&service.entry);
+        if validate_package_path(&service.entry).is_err()
+            || service.version != manifest.version
+            || service.protocol_version != 1
+            || service_hash != Some(&service.sha256)
+        {
+            return Err(PackageError::new(
+                "PLUGIN_NATIVE_SERVICE_INVALID",
+                "Native service identity does not match the signed package",
+            ));
+        }
+    }
+    let requests_http_host = manifest
+        .permissions
+        .iter()
+        .any(|permission| permission.starts_with("host.http."));
+    if (manifest.native_service.is_some() && host_min.major != 2)
+        || (requests_http_host && manifest.native_service.is_none())
+    {
+        return Err(PackageError::new(
+            "PLUGIN_NATIVE_SERVICE_REQUIRED",
+            "Native services and HTTP Host permissions require Host API 2.x",
         ));
     }
     Ok(())
@@ -484,7 +559,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use zip::{write::SimpleFileOptions, ZipWriter};
 
-    use super::{inspect_package, HostEnvironment};
+    use super::{canonical_json, extract_package, inspect_package, HostEnvironment};
 
     const TEST_KEY_SEED: [u8; 32] = [
         0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c,
@@ -559,6 +634,63 @@ mod tests {
         )
     }
 
+    fn native_service_package(
+        service_version: &str,
+        protocol_version: u32,
+        declared_hash: Option<&str>,
+        host_api_min: &str,
+        permissions: serde_json::Value,
+    ) -> (tempfile::TempDir, std::path::PathBuf, SigningKey) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("http.atpkg");
+        let signing_key = SigningKey::from_bytes(&TEST_KEY_SEED);
+        let index = b"<!doctype html><title>HTTP</title>";
+        let service = b"native-service";
+        let service_hash = sha256(service);
+        let declared_hash = declared_hash.unwrap_or(&service_hash);
+        let manifest = serde_json::json!({
+            "appId": "com.attson.http",
+            "files": {
+                "native/athttp-service": service_hash,
+                "ui/index.html": sha256(index)
+            },
+            "hostApi": {
+                "max": format!("{}.x", host_api_min.split('.').next().unwrap()),
+                "min": host_api_min
+            },
+            "name": "HTTP request",
+            "nativeService": {
+                "entry": "native/athttp-service",
+                "protocolVersion": protocol_version,
+                "sha256": declared_hash,
+                "version": service_version
+            },
+            "permissions": permissions,
+            "publisher": { "id": "com.attson", "keyId": "attool-p0-test", "name": "Attson" },
+            "schemaVersion": 1,
+            "target": { "arch": std::env::consts::ARCH, "os": std::env::consts::OS },
+            "ui": { "entry": "ui/index.html" },
+            "version": "0.1.0-alpha.0"
+        });
+        let manifest = canonical_json(&manifest).unwrap();
+        let signature = base64::engine::general_purpose::STANDARD
+            .encode(signing_key.sign(manifest.as_bytes()).to_bytes());
+        let file = File::create(&path).unwrap();
+        let mut archive = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        for (name, bytes) in [
+            ("manifest.json", manifest.as_bytes()),
+            ("manifest.sig", signature.as_bytes()),
+            ("ui/index.html", index.as_slice()),
+            ("native/athttp-service", service.as_slice()),
+        ] {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap();
+        (directory, path, signing_key)
+    }
+
     #[test]
     fn inspects_a_valid_signed_package() {
         let (_directory, path, signing_key) = valid_package();
@@ -571,6 +703,114 @@ mod tests {
         assert_eq!(package.version, "0.1.0-alpha.0");
         assert_eq!(package.entry, "ui/index.html");
         assert_eq!(package.permissions, vec!["host.theme.read"]);
+    }
+
+    #[test]
+    fn inspects_a_signed_native_service_package() {
+        let (_directory, path, signing_key) = native_service_package(
+            "0.1.0-alpha.0",
+            1,
+            None,
+            "2.0.0",
+            serde_json::json!(["host.http.request", "host.http.stream", "host.http.data"]),
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+        let package = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys).unwrap();
+
+        let service = package.native_service.unwrap();
+        assert_eq!(service.entry, "native/athttp-service");
+        assert_eq!(service.version, package.version);
+        assert_eq!(service.protocol_version, 1);
+        assert_eq!(service.sha256, package.files["native/athttp-service"]);
+    }
+
+    #[test]
+    fn rejects_a_native_service_with_mismatched_identity() {
+        for (version, protocol, hash) in [
+            ("0.1.1", 1, None),
+            ("0.1.0-alpha.0", 2, None),
+            ("0.1.0-alpha.0", 1, Some("0")),
+        ] {
+            let (_directory, path, signing_key) = native_service_package(
+                version,
+                protocol,
+                hash,
+                "2.0.0",
+                serde_json::json!(["host.http.request", "host.http.stream", "host.http.data"]),
+            );
+            let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+            let error = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys)
+                .expect_err("native service identity must match its package");
+
+            assert_eq!(error.code, "PLUGIN_NATIVE_SERVICE_INVALID");
+        }
+    }
+
+    #[test]
+    fn rejects_http_permissions_without_a_native_service() {
+        let index = b"<!doctype html><title>HTTP</title>";
+        let (_directory, path, signing_key) = package_with_index(
+            index,
+            index,
+            "com.attson.http",
+            "0.1.0-alpha.0",
+            "[\"host.http.request\"]",
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+        let error = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys)
+            .expect_err("HTTP Host permissions require a signed native service");
+
+        assert_eq!(error.code, "PLUGIN_NATIVE_SERVICE_REQUIRED");
+    }
+
+    #[test]
+    fn rejects_a_native_service_bound_to_host_api_one() {
+        let (_directory, path, signing_key) = native_service_package(
+            "0.1.0-alpha.0",
+            1,
+            None,
+            "1.0.0",
+            serde_json::json!(["host.theme.read"]),
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+        let error = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys)
+            .expect_err("native services require Host API 2");
+
+        assert_eq!(error.code, "PLUGIN_NATIVE_SERVICE_REQUIRED");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extraction_marks_the_native_service_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (directory, path, signing_key) = native_service_package(
+            "0.1.0-alpha.0",
+            1,
+            None,
+            "2.0.0",
+            serde_json::json!(["host.http.request", "host.http.stream", "host.http.data"]),
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let destination = directory.path().join("staged");
+
+        extract_package(
+            &path,
+            &destination,
+            &HostEnvironment::current("2.0.0"),
+            &keys,
+        )
+        .unwrap();
+
+        let mode = std::fs::metadata(destination.join("native/athttp-service"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0);
     }
 
     #[test]
@@ -617,11 +857,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_unsupported_host_api_major() {
+    fn accepts_a_legacy_host_api_package_on_a_v2_host() {
         let (_directory, path, signing_key) = valid_package();
         let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
 
-        let error = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys)
+        let package = inspect_package(&path, &HostEnvironment::current("2.0.0"), &keys).unwrap();
+
+        assert_eq!(package.host_api_max, "1.x");
+    }
+
+    #[test]
+    fn rejects_a_host_api_package_newer_than_the_host() {
+        let (_directory, path, signing_key) = native_service_package(
+            "0.1.0-alpha.0",
+            1,
+            None,
+            "2.0.0",
+            serde_json::json!(["host.http.request", "host.http.stream", "host.http.data"]),
+        );
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+
+        let error = inspect_package(&path, &HostEnvironment::current("1.0.0"), &keys)
             .expect_err("Host API must fail");
 
         assert_eq!(error.code, "PLUGIN_HOST_API_UNSUPPORTED");

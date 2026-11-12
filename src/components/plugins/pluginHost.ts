@@ -1,11 +1,12 @@
 import type { InstalledPlugin } from './types';
 
-const API_VERSION = '1.0' as const;
-const DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024;
+type ApiVersion = '1.0' | '2.0';
+const LEGACY_MAX_MESSAGE_BYTES = 1024 * 1024;
+const HTTP_MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 
 type RpcBase = {
   jsonrpc: '2.0';
-  apiVersion: typeof API_VERSION;
+  apiVersion: ApiVersion;
   appId: string;
 };
 
@@ -53,6 +54,7 @@ export interface PluginHostSession {
   readonly sessionId: string;
   readonly correlationId: string;
   notifyTheme(theme: 'dark' | 'light'): void;
+  notifyHttpEvent(event: unknown): void;
   terminate(): void;
 }
 
@@ -64,6 +66,9 @@ type SessionOptions = {
   theme(): 'dark' | 'light';
   notify(input: { title?: string; message: string; kind: 'info' | 'success' | 'warning' | 'error' }): Promise<void>;
   saveFile(input: HostFileSaveRequest): Promise<{ cancelled: boolean; path?: string }>;
+  pickFile?(): Promise<{ path: string; name: string } | null>;
+  copyText?(text: string): Promise<void>;
+  requestHttpService?(method: string, params: unknown): Promise<unknown>;
   onHandshake?(): void;
   maxMessageBytes?: number;
 };
@@ -79,10 +84,13 @@ class RpcDispatchError extends Error {
 }
 
 export function createPluginHostSession(options: SessionOptions): PluginHostSession {
-  const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
+  const apiVersion: ApiVersion = options.app.nativeService ? '2.0' : '1.0';
+  const maxMessageBytes = options.maxMessageBytes
+    ?? (apiVersion === '2.0' ? HTTP_MAX_MESSAGE_BYTES : LEGACY_MAX_MESSAGE_BYTES);
   const sessionId = options.sessionId ?? crypto.randomUUID();
   const correlationId = options.correlationId ?? crypto.randomUUID();
   const cancelled = new Set<string>();
+  const selectedFiles = new Map<string, string>();
   let handshaken = false;
   let terminated = false;
 
@@ -97,7 +105,7 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
     const message: RpcSuccess = {
       jsonrpc: '2.0',
       id,
-      apiVersion: API_VERSION,
+      apiVersion,
       appId: options.app.appId,
       result
     };
@@ -112,7 +120,7 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
     post({
       jsonrpc: '2.0',
       id,
-      apiVersion: API_VERSION,
+      apiVersion,
       appId: options.app.appId,
       error: {
         code: error.rpcCode,
@@ -136,7 +144,7 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
     if (request.method === 'host.handshake') {
       handshaken = true;
       return {
-        apiVersion: API_VERSION,
+        apiVersion,
         sessionId,
         correlationId,
         capabilities: [...options.app.permissions],
@@ -194,8 +202,71 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
         if (encoding !== 'utf8' && encoding !== 'base64') throw invalidParams('encoding');
         return options.saveFile({ suggestedName, content, encoding });
       }
+      case 'host.http.pickFile': {
+        requirePermission('host.http.request');
+        if (!options.pickFile) {
+          throw new RpcDispatchError('HOST_FILE_PICK_UNAVAILABLE', 'File selection is unavailable');
+        }
+        const selected = await options.pickFile();
+        if (!selected) return { cancelled: true };
+        const token = `host-file:${crypto.randomUUID()}`;
+        selectedFiles.set(token, selected.path);
+        return { cancelled: false, token, name: selected.name };
+      }
+      case 'host.http.copyText': {
+        requirePermission('host.http.request');
+        if (!options.copyText) {
+          throw new RpcDispatchError('HOST_CLIPBOARD_WRITE_UNAVAILABLE', 'Clipboard write is unavailable');
+        }
+        const params = asRecord(request.params);
+        const text = requiredString(params.text, 'text', maxMessageBytes);
+        await options.copyText(text);
+        return { copied: true };
+      }
+      case 'host.http.request':
+        return dispatchHttpRequest(request, 'host.http.request', (method) =>
+          method === 'http.send' || method === 'http.cancel'
+        );
+      case 'host.http.stream':
+        return dispatchHttpRequest(request, 'host.http.stream', (method) =>
+          method === 'stream.open'
+          || method === 'stream.close'
+          || method === 'stream.send'
+          || method === 'stream.snapshot'
+        );
+      case 'host.http.data':
+        return dispatchHttpRequest(request, 'host.http.data', (method) => method.startsWith('data.'));
       default:
         throw new RpcDispatchError('HOST_METHOD_NOT_FOUND', 'Host API method was not found', -32601);
+    }
+  }
+
+  async function dispatchHttpRequest(
+    request: RpcRequest,
+    permission: string,
+    allows: (method: string) => boolean
+  ) {
+    requirePermission(permission);
+    if (!options.requestHttpService) {
+      throw new RpcDispatchError('HTTP_SERVICE_NOT_CONNECTED', 'HTTP service is unavailable');
+    }
+    const params = asRecord(request.params);
+    const method = requiredString(params.method, 'method', 128);
+    if (!allows(method)) {
+      throw new RpcDispatchError(
+        'HOST_HTTP_METHOD_DENIED',
+        `HTTP service method is not allowed for ${permission}`,
+        -32003
+      );
+    }
+    if (!Object.prototype.hasOwnProperty.call(params, 'params')) throw invalidParams('params');
+    try {
+      return await options.requestHttpService(
+        method,
+        method === 'http.send' ? resolveSelectedFiles(params.params, selectedFiles) : params.params
+      );
+    } catch (reason) {
+      throw serviceError(reason);
     }
   }
 
@@ -214,7 +285,7 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
     if (
       !isRequestLike(message) ||
       message.jsonrpc !== '2.0' ||
-      message.apiVersion !== API_VERSION ||
+      message.apiVersion !== apiVersion ||
       message.appId !== options.app.appId
     ) {
       if (isRequest(message)) {
@@ -257,20 +328,58 @@ export function createPluginHostSession(options: SessionOptions): PluginHostSess
       if (!handshaken || terminated || !options.app.permissions.includes('host.theme.read')) return;
       post({
         jsonrpc: '2.0',
-        apiVersion: API_VERSION,
+        apiVersion,
         appId: options.app.appId,
         method: 'host.theme.changed',
         params: { theme }
+      });
+    },
+    notifyHttpEvent(event) {
+      if (
+        !handshaken
+        || terminated
+        || apiVersion !== '2.0'
+        || !options.app.permissions.includes('host.http.stream')
+      ) return;
+      post({
+        jsonrpc: '2.0',
+        apiVersion,
+        appId: options.app.appId,
+        method: 'host.http.streamEvent',
+        params: event
       });
     },
     terminate() {
       if (terminated) return;
       terminated = true;
       cancelled.clear();
+      selectedFiles.clear();
       options.port.onmessage = null;
       options.port.close();
     }
   };
+}
+
+function resolveSelectedFiles(value: unknown, selectedFiles: Map<string, string>): unknown {
+  const params = asRecord(value);
+  const request = asRecord(params.request);
+  if (request.bodyType !== 'multipart') return value;
+  if (!Array.isArray(request.multipartFields)) throw invalidParams('params.request.multipartFields');
+  const multipartFields = request.multipartFields.map((value) => {
+    const field = asRecord(value);
+    if (field.kind !== 'file' || field.enabled === false) return field;
+    const token = requiredString(field.value, 'params.request.multipartFields.value', 256);
+    const path = selectedFiles.get(token);
+    if (!path) {
+      throw new RpcDispatchError(
+        'HOST_HTTP_FILE_TOKEN_REQUIRED',
+        'Multipart files must be selected through the host',
+        -32003
+      );
+    }
+    return { ...field, value: path };
+  });
+  return { ...params, request: { ...request, multipartFields } };
 }
 
 function messageBytes(value: unknown): number {
@@ -313,4 +422,15 @@ function optionalString(value: unknown, field: string, maxLength: number): strin
 
 function invalidParams(field: string) {
   return new RpcDispatchError('HOST_INVALID_PARAMS', `Invalid Host API parameter: ${field}`, -32602);
+}
+
+function serviceError(reason: unknown) {
+  if (reason instanceof RpcDispatchError) return reason;
+  if (typeof reason === 'object' && reason !== null) {
+    const error = reason as { code?: unknown; message?: unknown };
+    if (typeof error.code === 'string' && typeof error.message === 'string') {
+      return new RpcDispatchError(error.code, error.message);
+    }
+  }
+  return new RpcDispatchError('HTTP_SERVICE_REQUEST_FAILED', 'HTTP service request failed');
 }

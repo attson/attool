@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { NButton, NSpin, useMessage } from 'naive-ui';
 
 import type { ThemeName } from '../../composables/useTheme';
@@ -24,9 +26,12 @@ const frame = ref<HTMLIFrameElement | null>(null);
 const state = ref<FrameState>('loading');
 const errorMessage = ref('');
 const reloadRevision = ref(0);
+const serviceReady = ref(!props.app.nativeService);
 let session: PluginHostSession | null = null;
 let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
 let handlingFailure = false;
+let httpEventUnlisten: UnlistenFn | null = null;
+let disposed = false;
 
 const source = computed(() => {
   const entry = props.app.entry
@@ -51,6 +56,42 @@ async function savePluginFile(input: HostFileSaveRequest) {
   return { cancelled: false };
 }
 
+async function pickPluginFile() {
+  const path = await open({ multiple: false });
+  if (!path || typeof path !== 'string') return null;
+  return { path, name: path.split(/[\\/]/).pop() || 'file' };
+}
+
+async function prepareFrame() {
+  if (!props.app.nativeService) {
+    serviceReady.value = true;
+    return;
+  }
+  state.value = 'connecting';
+  errorMessage.value = '';
+  try {
+    if (!httpEventUnlisten) {
+      const unlisten = await listen<{ appId: string; event: unknown }>(
+        'plugin://http-service-event',
+        ({ payload }) => {
+          if (payload.appId === props.app.appId) session?.notifyHttpEvent(payload.event);
+        }
+      );
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      httpEventUnlisten = unlisten;
+    }
+    await invoke('plugin_connect_http_service', { appId: props.app.appId });
+    if (disposed) return;
+    state.value = 'loading';
+    serviceReady.value = true;
+  } catch (reason) {
+    await handleLaunchFailure(serviceErrorMessage(reason));
+  }
+}
+
 function handleLoad() {
   clearSession();
   handlingFailure = false;
@@ -70,6 +111,15 @@ function handleLoad() {
       message[kind](title ? `${title}: ${body}` : body);
     },
     saveFile: savePluginFile,
+    pickFile: pickPluginFile,
+    copyText: writeText,
+    requestHttpService: props.app.nativeService
+      ? (method, params) => invoke('plugin_http_service_request', {
+          appId: props.app.appId,
+          method,
+          params
+        })
+      : undefined,
     onHandshake: () => {
       if (handshakeTimer) clearTimeout(handshakeTimer);
       handshakeTimer = null;
@@ -79,7 +129,7 @@ function handleLoad() {
   contentWindow.postMessage(
     {
       type: 'attool:connect',
-      apiVersion: '1.0',
+      apiVersion: props.app.nativeService ? '2.0' : '1.0',
       appId: props.app.appId
     },
     '*',
@@ -134,7 +184,17 @@ function reload() {
   state.value = 'loading';
   errorMessage.value = '';
   handlingFailure = false;
+  serviceReady.value = !props.app.nativeService;
   reloadRevision.value += 1;
+  void prepareFrame();
+}
+
+function serviceErrorMessage(reason: unknown) {
+  if (typeof reason === 'object' && reason !== null && 'message' in reason) {
+    const message = (reason as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return '无法连接应用服务';
 }
 
 function utf8ToBase64(value: string) {
@@ -151,12 +211,20 @@ watch(
   (theme) => session?.notifyTheme(theme)
 );
 
-onBeforeUnmount(clearSession);
+onMounted(() => void prepareFrame());
+
+onBeforeUnmount(() => {
+  disposed = true;
+  clearSession();
+  httpEventUnlisten?.();
+  httpEventUnlisten = null;
+});
 </script>
 
 <template>
   <section class="plugin-frame">
     <iframe
+      v-if="serviceReady"
       ref="frame"
       :src="source"
       :title="app.name"
