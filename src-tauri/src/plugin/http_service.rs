@@ -51,6 +51,7 @@ pub struct HttpServiceRuntime {
 struct ConnectedService {
     version: String,
     client: ServiceClient,
+    process: Option<Box<dyn ServiceProcess>>,
 }
 
 impl HttpServiceRuntime {
@@ -142,6 +143,28 @@ impl HttpServiceRuntime {
             return Ok(());
         }
 
+        {
+            let mut clients = self.clients.lock().map_err(|_| {
+                HttpServiceError::new(
+                    "HTTP_SERVICE_STATE_LOCK_FAILED",
+                    "HTTP service state lock failed",
+                )
+            })?;
+            let owned_previous = clients
+                .get_mut(app_id)
+                .filter(|connected| connected.version != plugin.version)
+                .and_then(|connected| connected.process.as_mut());
+            if let Some(process) = owned_previous {
+                process.terminate().map_err(|error| {
+                    HttpServiceError::new(
+                        "HTTP_SERVICE_STOP_FAILED",
+                        format!("Cannot stop previous HTTP service version: {error}"),
+                    )
+                })?;
+                clients.remove(app_id);
+            }
+        }
+
         let mut supervisor = ServiceSupervisor::new(
             self.data_directory.join("service.endpoint.json"),
             self.data_directory.clone(),
@@ -150,7 +173,7 @@ impl HttpServiceRuntime {
             service.version.clone(),
             StdDuration::from_secs(10),
         );
-        let client = supervisor.connect().await?;
+        let (client, process) = supervisor.connect_managed().await?;
         let mut events = client.subscribe();
         let event_sink = Arc::clone(&self.event_sink);
         let event_app_id = app_id.to_string();
@@ -176,6 +199,7 @@ impl HttpServiceRuntime {
                 ConnectedService {
                     version: plugin.version,
                     client,
+                    process,
                 },
             );
         Ok(())
@@ -274,6 +298,13 @@ pub struct ServiceLaunchSpec {
 
 pub trait ServiceProcess: Send {
     fn try_exit(&mut self) -> io::Result<Option<i32>>;
+
+    fn terminate(&mut self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "service process is not owned by this host",
+        ))
+    }
 }
 
 pub trait ServiceLauncher: Send + Sync {
@@ -320,6 +351,14 @@ impl ServiceProcess for ChildProcess {
         self.0
             .try_wait()
             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+    }
+
+    fn terminate(&mut self) -> io::Result<()> {
+        if self.0.try_wait()?.is_none() {
+            self.0.kill()?;
+            self.0.wait()?;
+        }
+        Ok(())
     }
 }
 
@@ -394,6 +433,13 @@ impl ServiceSupervisor {
         };
         self.process = Some(self.launcher.launch(&spec)?);
         self.wait_until_ready().await
+    }
+
+    async fn connect_managed(
+        &mut self,
+    ) -> Result<(ServiceClient, Option<Box<dyn ServiceProcess>>), HttpServiceError> {
+        let client = self.connect().await?;
+        Ok((client, self.process.take()))
     }
 
     async fn wait_until_ready(&mut self) -> Result<ServiceClient, HttpServiceError> {
@@ -977,6 +1023,16 @@ mod tests {
 
     struct MissingWinnerLauncher;
 
+    struct OwnedTestLauncher {
+        server: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+        stops: Arc<AtomicUsize>,
+    }
+
+    struct OwnedTestProcess {
+        server: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+        stops: Arc<AtomicUsize>,
+    }
+
     impl ServiceLauncher for PanicLauncher {
         fn launch(
             &self,
@@ -1079,6 +1135,49 @@ mod tests {
             std::fs::create_dir_all(&spec.data_directory).unwrap();
             std::fs::write(spec.data_directory.join("service.lock"), "missing-winner").unwrap();
             Ok(Box::new(ExitedProcess))
+        }
+    }
+
+    impl ServiceLauncher for OwnedTestLauncher {
+        fn launch(
+            &self,
+            spec: &ServiceLaunchSpec,
+        ) -> Result<Box<dyn ServiceProcess>, HttpServiceError> {
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let listener = TcpListener::from_std(listener).unwrap();
+            std::fs::create_dir_all(spec.endpoint_path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &spec.endpoint_path,
+                serde_json::to_vec(&json!({
+                    "port": listener.local_addr().unwrap().port(),
+                    "token": "secret-token",
+                    "serviceVersion": spec.service_version
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let data_directory = spec.data_directory.to_string_lossy().to_string();
+            *self.server.lock().unwrap() =
+                Some(tokio::spawn(fake_service(listener, data_directory)));
+            Ok(Box::new(OwnedTestProcess {
+                server: Arc::clone(&self.server),
+                stops: Arc::clone(&self.stops),
+            }))
+        }
+    }
+
+    impl ServiceProcess for OwnedTestProcess {
+        fn try_exit(&mut self) -> io::Result<Option<i32>> {
+            Ok(None)
+        }
+
+        fn terminate(&mut self) -> io::Result<()> {
+            if let Some(server) = self.server.lock().unwrap().take() {
+                server.abort();
+            }
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -1232,6 +1331,31 @@ mod tests {
             json!([{"id": "tab-1"}])
         );
         server.lock().unwrap().take().unwrap().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn supervisor_returns_owned_process_for_version_takeover() {
+        let directory = tempdir().unwrap();
+        let data_directory = directory.path().join("http");
+        let server = Arc::new(Mutex::new(None));
+        let stops = Arc::new(AtomicUsize::new(0));
+        let mut supervisor = ServiceSupervisor::with_launcher(
+            data_directory.join("service.endpoint.json"),
+            data_directory,
+            "attool-test",
+            "0.1.0-alpha.0",
+            Duration::from_secs(1),
+            Arc::new(OwnedTestLauncher {
+                server: Arc::clone(&server),
+                stops: Arc::clone(&stops),
+            }),
+        );
+
+        let (_client, mut process) = supervisor.connect_managed().await.unwrap();
+        process.as_mut().unwrap().terminate().unwrap();
+
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+        assert!(server.lock().unwrap().is_none());
     }
 
     #[tokio::test]
