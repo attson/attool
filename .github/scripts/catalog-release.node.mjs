@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -33,8 +34,10 @@ const tagName = `v${version}`;
 const catalogKeyId = 'catalog-2026-01';
 const publisherKeyId = 'attson-codec-2026-01';
 const textPublisherKeyId = 'attson-text-2026-01';
+const httpPublisherKeyId = 'attson-http-2026-01';
 const codecApplication = await loadCatalogApplication('com.attson.codec');
 const textApplication = await loadCatalogApplication('com.attson.text');
+const httpApplication = await loadCatalogApplication('com.attson.http');
 
 const root = {
   schemaVersion: 1,
@@ -45,7 +48,11 @@ const root = {
   publishers: [{
     publisherId: 'com.attson',
     name: 'Attson',
-    keys: [trustKey(publisherKeyId), trustKey(textPublisherKeyId)]
+    keys: [
+      trustKey(publisherKeyId),
+      trustKey(textPublisherKeyId),
+      trustKey(httpPublisherKeyId)
+    ]
   }]
 };
 
@@ -149,6 +156,31 @@ describe('Catalog release generation', () => {
       hostApi: { min: '1.0.0', max: '1.x' },
       permissions: ['host.theme.read']
     });
+  });
+
+  it('loads HTTP Host API 2.x release policy from the application registry', async () => {
+    const expected = {
+      appId: 'com.attson.http',
+      slug: 'http',
+      repository: 'attsontools/athttp',
+      artifactPrefix: 'AT.HTTP',
+      name: 'HTTP 请求',
+      description: 'HTTP、SSE 与 WebSocket 调试',
+      publisherId: 'com.attson',
+      publisherKeySecret: 'ATHTTP_PUBLISHER_KEY_ID',
+      icon: 'http',
+      hostApi: { min: '2.0.0', max: '2.x' },
+      permissions: [
+        'host.theme.read',
+        'host.file.save',
+        'host.http.request',
+        'host.http.stream',
+        'host.http.data'
+      ]
+    };
+
+    assert.deepEqual(httpApplication, expected);
+    assert.deepEqual(await loadCatalogApplicationBySlug('http'), expected);
   });
 
   it('rejects ambiguous or out-of-scope application registry entries', async () => {
@@ -462,6 +494,43 @@ describe('Catalog release generation', () => {
       assert.equal(inspected.manifest.appId, 'com.attson.text');
       assert.deepEqual(inspected.manifest.permissions, ['host.theme.read']);
       assert.equal(inspected.fileName, `AT.Text_${version}_linux_x86_64.atpkg`);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('inspects an HTTP package with its signed native service contract', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'attool-http-catalog-test-'));
+    const publisherKeys = generateKeyPairSync('ed25519');
+    const packageRoot = structuredClone(root);
+    packageRoot.publishers[0].keys[2].publicKey = rawPublicKey(publisherKeys.publicKey);
+    try {
+      const packagePath = await createPluginPackage(
+        directory,
+        publisherKeys.privateKey,
+        'linux',
+        'x86_64',
+        {
+          application: httpApplication,
+          publisherKeyId: httpPublisherKeyId
+        }
+      );
+      const inspected = await inspectPluginPackage({
+        packagePath,
+        application: httpApplication,
+        root: packageRoot,
+        publishedAt: generatedAt,
+        expectedVersion: version,
+        expectedPublisherKeyId: httpPublisherKeyId
+      });
+
+      assert.equal(inspected.manifest.hostApi.max, '2.x');
+      assert.deepEqual(inspected.manifest.nativeService, {
+        entry: 'native/athttp-service',
+        version,
+        sha256: inspected.manifest.files['native/athttp-service'],
+        protocolVersion: 1
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -781,6 +850,21 @@ async function createPluginPackage(
   await mkdir(ui, { recursive: true });
   const content = Buffer.from(`<main>${application.name}</main>`);
   await writeFile(path.join(ui, 'index.html'), content);
+  const files = { 'ui/index.html': createHash('sha256').update(content).digest('hex') };
+  let nativeService;
+  if (application.hostApi.max === '2.x') {
+    const native = path.join(stage, 'native');
+    const service = Buffer.from(`service-${os}-${arch}-${version}`);
+    await mkdir(native, { recursive: true });
+    await writeFile(path.join(native, 'athttp-service'), service);
+    files['native/athttp-service'] = createHash('sha256').update(service).digest('hex');
+    nativeService = {
+      entry: 'native/athttp-service',
+      version,
+      sha256: files['native/athttp-service'],
+      protocolVersion: 1
+    };
+  }
   const manifest = parseManifest({
     schemaVersion: 1,
     appId: application.appId,
@@ -791,7 +875,8 @@ async function createPluginPackage(
     hostApi: application.hostApi,
     ui: { entry: 'ui/index.html' },
     permissions: application.permissions,
-    files: { 'ui/index.html': createHash('sha256').update(content).digest('hex') }
+    ...(nativeService ? { nativeService } : {}),
+    files
   });
   await writeFile(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(path.join(stage, 'manifest.sig'), `${signManifest(manifest, privateKey)}\n`);
@@ -804,7 +889,11 @@ async function createPluginPackage(
 }
 
 function zipPackage(stage, output) {
-  const zipped = spawnSync('zip', ['-X', '-D', '-q', output, 'manifest.json', 'manifest.sig', 'ui/index.html'], {
+  const entries = ['manifest.json', 'manifest.sig', 'ui/index.html'];
+  if (existsSync(path.join(stage, 'native', 'athttp-service'))) {
+    entries.push('native/athttp-service');
+  }
+  const zipped = spawnSync('zip', ['-X', '-D', '-q', output, ...entries], {
     cwd: stage,
     encoding: 'utf8'
   });

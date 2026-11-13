@@ -17,10 +17,13 @@ const CATALOG_BASE_URL: &str =
     "https://raw.githubusercontent.com/attsontools/attool/main/catalog/v1";
 const METADATA_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 const SIGNATURE_LIMIT_BYTES: usize = 1024;
-const KNOWN_PERMISSIONS: [&str; 3] = [
+const KNOWN_PERMISSIONS: [&str; 6] = [
     "host.theme.read",
     "host.file.save",
     "host.notification.show",
+    "host.http.request",
+    "host.http.stream",
+    "host.http.data",
 ];
 
 #[derive(Debug, Clone)]
@@ -1103,11 +1106,14 @@ fn validate_catalog(catalog: &PluginCatalog) -> Result<(), CatalogError> {
 }
 
 fn validate_release(release: &CatalogRelease, sha256_pattern: &Regex) -> Result<(), CatalogError> {
+    let host_api_major = Version::parse(&release.host_api.min)
+        .ok()
+        .map(|version| version.major)
+        .filter(|major| matches!(major, 1 | 2));
     if Version::parse(&release.version).is_err()
         || release.publisher_key_id.is_empty()
-        || release.host_api.max != "1.x"
-        || Version::parse(&release.host_api.min)
-            .map(|version| version.major != 1)
+        || host_api_major
+            .map(|major| release.host_api.max != format!("{major}.x"))
             .unwrap_or(true)
         || release.artifacts.is_empty()
     {
@@ -1129,6 +1135,12 @@ fn validate_release(release: &CatalogRelease, sha256_pattern: &Regex) -> Result<
             return Err(CatalogError::new(
                 "CATALOG_RELEASE_INVALID",
                 "Catalog release contains duplicate permissions",
+            ));
+        }
+        if permission.starts_with("host.http.") && host_api_major != Some(2) {
+            return Err(CatalogError::new(
+                "CATALOG_PERMISSION_UNKNOWN",
+                "HTTP Catalog permissions require Host API 2.x",
             ));
         }
     }
@@ -1332,6 +1344,62 @@ mod tests {
         assert_eq!(verified.root.sequence, 1);
         assert_eq!(verified.catalog.sequence, 18);
         assert_eq!(verified.catalog.apps[0].name, "编码转换");
+    }
+
+    #[test]
+    fn accepts_host_api_two_http_release() {
+        let mut catalog: Value = serde_json::from_str(CATALOG_JSON).unwrap();
+        catalog["apps"][0]["channels"]["stable"]["hostApi"] =
+            serde_json::json!({ "min": "2.0.0", "max": "2.x" });
+        catalog["apps"][0]["channels"]["stable"]["permissions"] = serde_json::json!([
+            "host.theme.read",
+            "host.file.save",
+            "host.http.request",
+            "host.http.stream",
+            "host.http.data"
+        ]);
+        let signature = sign_value(&catalog);
+
+        let verified = CatalogVerifier::from_base64(ROOT_PUBLIC_KEY)
+            .unwrap()
+            .verify(
+                ROOT_JSON,
+                ROOT_SIGNATURE,
+                &catalog.to_string(),
+                &signature,
+                Utc.with_ymd_and_hms(2026, 11, 11, 0, 0, 0).unwrap(),
+                0,
+                0,
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(verified.catalog.apps[0].channels.stable.host_api.max, "2.x");
+    }
+
+    #[test]
+    fn rejects_http_permissions_on_host_api_one() {
+        let mut catalog: Value = serde_json::from_str(CATALOG_JSON).unwrap();
+        catalog["apps"][0]["channels"]["stable"]["permissions"] =
+            serde_json::json!(["host.http.request"]);
+        let signature = sign_value(&catalog);
+
+        let error = CatalogVerifier::from_base64(ROOT_PUBLIC_KEY)
+            .unwrap()
+            .verify(
+                ROOT_JSON,
+                ROOT_SIGNATURE,
+                &catalog.to_string(),
+                &signature,
+                Utc.with_ymd_and_hms(2026, 11, 11, 0, 0, 0).unwrap(),
+                0,
+                0,
+                true,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "CATALOG_PERMISSION_UNKNOWN");
+        assert!(error.message.contains("Host API 2.x"));
     }
 
     #[test]

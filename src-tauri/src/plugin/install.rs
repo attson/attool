@@ -2264,8 +2264,11 @@ mod tests {
         valid_package_version(directory, "0.1.0-alpha.0")
     }
 
-    fn native_service_package(directory: &std::path::Path) -> (std::path::PathBuf, SigningKey) {
-        let path = directory.join("http.atpkg");
+    fn native_service_package_version(
+        directory: &std::path::Path,
+        version: &str,
+    ) -> (std::path::PathBuf, SigningKey) {
+        let path = directory.join(format!("http-{version}.atpkg"));
         let signing_key = SigningKey::from_bytes(&TEST_KEY_SEED);
         let index = b"<!doctype html><title>HTTP</title>";
         let service = b"native-service";
@@ -2282,14 +2285,14 @@ mod tests {
                 "entry": "native/athttp-service",
                 "protocolVersion": 1,
                 "sha256": service_hash,
-                "version": "0.1.0-alpha.0"
+                "version": version
             },
             "permissions": ["host.http.request", "host.http.stream", "host.http.data"],
             "publisher": { "id": "com.attson", "keyId": "attool-p0-test", "name": "Attson" },
             "schemaVersion": 1,
             "target": { "arch": std::env::consts::ARCH, "os": std::env::consts::OS },
             "ui": { "entry": "ui/index.html" },
-            "version": "0.1.0-alpha.0"
+            "version": version
         });
         let manifest = serde_json::to_string(&manifest).unwrap();
         let signature = base64::engine::general_purpose::STANDARD
@@ -2308,6 +2311,10 @@ mod tests {
         }
         archive.finish().unwrap();
         (path, signing_key)
+    }
+
+    fn native_service_package(directory: &std::path::Path) -> (std::path::PathBuf, SigningKey) {
+        native_service_package_version(directory, "0.1.0-alpha.0")
     }
 
     #[test]
@@ -2824,6 +2831,74 @@ mod tests {
         assert!(!store_root.join("apps/com.attson.codec/1.1.0").exists());
         assert!(store_root.join("apps/com.attson.codec/1.0.0").exists());
         assert_eq!(store.history().unwrap()[0].result, "rolled-back");
+    }
+
+    #[test]
+    fn http_alpha_upgrade_rolls_back_a_missing_service_and_can_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let (alpha_zero, signing_key) =
+            native_service_package_version(directory.path(), "0.1.0-alpha.0");
+        let (alpha_one, _) =
+            native_service_package_version(directory.path(), "0.1.0-alpha.1");
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let environment = HostEnvironment::current("2.0.0");
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        store.install(&alpha_zero, &environment, &keys).unwrap();
+        let data_file = store_root.join("data/com.attson.http/http.sqlite3");
+        fs::create_dir_all(data_file.parent().unwrap()).unwrap();
+        fs::write(&data_file, b"shared-http-data").unwrap();
+
+        let prepared = store
+            .prepare_upgrade(&alpha_one, &environment, &keys, "operation-http-upgrade")
+            .unwrap();
+        store
+            .mark_pending_upgrade(
+                &prepared,
+                "operation-http-upgrade",
+                "correlation-http-upgrade",
+            )
+            .unwrap();
+        store
+            .activate_prepared_upgrade(
+                prepared,
+                "operation-http-upgrade",
+                "correlation-http-upgrade",
+            )
+            .unwrap();
+        fs::remove_file(
+            store_root.join(
+                "apps/com.attson.http/0.1.0-alpha.1/native/athttp-service",
+            ),
+        )
+        .unwrap();
+
+        let rollback = store
+            .rollback_current_launch("com.attson.http", "0.1.0-alpha.1")
+            .unwrap()
+            .expect("missing first-launch service must restore alpha.0");
+        assert_eq!(rollback.installed.version, "0.1.0-alpha.0");
+        assert_eq!(fs::read(&data_file).unwrap(), b"shared-http-data");
+        assert_eq!(store.history().unwrap()[0].result, "rolled-back");
+
+        let retry = store
+            .prepare_upgrade(&alpha_one, &environment, &keys, "operation-http-retry")
+            .unwrap();
+        store
+            .mark_pending_upgrade(&retry, "operation-http-retry", "correlation-http-retry")
+            .unwrap();
+        store
+            .activate_prepared_upgrade(
+                retry,
+                "operation-http-retry",
+                "correlation-http-retry",
+            )
+            .unwrap();
+        assert!(store
+            .confirm_current_launch("com.attson.http", "0.1.0-alpha.1")
+            .unwrap());
+        assert_eq!(store.list().unwrap()[0].version, "0.1.0-alpha.1");
+        assert_eq!(fs::read(data_file).unwrap(), b"shared-http-data");
     }
 
     #[test]
