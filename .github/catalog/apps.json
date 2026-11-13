@@ -93,6 +93,28 @@
       "permissions": [
         "host.theme.read"
       ]
+    },
+    {
+      "appId": "com.attson.http",
+      "slug": "http",
+      "repository": "attsontools/athttp",
+      "artifactPrefix": "AT.HTTP",
+      "name": "HTTP 请求",
+      "description": "HTTP、SSE 与 WebSocket 调试",
+      "publisherId": "com.attson",
+      "publisherKeySecret": "ATHTTP_PUBLISHER_KEY_ID",
+      "icon": "http",
+      "hostApi": {
+        "min": "2.0.0",
+        "max": "2.x"
+      },
+      "permissions": [
+        "host.theme.read",
+        "host.file.save",
+        "host.http.request",
+        "host.http.stream",
+        "host.http.data"
+      ]
     }
   ]
 }

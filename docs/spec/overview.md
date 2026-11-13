@@ -14,7 +14,7 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 - 平台只接受签名有效、文件 hash 完整、target 匹配且 Host API 兼容的包。插件 UI 通过独立 `attool-plugin://<appId>` origin 和 sandboxed iframe 运行，公共桌面能力只能通过版本化 Host API 调用。
 - Codec、Text、Generator、Time 与 JSON 均为从平台完全外置的双制品应用：`atcodec`、`attext`、`atgenerator`、`attime`、`atjson` 仓库分别生成独立 Tauri 安装包和对应插件包。平台不再包含五者的内置实现，安装的插件是唯一入口。
 - 官方 Catalog 由 AT Tool 主仓维护并签名，平台可按当前 OS/架构远程安装和主动升级多个官方应用；新版本先进入 `pending`，健康检查与原子切换通过后成为 `current`，失败时保留或恢复上一可用版本。
-- 当前仅接入纯前端应用。原生 service、独立版与插件版共享数据、第三方发布者和开放式应用市场留在后续阶段。
+- HTTP 已完成原生 service 的本地旁路接入：`athttp` 独立版和本地测试插件复用同一 UI、请求核心与 `${app_data_dir}/http/http.sqlite3`，由单一 Native/Data Service 对新客户端提供请求、长连接和数据 API。正式 Publisher、Catalog 与生产 Release 留在后续阶段；第三方发布者和开放式应用市场仍不在当前范围。
 
 下面详列 3 个“重后端”内置工具作为代表，其余见汇总表。
 
@@ -37,6 +37,8 @@ attool 是一个个人使用的桌面工具集合，运行在 Tauri 2 上。前�
 ### HTTP 请求（`id: http`）
 
 Apifox-lite。三栏布局：左侧历史 + 中间多 tab 工作区 + 顶部环境切换。**v0.8.9 起 tab 分 3 种类型**（`HttpTab.kind`）：
+
+P1 迁移期同时保留平台内置入口和 `com.attson.http` 本地测试插件。独立版与插件版只通过 Native/Data Service 访问共享库；内置入口仍沿用宿主进程内的旧 `HttpStore`，因此内置入口与 service 并发写同一数据库不属于受支持的验证路径，待 P2 稳定验证后由 P3 删除内置数据所有权和重复入口。
 
 | Kind | 场景 | 编辑器 |
 |---|---|---|

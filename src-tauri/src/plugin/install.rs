@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::{
-    package::{extract_package, HostEnvironment, PackageError},
+    package::{extract_package, HostEnvironment, NativeService, PackageError},
     remote_install::{OperationSnapshot, OperationStage},
 };
 
@@ -34,6 +34,7 @@ pub struct InstalledPlugin {
     pub publisher_key_id: String,
     pub entry: String,
     pub permissions: Vec<String>,
+    pub native_service: Option<NativeService>,
     pub enabled: bool,
     pub installed_at: String,
     #[serde(skip_serializing)]
@@ -351,6 +352,7 @@ impl PluginStore {
                 format!("Cannot serialize plugin files: {error}"),
             )
         })?;
+        let native_service_json = serialize_native_service(&package.native_service)?;
         let write_result = self.connection().and_then(|mut connection| {
             let transaction = connection.transaction().map_err(|error| {
                 InstallError::new(
@@ -362,8 +364,8 @@ impl PluginStore {
                 .execute(
                     "INSERT INTO installed_plugins (
                         app_id, name, version, publisher_id, publisher_name, publisher_key_id,
-                        entry, permissions_json, files_json, enabled, installed_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10)",
+                        entry, permissions_json, files_json, native_service_json, enabled, installed_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)",
                     params![
                         package.app_id,
                         package.name,
@@ -374,6 +376,7 @@ impl PluginStore {
                         package.entry,
                         permissions_json,
                         files_json,
+                        native_service_json,
                         installed_at,
                     ],
                 )
@@ -596,6 +599,7 @@ impl PluginStore {
         let files_json = serde_json::to_string(&package.files).map_err(|error| {
             InstallError::new("PLUGIN_REGISTRY_WRITE_FAILED", error.to_string())
         })?;
+        let native_service_json = serialize_native_service(&package.native_service)?;
         let installed_at = Utc::now().to_rfc3339();
         let mut connection = self.connection()?;
         let transaction = connection.transaction().map_err(registry_write_error)?;
@@ -617,12 +621,12 @@ impl PluginStore {
                 "UPDATE installed_plugins SET
                     name = ?1, version = ?2, publisher_id = ?3, publisher_name = ?4,
                     publisher_key_id = ?5, entry = ?6, permissions_json = ?7,
-                    files_json = ?8, installed_at = ?9, previous_version = ?10,
+                    files_json = ?8, native_service_json = ?9, installed_at = ?10, previous_version = ?11,
                     pending_version = NULL, pending_operation_id = NULL,
                     pending_correlation_id = NULL, awaiting_launch = 1,
-                    launch_operation_id = ?11, launch_correlation_id = ?12
-                 WHERE app_id = ?13 AND version = ?10 AND pending_version = ?2
-                       AND pending_operation_id = ?11",
+                    launch_operation_id = ?12, launch_correlation_id = ?13
+                 WHERE app_id = ?14 AND version = ?11 AND pending_version = ?2
+                       AND pending_operation_id = ?12",
                 params![
                     package.name,
                     package.version,
@@ -632,6 +636,7 @@ impl PluginStore {
                     package.entry,
                     permissions_json,
                     files_json,
+                    native_service_json,
                     installed_at,
                     current_version,
                     operation_id,
@@ -788,6 +793,7 @@ impl PluginStore {
                 format!("Cannot restore previous plugin files: {error}"),
             )
         })?;
+        let native_service_json = serialize_native_service(&previous.native_service)?;
 
         let rollback_root = self
             .root
@@ -832,10 +838,10 @@ impl PluginStore {
                     "UPDATE installed_plugins SET
                     name = ?1, version = ?2, publisher_id = ?3, publisher_name = ?4,
                     publisher_key_id = ?5, entry = ?6, permissions_json = ?7,
-                    files_json = ?8, installed_at = ?9, previous_version = NULL,
+                    files_json = ?8, native_service_json = ?9, installed_at = ?10, previous_version = NULL,
                     awaiting_launch = 0, launch_operation_id = NULL,
                     launch_correlation_id = NULL
-                 WHERE app_id = ?10 AND version = ?11 AND awaiting_launch = 1",
+                 WHERE app_id = ?11 AND version = ?12 AND awaiting_launch = 1",
                     params![
                         previous.name,
                         previous.version,
@@ -845,6 +851,7 @@ impl PluginStore {
                         previous.entry,
                         permissions_json,
                         files_json,
+                        native_service_json,
                         previous.installed_at,
                         app_id,
                         failed_version,
@@ -944,7 +951,7 @@ impl PluginStore {
         let mut statement = connection
             .prepare(
                 "SELECT app_id, name, version, publisher_id, publisher_name, publisher_key_id,
-                        entry, permissions_json, files_json, enabled, installed_at
+                        entry, permissions_json, files_json, native_service_json, enabled, installed_at
                  FROM installed_plugins ORDER BY name, app_id",
             )
             .map_err(registry_read_error)?;
@@ -960,8 +967,9 @@ impl PluginStore {
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, bool>(9)?,
-                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, bool>(10)?,
+                    row.get::<_, String>(11)?,
                 ))
             })
             .map_err(registry_read_error)?;
@@ -977,6 +985,7 @@ impl PluginStore {
                 entry,
                 permissions_json,
                 files_json,
+                native_service_json,
                 enabled,
                 installed_at,
             ) = row.map_err(registry_read_error)?;
@@ -992,6 +1001,7 @@ impl PluginStore {
                     format!("Plugin file declarations are corrupted: {error}"),
                 )
             })?;
+            let native_service = deserialize_native_service(native_service_json.as_deref())?;
             let plugin_root = self.root.join("apps").join(&app_id).join(&version);
             plugins.push(InstalledPlugin {
                 app_id,
@@ -1002,6 +1012,7 @@ impl PluginStore {
                 publisher_key_id,
                 entry,
                 permissions,
+                native_service,
                 enabled,
                 installed_at,
                 files,
@@ -1453,6 +1464,7 @@ impl PluginStore {
                     entry TEXT NOT NULL,
                     permissions_json TEXT NOT NULL,
                     files_json TEXT NOT NULL DEFAULT '{}',
+                    native_service_json TEXT,
                     enabled INTEGER NOT NULL,
                     installed_at TEXT NOT NULL
                 );
@@ -1479,6 +1491,7 @@ impl PluginStore {
                     entry TEXT NOT NULL,
                     permissions_json TEXT NOT NULL,
                     files_json TEXT NOT NULL,
+                    native_service_json TEXT,
                     installed_at TEXT NOT NULL,
                     PRIMARY KEY (app_id, version)
                 );
@@ -1571,6 +1584,7 @@ impl PluginStore {
             ("launch_operation_id", "TEXT"),
             ("launch_correlation_id", "TEXT"),
             ("awaiting_launch", "INTEGER NOT NULL DEFAULT 0"),
+            ("native_service_json", "TEXT"),
         ] {
             let exists: bool = connection
                 .query_row(
@@ -1595,14 +1609,37 @@ impl PluginStore {
                     })?;
             }
         }
+        let has_version_native_service: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('plugin_versions')
+                    WHERE name = 'native_service_json'
+                )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(registry_read_error)?;
+        if !has_version_native_service {
+            connection
+                .execute(
+                    "ALTER TABLE plugin_versions ADD COLUMN native_service_json TEXT",
+                    [],
+                )
+                .map_err(|error| {
+                    InstallError::new(
+                        "PLUGIN_STORE_OPEN_FAILED",
+                        format!("Cannot migrate plugin native service metadata: {error}"),
+                    )
+                })?;
+        }
         connection
             .execute(
                 "INSERT OR IGNORE INTO plugin_versions (
                     app_id, version, name, publisher_id, publisher_name, publisher_key_id,
-                    entry, permissions_json, files_json, installed_at
+                    entry, permissions_json, files_json, native_service_json, installed_at
                  )
                  SELECT app_id, version, name, publisher_id, publisher_name, publisher_key_id,
-                        entry, permissions_json, files_json, installed_at
+                        entry, permissions_json, files_json, native_service_json, installed_at
                  FROM installed_plugins",
                 [],
             )
@@ -1995,12 +2032,13 @@ fn insert_plugin_version(
         .map_err(|error| InstallError::new("PLUGIN_REGISTRY_WRITE_FAILED", error.to_string()))?;
     let files_json = serde_json::to_string(&package.files)
         .map_err(|error| InstallError::new("PLUGIN_REGISTRY_WRITE_FAILED", error.to_string()))?;
+    let native_service_json = serialize_native_service(&package.native_service)?;
     transaction
         .execute(
             "INSERT INTO plugin_versions (
                 app_id, version, name, publisher_id, publisher_name, publisher_key_id,
-                entry, permissions_json, files_json, installed_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                entry, permissions_json, files_json, native_service_json, installed_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 package.app_id,
                 package.version,
@@ -2011,11 +2049,39 @@ fn insert_plugin_version(
                 package.entry,
                 permissions_json,
                 files_json,
+                native_service_json,
                 installed_at,
             ],
         )
         .map_err(registry_write_error)?;
     Ok(())
+}
+
+fn serialize_native_service(
+    service: &Option<NativeService>,
+) -> Result<Option<String>, InstallError> {
+    service
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_WRITE_FAILED",
+                format!("Cannot serialize native service metadata: {error}"),
+            )
+        })
+}
+
+fn deserialize_native_service(value: Option<&str>) -> Result<Option<NativeService>, InstallError> {
+    value
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| {
+            InstallError::new(
+                "PLUGIN_REGISTRY_READ_FAILED",
+                format!("Plugin native service metadata is corrupted: {error}"),
+            )
+        })
 }
 
 fn plugin_version(
@@ -2028,7 +2094,7 @@ fn plugin_version(
     let row = transaction
         .query_row(
             "SELECT name, publisher_id, publisher_name, publisher_key_id, entry,
-                    permissions_json, files_json, installed_at
+                    permissions_json, files_json, native_service_json, installed_at
              FROM plugin_versions WHERE app_id = ?1 AND version = ?2",
             params![app_id, version],
             |row| {
@@ -2040,7 +2106,8 @@ fn plugin_version(
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
                 ))
             },
         )
@@ -2057,6 +2124,7 @@ fn plugin_version(
             format!("Plugin files are corrupted: {error}"),
         )
     })?;
+    let native_service = deserialize_native_service(row.7.as_deref())?;
     Ok(InstalledPlugin {
         app_id: app_id.to_string(),
         name: row.0,
@@ -2066,8 +2134,9 @@ fn plugin_version(
         publisher_key_id: row.3,
         entry: row.4,
         permissions,
+        native_service,
         enabled,
-        installed_at: row.7,
+        installed_at: row.8,
         files,
         root: root.join("apps").join(app_id).join(version),
     })
@@ -2195,6 +2264,59 @@ mod tests {
         valid_package_version(directory, "0.1.0-alpha.0")
     }
 
+    fn native_service_package_version(
+        directory: &std::path::Path,
+        version: &str,
+    ) -> (std::path::PathBuf, SigningKey) {
+        let path = directory.join(format!("http-{version}.atpkg"));
+        let signing_key = SigningKey::from_bytes(&TEST_KEY_SEED);
+        let index = b"<!doctype html><title>HTTP</title>";
+        let service = b"native-service";
+        let service_hash = sha256(service);
+        let manifest = serde_json::json!({
+            "appId": "com.attson.http",
+            "files": {
+                "native/athttp-service": service_hash,
+                "ui/index.html": sha256(index)
+            },
+            "hostApi": { "max": "2.x", "min": "2.0.0" },
+            "name": "HTTP request",
+            "nativeService": {
+                "entry": "native/athttp-service",
+                "protocolVersion": 1,
+                "sha256": service_hash,
+                "version": version
+            },
+            "permissions": ["host.http.request", "host.http.stream", "host.http.data"],
+            "publisher": { "id": "com.attson", "keyId": "attool-p0-test", "name": "Attson" },
+            "schemaVersion": 1,
+            "target": { "arch": std::env::consts::ARCH, "os": std::env::consts::OS },
+            "ui": { "entry": "ui/index.html" },
+            "version": version
+        });
+        let manifest = serde_json::to_string(&manifest).unwrap();
+        let signature = base64::engine::general_purpose::STANDARD
+            .encode(signing_key.sign(manifest.as_bytes()).to_bytes());
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        for (name, bytes) in [
+            ("manifest.json", manifest.as_bytes()),
+            ("manifest.sig", signature.as_bytes()),
+            ("ui/index.html", index.as_slice()),
+            ("native/athttp-service", service.as_slice()),
+        ] {
+            archive
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap();
+        (path, signing_key)
+    }
+
+    fn native_service_package(directory: &std::path::Path) -> (std::path::PathBuf, SigningKey) {
+        native_service_package_version(directory, "0.1.0-alpha.0")
+    }
+
     #[test]
     fn installs_and_persists_a_verified_plugin() {
         let directory = tempfile::tempdir().unwrap();
@@ -2218,6 +2340,30 @@ mod tests {
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].app_id, "com.attson.codec");
         assert!(apps[0].enabled);
+    }
+
+    #[test]
+    fn installs_and_persists_native_service_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let (package_path, signing_key) = native_service_package(directory.path());
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+
+        let installed = store
+            .install(&package_path, &HostEnvironment::current("2.0.0"), &keys)
+            .unwrap();
+        assert_eq!(
+            installed.native_service.as_ref().unwrap().entry,
+            "native/athttp-service"
+        );
+        drop(store);
+
+        let reopened = PluginStore::open(store_root).unwrap();
+        let installed = reopened.list().unwrap().pop().unwrap();
+        let service = installed.native_service.unwrap();
+        assert_eq!(service.version, installed.version);
+        assert_eq!(service.sha256, installed.files[&service.entry]);
     }
 
     #[test]
@@ -2685,6 +2831,74 @@ mod tests {
         assert!(!store_root.join("apps/com.attson.codec/1.1.0").exists());
         assert!(store_root.join("apps/com.attson.codec/1.0.0").exists());
         assert_eq!(store.history().unwrap()[0].result, "rolled-back");
+    }
+
+    #[test]
+    fn http_alpha_upgrade_rolls_back_a_missing_service_and_can_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let (alpha_zero, signing_key) =
+            native_service_package_version(directory.path(), "0.1.0-alpha.0");
+        let (alpha_one, _) =
+            native_service_package_version(directory.path(), "0.1.0-alpha.1");
+        let keys = HashMap::from([("attool-p0-test".to_string(), signing_key.verifying_key())]);
+        let environment = HostEnvironment::current("2.0.0");
+        let store_root = directory.path().join("plugins");
+        let store = PluginStore::open(store_root.clone()).unwrap();
+        store.install(&alpha_zero, &environment, &keys).unwrap();
+        let data_file = store_root.join("data/com.attson.http/http.sqlite3");
+        fs::create_dir_all(data_file.parent().unwrap()).unwrap();
+        fs::write(&data_file, b"shared-http-data").unwrap();
+
+        let prepared = store
+            .prepare_upgrade(&alpha_one, &environment, &keys, "operation-http-upgrade")
+            .unwrap();
+        store
+            .mark_pending_upgrade(
+                &prepared,
+                "operation-http-upgrade",
+                "correlation-http-upgrade",
+            )
+            .unwrap();
+        store
+            .activate_prepared_upgrade(
+                prepared,
+                "operation-http-upgrade",
+                "correlation-http-upgrade",
+            )
+            .unwrap();
+        fs::remove_file(
+            store_root.join(
+                "apps/com.attson.http/0.1.0-alpha.1/native/athttp-service",
+            ),
+        )
+        .unwrap();
+
+        let rollback = store
+            .rollback_current_launch("com.attson.http", "0.1.0-alpha.1")
+            .unwrap()
+            .expect("missing first-launch service must restore alpha.0");
+        assert_eq!(rollback.installed.version, "0.1.0-alpha.0");
+        assert_eq!(fs::read(&data_file).unwrap(), b"shared-http-data");
+        assert_eq!(store.history().unwrap()[0].result, "rolled-back");
+
+        let retry = store
+            .prepare_upgrade(&alpha_one, &environment, &keys, "operation-http-retry")
+            .unwrap();
+        store
+            .mark_pending_upgrade(&retry, "operation-http-retry", "correlation-http-retry")
+            .unwrap();
+        store
+            .activate_prepared_upgrade(
+                retry,
+                "operation-http-retry",
+                "correlation-http-retry",
+            )
+            .unwrap();
+        assert!(store
+            .confirm_current_launch("com.attson.http", "0.1.0-alpha.1")
+            .unwrap());
+        assert_eq!(store.list().unwrap()[0].version, "0.1.0-alpha.1");
+        assert_eq!(fs::read(data_file).unwrap(), b"shared-http-data");
     }
 
     #[test]

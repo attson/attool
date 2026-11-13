@@ -493,6 +493,7 @@ mod tests {
             host_api_max: "1.x".to_string(),
             entry: "ui/index.html".to_string(),
             permissions: vec!["host.theme.read".to_string()],
+            native_service: None,
             files: BTreeMap::from([("ui/index.html".to_string(), "a".repeat(64))]),
         }
     }
@@ -598,17 +599,38 @@ mod tests {
     async fn rejects_an_interrupted_response_and_removes_the_partial_file() {
         let body = b"partial".to_vec();
         let url = serve_once(body.clone(), body.len() + 20).await;
-        let mut artifact = artifact(url, &body);
-        artifact.size += 20;
+        let mut interrupted_artifact = artifact(url, &body);
+        interrupted_artifact.size += 20;
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("codec.atpkg");
 
-        let error = download_artifact(&reqwest::Client::new(), &artifact, &destination, |_| {})
-            .await
-            .expect_err("interrupted download must fail");
+        let error = download_artifact(
+            &reqwest::Client::new(),
+            &interrupted_artifact,
+            &destination,
+            |_| {},
+        )
+        .await
+        .expect_err("interrupted download must fail");
 
         assert_eq!(error.code, "PLUGIN_DOWNLOAD_INTERRUPTED");
         assert!(!Path::new(&destination).exists());
+
+        let complete = b"complete retry".to_vec();
+        let retry_url = serve_once(complete.clone(), complete.len()).await;
+        let retry_artifact = artifact(retry_url, &complete);
+        let mut progress = Vec::new();
+        download_artifact(
+            &reqwest::Client::new(),
+            &retry_artifact,
+            &destination,
+            |downloaded| progress.push(downloaded),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), complete);
+        assert_eq!(progress.last(), Some(&retry_artifact.size));
     }
 
     #[tokio::test]

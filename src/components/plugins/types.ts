@@ -1,3 +1,10 @@
+export interface NativeService {
+  entry: string;
+  version: string;
+  sha256: string;
+  protocolVersion: number;
+}
+
 export interface InspectedPluginPackage {
   appId: string;
   name: string;
@@ -11,6 +18,7 @@ export interface InspectedPluginPackage {
   hostApiMax: string;
   entry: string;
   permissions: string[];
+  nativeService?: NativeService | null;
   files: Record<string, string>;
 }
 
@@ -23,6 +31,7 @@ export interface InstalledPlugin {
   publisherKeyId: string;
   entry: string;
   permissions: string[];
+  nativeService?: NativeService | null;
   enabled: boolean;
   installedAt: string;
 }
