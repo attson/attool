@@ -324,6 +324,7 @@ impl PluginRuntime {
         if let Err(error) = self.update_operation(app, &operation_id, |state| {
             state.advance_to(OperationStage::Staging)?;
             state.entry = Some(prepared.package.entry.clone());
+            state.native_service = prepared.package.native_service.clone();
             Ok(())
         }) {
             if let Ok(store) = self.store.lock() {
@@ -1043,6 +1044,7 @@ mod tests {
             publisher_key_id: "codec-key".to_string(),
             entry: None,
             permissions: vec!["host.theme.read".to_string()],
+            native_service: None,
             stage,
             steps: vec![stage.as_str().to_string()],
             downloaded_bytes: 0,

@@ -53,7 +53,7 @@ pub struct InspectedPackage {
     pub files: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NativeService {
     pub entry: String,

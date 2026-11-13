@@ -8,7 +8,7 @@ use tokio::{fs::File, io::AsyncWriteExt};
 use super::{
     catalog::{CatalogArtifact, CatalogInstallPlan, CatalogTargetArch, CatalogTargetOs},
     github_proxy::send_with_fallback,
-    package::InspectedPackage,
+    package::{InspectedPackage, NativeService},
 };
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -68,6 +68,7 @@ pub struct OperationSnapshot {
     pub publisher_key_id: String,
     pub entry: Option<String>,
     pub permissions: Vec<String>,
+    pub native_service: Option<NativeService>,
     pub stage: OperationStage,
     pub steps: Vec<String>,
     pub downloaded_bytes: u64,
@@ -96,6 +97,7 @@ impl OperationSnapshot {
             publisher_key_id: plan.publisher_key_id.clone(),
             entry: None,
             permissions: plan.permissions.clone(),
+            native_service: None,
             stage: OperationStage::Download,
             steps: vec![OperationStage::Download.as_str().to_string()],
             downloaded_bytes: 0,

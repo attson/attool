@@ -84,6 +84,7 @@ struct StoredOperation {
     publisher_key_id: String,
     entry: Option<String>,
     permissions_json: String,
+    native_service_json: Option<String>,
     stage: String,
     steps_json: String,
     downloaded_bytes: i64,
@@ -1354,6 +1355,7 @@ impl PluginStore {
                 format!("Cannot serialize plugin operation steps: {error}"),
             )
         })?;
+        let native_service_json = serialize_native_service(&operation.native_service)?;
         let downloaded_bytes = i64::try_from(operation.downloaded_bytes).map_err(|_| {
             InstallError::new(
                 "PLUGIN_REGISTRY_WRITE_FAILED",
@@ -1372,13 +1374,14 @@ impl PluginStore {
                 "INSERT INTO plugin_operations (
                     operation_id, correlation_id, action, app_id, name, version,
                     publisher_id, publisher_name, publisher_key_id, entry,
-                    permissions_json, stage, steps_json, downloaded_bytes, total_bytes,
-                    error_code, message, final_available_version, created_at, updated_at
+                    permissions_json, native_service_json, stage, steps_json, downloaded_bytes,
+                    total_bytes, error_code, message, final_available_version, created_at, updated_at
                  ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                    ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19
+                    ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?20
                  ) ON CONFLICT(operation_id) DO UPDATE SET
                     entry = excluded.entry,
+                    native_service_json = excluded.native_service_json,
                     stage = excluded.stage,
                     steps_json = excluded.steps_json,
                     downloaded_bytes = excluded.downloaded_bytes,
@@ -1399,6 +1402,7 @@ impl PluginStore {
                     operation.publisher_key_id,
                     operation.entry,
                     permissions_json,
+                    native_service_json,
                     operation.stage.as_str(),
                     steps_json,
                     downloaded_bytes,
@@ -1508,6 +1512,7 @@ impl PluginStore {
                     publisher_key_id TEXT NOT NULL,
                     entry TEXT,
                     permissions_json TEXT NOT NULL,
+                    native_service_json TEXT,
                     stage TEXT NOT NULL,
                     steps_json TEXT NOT NULL,
                     downloaded_bytes INTEGER NOT NULL,
@@ -1629,6 +1634,29 @@ impl PluginStore {
                     InstallError::new(
                         "PLUGIN_STORE_OPEN_FAILED",
                         format!("Cannot migrate plugin native service metadata: {error}"),
+                    )
+                })?;
+        }
+        let has_operation_native_service: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('plugin_operations')
+                    WHERE name = 'native_service_json'
+                )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(registry_read_error)?;
+        if !has_operation_native_service {
+            connection
+                .execute(
+                    "ALTER TABLE plugin_operations ADD COLUMN native_service_json TEXT",
+                    [],
+                )
+                .map_err(|error| {
+                    InstallError::new(
+                        "PLUGIN_STORE_OPEN_FAILED",
+                        format!("Cannot migrate plugin operation metadata: {error}"),
                     )
                 })?;
         }
@@ -1796,7 +1824,7 @@ impl PluginStore {
 fn operation_select_sql() -> &'static str {
     "SELECT action, operation_id, correlation_id, app_id, name, version,
             publisher_id, publisher_name, publisher_key_id, entry,
-            permissions_json, stage, steps_json, downloaded_bytes, total_bytes,
+            permissions_json, native_service_json, stage, steps_json, downloaded_bytes, total_bytes,
             error_code, message, final_available_version
      FROM plugin_operations"
 }
@@ -1814,13 +1842,14 @@ fn stored_operation_from_row(row: &Row<'_>) -> rusqlite::Result<StoredOperation>
         publisher_key_id: row.get(8)?,
         entry: row.get(9)?,
         permissions_json: row.get(10)?,
-        stage: row.get(11)?,
-        steps_json: row.get(12)?,
-        downloaded_bytes: row.get(13)?,
-        total_bytes: row.get(14)?,
-        error_code: row.get(15)?,
-        message: row.get(16)?,
-        final_available_version: row.get(17)?,
+        native_service_json: row.get(11)?,
+        stage: row.get(12)?,
+        steps_json: row.get(13)?,
+        downloaded_bytes: row.get(14)?,
+        total_bytes: row.get(15)?,
+        error_code: row.get(16)?,
+        message: row.get(17)?,
+        final_available_version: row.get(18)?,
     })
 }
 
@@ -1837,6 +1866,7 @@ fn decode_operation(stored: StoredOperation) -> Result<OperationSnapshot, Instal
             format!("Plugin operation permissions are corrupted: {error}"),
         )
     })?;
+    let native_service = deserialize_native_service(stored.native_service_json.as_deref())?;
     let steps = serde_json::from_str(&stored.steps_json).map_err(|error| {
         InstallError::new(
             "PLUGIN_REGISTRY_READ_FAILED",
@@ -1867,6 +1897,7 @@ fn decode_operation(stored: StoredOperation) -> Result<OperationSnapshot, Instal
         publisher_key_id: stored.publisher_key_id,
         entry: stored.entry,
         permissions,
+        native_service,
         stage,
         steps,
         downloaded_bytes,
@@ -2671,6 +2702,12 @@ mod tests {
             publisher_key_id: "codec-key".to_string(),
             entry: Some("ui/index.html".to_string()),
             permissions: vec!["host.theme.read".to_string()],
+            native_service: Some(crate::plugin::package::NativeService {
+                entry: "native/athttp-service".to_string(),
+                version: "1.1.0".to_string(),
+                sha256: "a".repeat(64),
+                protocol_version: 1,
+            }),
             stage: crate::plugin::remote_install::OperationStage::HealthCheck,
             steps: vec![
                 "download".to_string(),
@@ -2696,6 +2733,59 @@ mod tests {
 
         let reopened = PluginStore::open(store_root).unwrap();
         assert_eq!(reopened.latest_operation().unwrap(), Some(operation));
+    }
+
+    #[test]
+    fn migrates_native_service_metadata_for_legacy_operations() {
+        let directory = tempfile::tempdir().unwrap();
+        let store_root = directory.path().join("plugins");
+        std::fs::create_dir_all(&store_root).unwrap();
+        let database = store_root.join("registry.sqlite3");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE plugin_operations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id TEXT NOT NULL UNIQUE,
+                    correlation_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    app_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    publisher_id TEXT NOT NULL,
+                    publisher_name TEXT NOT NULL,
+                    publisher_key_id TEXT NOT NULL,
+                    entry TEXT,
+                    permissions_json TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    steps_json TEXT NOT NULL,
+                    downloaded_bytes INTEGER NOT NULL,
+                    total_bytes INTEGER NOT NULL,
+                    error_code TEXT,
+                    message TEXT,
+                    final_available_version TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = PluginStore::open(store_root).unwrap();
+        let has_column: bool = store
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('plugin_operations')
+                    WHERE name = 'native_service_json'
+                )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(has_column);
     }
 
     #[test]

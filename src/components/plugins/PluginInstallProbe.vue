@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, ref } from 'vue';
 
 import { createPluginHostSession, type PluginHostSession } from './pluginHost';
-import type { InstalledPlugin, PluginOperationSnapshot } from './types';
+import { createPluginProbeConfig } from './pluginProbe';
+import type { PluginOperationSnapshot } from './types';
 
 const props = defineProps<{
   operation: PluginOperationSnapshot;
@@ -26,18 +27,7 @@ const source = computed(() => {
   return `attool-plugin-probe://${props.operation.operationId}/${entry}`;
 });
 
-const app = computed<InstalledPlugin>(() => ({
-  appId: props.operation.appId,
-  name: props.operation.name,
-  version: props.operation.version,
-  publisherId: props.operation.publisherId,
-  publisherName: props.operation.publisherName,
-  publisherKeyId: props.operation.publisherKeyId,
-  entry: props.operation.entry ?? '',
-  permissions: props.operation.permissions,
-  enabled: false,
-  installedAt: ''
-}));
+const config = computed(() => createPluginProbeConfig(props.operation));
 
 function clear() {
   session?.terminate();
@@ -62,7 +52,7 @@ function handleLoad() {
   }
   const channel = new MessageChannel();
   session = createPluginHostSession({
-    app: app.value,
+    app: config.value.app,
     port: channel.port1,
     correlationId: props.operation.correlationId,
     theme: () => 'dark',
@@ -78,7 +68,7 @@ function handleLoad() {
   contentWindow.postMessage(
     {
       type: 'attool:connect',
-      apiVersion: '1.0',
+      apiVersion: config.value.apiVersion,
       appId: props.operation.appId
     },
     '*',

@@ -125,6 +125,7 @@ export interface PluginOperationSnapshot {
   publisherKeyId: string;
   entry: string | null;
   permissions: string[];
+  nativeService: NativeService | null;
   stage: PluginOperationStage;
   steps: PluginOperationStage[];
   downloadedBytes: number;
